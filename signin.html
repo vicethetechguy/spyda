@@ -1,0 +1,54 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Sign in - Spyda</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link
+      href="https://fonts.googleapis.com/css2?family=Montserrat:wght@400;500;600;700;800&family=Space+Grotesk:wght@600;700&display=swap"
+      rel="stylesheet"
+    />
+    <link rel="stylesheet" href="landing.css" />
+  </head>
+  <body data-page="signin">
+    <header class="site-header promo-header">
+      <a class="brand-link" href="index.html" aria-label="Spyda home">
+        <img src="assets/spyda-logo-drive.webp" alt="" />
+        <span>Spyda</span>
+      </a>
+      <nav class="nav-links" aria-label="Main navigation">
+        <a href="index.html#inside" data-nav-link="inside">Inside</a>
+        <a href="index.html#examples" data-nav-link="examples">Samples</a>
+        <a href="index.html#faq" data-nav-link="faq">FAQ</a>
+        <a href="pricing.html" data-nav-link="pricing">Pricing</a>
+        <a href="signin.html" data-nav-link="signin" aria-current="page">Sign in</a>
+      </nav>
+      <a class="header-cta" href="signup.html" data-nav-link="signup">Sign up</a>
+    </header>
+
+    <main class="auth-shell">
+      <section class="auth-copy">
+        <p class="eyebrow">Welcome back</p>
+        <h1>Return to your <em>Spyda design workspace</em>.</h1>
+        <p class="hero-copy">Continue breaking down references, editing design atoms, and generating premium flyer variations.</p>
+      </section>
+
+      <form class="auth-card" action="workspace.html">
+        <span class="plan-label">Sign in</span>
+        <label>
+          <span>Email address</span>
+          <input type="email" placeholder="designer@studio.com" required />
+        </label>
+        <label>
+          <span>Password</span>
+          <input type="password" placeholder="Enter password" required />
+        </label>
+        <button class="primary-action" type="submit">Open workspace</button>
+        <p>New to Spyda? <a href="signup.html">Create an account</a></p>
+      </form>
+    </main>
+    <script src="landing.js"></script>
+  </body>
+</html>
