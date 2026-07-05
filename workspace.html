@@ -27,7 +27,10 @@
         <button class="rail-button" type="button" aria-label="Generate" data-view="generate">
           <span class="icon bolt-icon"></span>
         </button>
-        <button class="rail-button rail-bottom account-rail-button" type="button" aria-label="Account settings" data-view="settings">
+        <button class="rail-button rail-bottom wallet-rail-button" type="button" aria-label="Wallet & Plans" data-view="wallet" style="margin-bottom: 8px;">
+          <span class="icon wallet-icon" style="font-size: 18px;">💳</span>
+        </button>
+        <button class="rail-button account-rail-button" type="button" aria-label="Account settings" data-view="settings">
           <span class="account-avatar-mini" id="sidebarAvatarMini">S</span>
         </button>
       </aside>
@@ -289,6 +292,19 @@
                 <label>
                   <span>Contact / social</span>
                   <input placeholder="Phone, website, or handle" />
+                </label>
+                <label class="decor-style-label">
+                  <span>Decor style</span>
+                  <div class="spyda-dropdown settings-dropdown" data-dropdown>
+                    <button class="style-select-button" type="button" id="decorDropdownButton" data-dropdown-trigger aria-haspopup="listbox" aria-expanded="false">
+                      Same
+                    </button>
+                    <div class="style-options-card" role="listbox" aria-label="Decor style options">
+                      <button type="button" role="option" aria-selected="true" data-value="Same">Same</button>
+                      <button type="button" role="option" aria-selected="false" data-value="Customize">Customize</button>
+                    </div>
+                  </div>
+                  <input id="customDecorInput" class="hidden-input" placeholder="Enter custom decor style..." style="display: none; margin-top: 8px;" data-brand-style />
                 </label>
               </div>
             </section>
@@ -553,6 +569,71 @@
                 <label class="settings-toggle-row">
                   <span>Auto-send best result to canvas</span>
                   <input id="autoSendToggle" type="checkbox" checked />
+                </label>
+              </div>
+            </section>
+          </div>
+        </section>
+
+        <section class="page-view app-view" data-view-panel="wallet" aria-label="Wallet and billing page">
+          <div class="page-hero settings-hero">
+            <div>
+              <span class="page-kicker">Billing</span>
+              <h2>Wallet & Plans</h2>
+              <p>Top up your credits, manage your subscription, and connect API keys.</p>
+            </div>
+          </div>
+
+          <div class="settings-page-grid">
+            <section class="panel-section wallet-panel" style="grid-column: 1 / -1; max-width: 600px;">
+              <div class="wallet-card-premium">
+                <div class="wallet-card-bg"></div>
+                <div class="wallet-card-content">
+                  <span class="wallet-label">Available Balance</span>
+                  <div class="wallet-balance"><span id="walletBalanceDisplayBig">1000</span> <span class="wallet-currency">Credits</span></div>
+                  <div class="wallet-card-actions">
+                    <button class="primary-button compact-action" type="button" id="topUp5Button">+$5 (500)</button>
+                    <button class="primary-button compact-action" type="button" id="topUp10Button">+$10 (1k)</button>
+                    <button class="primary-button compact-action" type="button" id="topUp20Button">+$20 (2k)</button>
+                  </div>
+                </div>
+              </div>
+
+              <div class="section-heading" style="margin-top: 48px;">
+                <span>Subscriptions</span>
+                <strong>Save on bulk generation</strong>
+              </div>
+              <div class="subscription-grid">
+                <div class="subscription-card">
+                  <h4>Starter</h4>
+                  <div class="price">$10<span>/mo</span></div>
+                  <p>1,000 Credits</p>
+                  <button class="node-button" type="button">Subscribe</button>
+                </div>
+                <div class="subscription-card popular">
+                  <div class="popular-badge">Popular</div>
+                  <h4>Pro</h4>
+                  <div class="price">$25<span>/mo</span></div>
+                  <p>2,800 Credits</p>
+                  <button class="primary-button compact-action" style="width: 100%; justify-content: center;" type="button">Subscribe</button>
+                </div>
+                <div class="subscription-card">
+                  <h4>Agency</h4>
+                  <div class="price">$50<span>/mo</span></div>
+                  <p>6,000 Credits</p>
+                  <button class="node-button" type="button">Subscribe</button>
+                </div>
+              </div>
+
+              <div class="section-heading" style="margin-top: 48px;">
+                <span>Power User</span>
+                <strong>Bring Your Own Key</strong>
+              </div>
+              <div class="settings-form">
+                <label>
+                  <span>OpenAI API Key (BYOK)</span>
+                  <input id="userApiKeyInput" type="password" placeholder="sk-..." />
+                  <span style="font-size: 13px; color: #94A3B8; margin-top: 8px;">Enter your own key to pay OpenAI directly. Spyda will completely bypass generation markup and only charge a nominal <strong>3-credit platform fee</strong> per generation.</span>
                 </label>
               </div>
             </section>

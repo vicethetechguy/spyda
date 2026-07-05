@@ -68,6 +68,28 @@ const draggableCanvasItems = Array.from(document.querySelectorAll(".flyer-core")
 const canvasToolbar = document.querySelector(".canvas-toolbar");
 const webLines = document.querySelector(".web-lines");
 
+// Wallet State & UI
+let walletBalance = 1000;
+let userApiKey = "";
+
+const walletBalanceDisplayBig = document.querySelector("#walletBalanceDisplayBig");
+const topUp5Button = document.querySelector("#topUp5Button");
+const topUp10Button = document.querySelector("#topUp10Button");
+const topUp20Button = document.querySelector("#topUp20Button");
+const userApiKeyInput = document.querySelector("#userApiKeyInput");
+
+function updateWalletDisplay() {
+  if (walletBalanceDisplayBig) {
+    walletBalanceDisplayBig.textContent = walletBalance;
+  }
+}
+
+if (topUp5Button) topUp5Button.addEventListener("click", () => { walletBalance += 500; updateWalletDisplay(); alert("Successfully added 500 Credits to your wallet!"); });
+if (topUp10Button) topUp10Button.addEventListener("click", () => { walletBalance += 1000; updateWalletDisplay(); alert("Successfully added 1,000 Credits to your wallet!"); });
+if (topUp20Button) topUp20Button.addEventListener("click", () => { walletBalance += 2000; updateWalletDisplay(); alert("Successfully added 2,000 Credits to your wallet!"); });
+if (userApiKeyInput) userApiKeyInput.addEventListener("input", (e) => { userApiKey = e.target.value.trim(); });
+
+
 const detectedNodes = [
   { type: "text", name: "Hero Section" },
   { type: "image", name: "Primary Image" },
@@ -405,39 +427,60 @@ function createAtomInput(section, index) {
     ? section.replacementNeeded[0]
     : `Replacement for ${section.name || `atom ${index + 1}`}`;
 
-  if (type === "image" || searchable.includes("image") || searchable.includes("photo") || searchable.includes("subject") || searchable.includes("product")) {
-    const wrapper = document.createElement("div");
-    wrapper.className = "atom-action-group";
+  let innerFieldHTML = "";
+  const isImage = type === "image" || searchable.includes("image") || searchable.includes("photo") || searchable.includes("subject") || searchable.includes("product");
 
-    const button = document.createElement("button");
-    button.className = "node-button";
-    button.type = "button";
-    button.textContent = uploadedSubjectFile ? "Replace subject" : "Upload replacement";
-    button.dataset.subjectUpload = "true";
-
-    const feedback = document.createElement("span");
-    feedback.className = "upload-feedback";
-    feedback.textContent = uploadedSubjectFile?.name || "No subject selected";
-
-    wrapper.append(button, feedback);
-    return wrapper;
+  if (isImage) {
+    innerFieldHTML = `
+      <div class="atom-custom-field" style="display: none; margin-top: 8px;" data-atom-index="${index}" data-is-customize="false">
+        <div class="atom-action-group">
+          <button class="node-button" type="button" data-subject-upload="true">
+            ${uploadedSubjectFile ? "Replace subject" : "Upload replacement"}
+          </button>
+          <span class="upload-feedback">${uploadedSubjectFile?.name || "No subject selected"}</span>
+        </div>
+      </div>
+    `;
+  } else {
+    innerFieldHTML = `
+      <div class="atom-custom-field" style="display: none; margin-top: 8px;" data-atom-index="${index}" data-is-customize="false">
+        <textarea class="atom-field atom-text-box" placeholder="${replacement}"></textarea>
+      </div>
+    `;
   }
 
-  if (type === "text" || type === "action" || type === "brand" || searchable.includes("text") || searchable.includes("headline") || searchable.includes("copy") || searchable.includes("cta") || searchable.includes("contact")) {
-    const field = document.createElement("textarea");
-    field.className = "atom-field atom-text-box";
-    field.value = section.current?.text || "";
-    field.placeholder = replacement;
-    field.dataset.atomInput = String(index);
-    return field;
+  const wrapper = document.createElement("div");
+  wrapper.className = "atom-action-group atom-dropdown-wrapper";
+  wrapper.innerHTML = `
+    <div class="spyda-dropdown settings-dropdown" data-dropdown>
+      <button class="style-select-button" type="button" data-dropdown-trigger aria-haspopup="listbox" aria-expanded="false">
+        Same
+      </button>
+      <div class="style-options-card" role="listbox" aria-label="Atom replacement options">
+        <button type="button" role="option" aria-selected="true" data-value="Same">Same</button>
+        <button type="button" role="option" aria-selected="false" data-value="Customize">Customize</button>
+      </div>
+    </div>
+    ${innerFieldHTML}
+  `;
+
+  const dropdown = wrapper.querySelector("[data-dropdown]");
+  const trigger = dropdown.querySelector("[data-dropdown-trigger]");
+  const optionButtons = Array.from(dropdown.querySelectorAll('[role="option"]'));
+
+  trigger.addEventListener("click", () => toggleDropdown(dropdown));
+  optionButtons.forEach((button) => {
+    button.addEventListener("click", () => selectDropdownOption(dropdown, button));
+  });
+
+  if (!isImage) {
+    const textarea = wrapper.querySelector("textarea");
+    // Only prefill if there is existing text, else leave blank so placeholder shows.
+    // However, if "Same" is selected, the generation recipe uses "Same as original"
+    textarea.value = section.current?.text || ""; 
   }
 
-  const field = type === "style" || type === "decor" ? document.createElement("textarea") : document.createElement("input");
-  field.className = "atom-field";
-  field.value = section.current?.text || "";
-  field.placeholder = replacement;
-  field.dataset.atomInput = String(index);
-  return field;
+  return wrapper;
 }
 
 function createBrandCardInput() {
@@ -513,7 +556,7 @@ function renderAtomCards(sections) {
     ];
 
   const visibleSections = baseSections.filter((section) => {
-    return !isBrandConstantSection(section);
+    return !isBrandConstantSection(section) && !section.deleted;
   });
 
   const brandCard = {
@@ -555,6 +598,26 @@ function renderAtomCards(sections) {
     copy.textContent = getSectionSummary(section) || "Editable atom detected from the uploaded design.";
 
     card.append(type, zoneBadge, title, copy, section.isBrandCard ? createBrandCardInput() : createAtomInput(section, index));
+    
+    if (!section.isBrandCard) {
+      const deleteBtn = document.createElement("button");
+      deleteBtn.className = "atom-delete-btn";
+      deleteBtn.innerHTML = "&times;";
+      deleteBtn.title = "Remove this component";
+      deleteBtn.onclick = (e) => {
+        e.stopPropagation();
+        if (latestBreakdown && latestBreakdown.sections) {
+          const targetSection = latestBreakdown.sections.find(s => s.id === section.id || s.name === section.name);
+          if (targetSection) targetSection.deleted = true;
+        }
+        section.deleted = true;
+        card.remove();
+        renderWebLines();
+        if (latestBreakdown) updateCanvasFromBreakdown(latestBreakdown);
+      };
+      card.append(deleteBtn);
+    }
+    
     atomWeb.append(card);
     enableCanvasDrag(card);
   });
@@ -864,7 +927,7 @@ function updateCanvasFromBreakdown(breakdown) {
   if (!breakdown?.sections?.length) return;
 
   const sections = breakdown.sections;
-  const visibleSections = sections.filter((section) => !isBrandConstantSection(section));
+  const visibleSections = sections.filter((section) => !isBrandConstantSection(section) && !section.deleted);
   const countByType = visibleSections.reduce(
     (counts, section) => {
       const type = section.type || "style";
@@ -999,11 +1062,36 @@ function resetCanvasLayout() {
 function collectGenerationRecipe() {
   const atomInputs = Array.from(document.querySelectorAll(".atom-card input.atom-field, .atom-card textarea.atom-field"));
   const colorSystem = getColorSystemValues();
-  const brandStyle = document.querySelector("[data-brand-style]")?.value || latestBreakdown?.constants?.visualStyle || "Same as uploaded flyer";
-  const editedAtoms = (latestBreakdown?.sections || []).map((section, index) => ({
-    ...section,
-    replacement: atomInputs.find((input) => input.dataset.atomInput === String(index))?.value || "",
-  }));
+  const decorDropdownBtn = document.querySelector("#decorDropdownButton");
+  const isCustomize = decorDropdownBtn && decorDropdownBtn.textContent.trim() === "Customize";
+  const customDecorInput = document.querySelector("#customDecorInput");
+  const brandStyle = (isCustomize && customDecorInput?.value.trim()) 
+    ? customDecorInput.value.trim() 
+    : (latestBreakdown?.constants?.visualStyle || "Same as uploaded flyer");
+  const editedAtoms = (latestBreakdown?.sections || [])
+    .filter((section) => !section.deleted)
+    .map((section, index) => {
+      let replacementVal = "Same as original";
+      const customField = document.querySelector(`.atom-custom-field[data-atom-index="${index}"]`);
+      
+      if (customField) {
+        if (customField.dataset.isCustomize === "true") {
+          const textarea = customField.querySelector("textarea");
+          if (textarea) {
+            replacementVal = textarea.value;
+          } else {
+            replacementVal = uploadedSubjectFile ? `Upload: ${uploadedSubjectFile.name}` : "";
+          }
+        }
+      } else {
+        replacementVal = atomInputs.find((input) => input.dataset.atomInput === String(index))?.value || "";
+      }
+      
+      return {
+        ...section,
+        replacement: replacementVal,
+      };
+    });
 
   return {
     breakdown: {
@@ -1032,6 +1120,14 @@ function collectGenerationRecipe() {
 
 async function markReadyToGenerate() {
   if (!uploadedImageUrl) return;
+
+  const cost = userApiKey ? 3 : 12;
+  if (walletBalance < cost) {
+    alert(`Insufficient credits! This generation costs ${cost} Credits, but you only have ${walletBalance}. Please top up your wallet.`);
+    const walletButton = document.querySelector('[data-view="wallet"]');
+    if (walletButton) walletButton.click();
+    return;
+  }
 
   generateButton.disabled = true;
   generateButton.textContent = "Generating...";
@@ -1066,6 +1162,9 @@ async function markReadyToGenerate() {
       const outputImage = generatedCard.querySelector(".generated-preview img");
       outputImage.src = `data:image/png;base64,${payload.image}`;
     }
+
+    walletBalance -= cost;
+    updateWalletDisplay();
 
     updateWebLines();
     setStepState(4);
@@ -1227,6 +1326,33 @@ function selectDropdownOption(dropdown, optionButton) {
   const label = dropdown.querySelector("[role='listbox']")?.getAttribute("aria-label") || "";
   if (label === "AI model options" || label === "Generation model options") {
     syncModelButtons(optionButton.textContent.trim());
+  } else if (label === "Decor style options" || label === "Atom replacement options") {
+    const isCustomize = optionButton.textContent.trim() === "Customize";
+    
+    // For static replacement form dropdown (Decor style)
+    const customDecorInput = document.querySelector("#customDecorInput");
+    if (customDecorInput && dropdown.closest(".replacement-form")) {
+      customDecorInput.style.display = isCustomize ? "block" : "none";
+    }
+
+    // For dynamic atom card dropdowns
+    const atomWrapper = dropdown.closest(".atom-dropdown-wrapper") || dropdown.closest(".decor-dropdown-wrapper");
+    if (atomWrapper) {
+      const customField = atomWrapper.querySelector(".atom-custom-field");
+      if (customField) {
+        customField.style.display = isCustomize ? "block" : "none";
+        customField.dataset.isCustomize = isCustomize;
+        
+        const atomTextarea = customField.querySelector("textarea");
+        if (atomTextarea) {
+          if (!isCustomize) {
+            atomTextarea.value = "Same as original";
+          } else if (atomTextarea.value === "Same as original") {
+            atomTextarea.value = "";
+          }
+        }
+      }
+    }
   }
 
   closeDropdown(dropdown);

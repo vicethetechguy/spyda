@@ -26,61 +26,132 @@
         <a href="signin.html" data-nav-link="signin">Sign in</a>
       </nav>
       <a class="header-cta" href="signup.html" data-nav-link="signup">Sign up</a>
+      <button class="mobile-menu-toggle" aria-label="Toggle mobile menu" aria-expanded="false">
+        <span class="hamburger-box">
+          <span class="hamburger-inner"></span>
+        </span>
+      </button>
     </header>
+
+    <div class="mobile-nav-drawer" aria-hidden="true">
+      <nav class="mobile-nav-links">
+        <a href="index.html#inside" data-nav-link="inside">Inside</a>
+        <a href="index.html#examples" data-nav-link="examples">Samples</a>
+        <a href="index.html#faq" data-nav-link="faq">FAQ</a>
+        <a href="pricing.html" data-nav-link="pricing" aria-current="page">Pricing</a>
+        <a href="signin.html" data-nav-link="signin">Sign in</a>
+      </nav>
+    </div>
 
     <main>
       <section class="page-shell pricing-hero">
         <p class="eyebrow">Pricing</p>
-        <h1>Choose how many <em>design webs</em> Spyda should spin for you.</h1>
+        <h1>Pay for the <em>workflow</em>, not just the pixels.</h1>
         <p class="hero-copy">
-          Start with a focused local workspace, then scale into richer analysis, more generations, and team-ready creative operations.
+          Spyda operates on a transparent credit system. Every operation consumes credits based on its actual compute cost. No unlimited gimmicks—just a professional platform that scales with you.
         </p>
       </section>
 
       <section class="pricing-grid">
         <article class="pricing-card">
-          <span class="plan-label">Starter</span>
-          <h2>Explore</h2>
-          <div class="price">$19 <span>/ month</span></div>
-          <p>For solo designers testing design breakdown workflows.</p>
+          <span class="plan-label">Trial</span>
+          <h2>Free</h2>
+          <div class="price">₦0 <span>/ month</span></div>
+          <p>Test the Spyda workflow.</p>
           <ul>
-            <li>50 flyer analyses</li>
-            <li>25 generated designs</li>
-            <li>Basic brand constants</li>
-            <li>Export-ready output</li>
+            <li>1 Flyer Dissection</li>
+            <li>1 Generated Design</li>
+            <li>Heavy Watermarks</li>
+            <li>Basic Constants</li>
+            <li>Standard Queue</li>
           </ul>
-          <a class="secondary-action" href="signup.html">Start Starter</a>
-        </article>
-
-        <article class="pricing-card featured-plan">
-          <span class="plan-label">Most useful</span>
-          <h2>Studio</h2>
-          <div class="price">$59 <span>/ month</span></div>
-          <p>For creators and agencies producing flyer variations every week.</p>
-          <ul>
-            <li>300 flyer analyses</li>
-            <li>150 generated designs</li>
-            <li>Groq + GPT-Image 2 workflow</li>
-            <li>Saved brand defaults</li>
-            <li>Priority generation queue</li>
-          </ul>
-          <a class="primary-action" href="signup.html">Choose Studio</a>
+          <a class="secondary-action" href="signup.html">Start for Free</a>
         </article>
 
         <article class="pricing-card">
-          <span class="plan-label">Teams</span>
-          <h2>Agency</h2>
-          <div class="price">$149 <span>/ month</span></div>
-          <p>For teams that need repeatable client design systems.</p>
+          <span class="plan-label">Starter</span>
+          <h2>Basic</h2>
+          <div class="price">₦1,000 <span>/ month</span></div>
+          <p>For individuals testing workflows.</p>
           <ul>
-            <li>1,000 flyer analyses</li>
-            <li>500 generated designs</li>
-            <li>Team seats</li>
-            <li>Client brand libraries</li>
-            <li>Advanced support</li>
+            <li>50 Credits</li>
+            <li>Save Ingredient Maps</li>
+            <li>Basic Constants</li>
+            <li>No watermark</li>
+            <li>Standard generation</li>
           </ul>
-          <a class="secondary-action" href="signup.html">Build with Agency</a>
+          <a class="secondary-action" href="signup.html">Choose Basic</a>
         </article>
+
+        <article class="pricing-card">
+          <span class="plan-label">Creator</span>
+          <h2>Creator</h2>
+          <div class="price">₦5,000 <span>/ month</span></div>
+          <p>For independent creators & designers.</p>
+          <ul>
+            <li>150 Credits</li>
+            <li>Multiple Brand Kits</li>
+            <li>Brand Constants</li>
+            <li>HD exports</li>
+            <li>Priority queue</li>
+          </ul>
+          <a class="secondary-action" href="signup.html">Choose Creator</a>
+        </article>
+
+        <article class="pricing-card featured-plan">
+          <span class="plan-label">Recommended</span>
+          <h2>Pro</h2>
+          <div class="price">₦14,999 <span>/ month</span></div>
+          <p>For professionals producing every week.</p>
+          <ul>
+            <li>500 Credits</li>
+            <li>Ultra generation</li>
+            <li>Faster processing</li>
+            <li>Ingredient library</li>
+            <li>Priority queue</li>
+          </ul>
+          <a class="primary-action" href="signup.html">Choose Pro</a>
+        </article>
+      </section>
+
+      <section class="credit-details-section">
+        <div class="credit-tables-wrapper">
+          <div class="credit-table">
+            <h3>Credit Costs</h3>
+            <p>Not all actions cost the same.</p>
+            <ul>
+              <li><span>Flyer Analysis (Vision)</span> <strong>2 Credits</strong></li>
+              <li><span>Generate Standard Flyer</span> <strong>5 Credits</strong></li>
+              <li><span>Ultra Quality Flyer</span> <strong>10 Credits</strong></li>
+              <li><span>Generate 4 Variations</span> <strong>18 Credits</strong></li>
+              <li><span>HD Upscale</span> <strong>3 Credits</strong></li>
+              <li><span>Remove Background</span> <strong>2 Credits</strong></li>
+            </ul>
+          </div>
+
+          <div class="credit-table">
+            <h3>Credit Top-ups</h3>
+            <p>Unused credits roll over for one billing cycle.</p>
+            <ul>
+              <li><span>100 Credits</span> <strong>₦2,900</strong></li>
+              <li><span>250 Credits</span> <strong>₦6,500</strong></li>
+              <li><span>500 Credits</span> <strong>₦11,900</strong></li>
+              <li><span>1,000 Credits</span> <strong>₦21,900</strong></li>
+            </ul>
+          </div>
+        </div>
+
+        <div class="spyda-advantage">
+          <h3>The Spyda Advantage</h3>
+          <p>You aren't just paying for "AI image generation." You're paying for a workflow that:</p>
+          <ul>
+            <li>Understands an existing flyer</li>
+            <li>Breaks it into reusable ingredients</li>
+            <li>Lets you replace only what you want</li>
+            <li>Preserves successful layouts and compositions</li>
+            <li>Generates professional variations in minutes</li>
+          </ul>
+        </div>
       </section>
     </main>
 

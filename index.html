@@ -25,7 +25,21 @@
         <a href="#faq" data-nav-link="faq">FAQ</a>
       </nav>
       <a class="header-cta" href="#offer" data-nav-link="offer">Get Access</a>
+      <button class="mobile-menu-toggle" aria-label="Toggle mobile menu" aria-expanded="false">
+        <span class="hamburger-box">
+          <span class="hamburger-inner"></span>
+        </span>
+      </button>
     </header>
+
+    <div class="mobile-nav-drawer" aria-hidden="true">
+      <nav class="mobile-nav-links">
+        <a href="#inside" data-nav-link="inside">Inside</a>
+        <a href="#examples" data-nav-link="examples">Samples</a>
+        <a href="#pricing" data-nav-link="pricing">Pricing</a>
+        <a href="#faq" data-nav-link="faq">FAQ</a>
+      </nav>
+    </div>
 
     <main id="top">
       <section class="promo-hero">
@@ -126,6 +140,7 @@
             <span></span>
           </div>
           <div class="mini-canvas premium-mini-canvas">
+            <svg class="mini-canvas-web"></svg>
             <img class="mini-flyer" src="assets/spyda-sample-05.jpeg" alt="" />
             <div class="mini-node top-node">Top</div>
             <div class="mini-node middle-node">Image</div>
@@ -144,47 +159,45 @@
 
         <div class="pricing-grid landing-pricing-grid">
           <article class="pricing-card">
-            <span class="plan-label">Starter</span>
-            <h2>Explore</h2>
-            <div class="price">$19 <span>/ month</span></div>
-            <p>For solo creators testing reference-led design breakdowns.</p>
+            <span class="plan-label">Pay-As-You-Go</span>
+            <h2>Top-Up</h2>
+            <div class="price">Flexible</div>
+            <p>Add exactly what you need.</p>
             <ul>
-              <li>50 flyer analyses</li>
-              <li>25 generated designs</li>
-              <li>Basic brand constants</li>
-              <li>Export-ready output</li>
+              <li>$5 = 500 Credits</li>
+              <li>$10 = 1,000 Credits</li>
+              <li>12 Credits / Generation</li>
+              <li>No monthly commitment</li>
             </ul>
-            <a class="secondary-action" href="signup.html">Start Starter</a>
+            <a class="secondary-action" href="workspace.html">Open Wallet</a>
           </article>
 
           <article class="pricing-card featured-plan">
-            <span class="plan-label">Most useful</span>
-            <h2>Studio</h2>
-            <div class="price">$59 <span>/ month</span></div>
-            <p>For creators and agencies producing campaign visuals every week.</p>
+            <span class="plan-label">Recommended</span>
+            <h2>Subscriptions</h2>
+            <div class="price">From $10<span>/mo</span></div>
+            <p>Discounted bulk credits.</p>
             <ul>
-              <li>300 flyer analyses</li>
-              <li>150 generated designs</li>
-              <li>Groq + GPT-Image 2 workflow</li>
-              <li>Saved brand defaults</li>
-              <li>Priority generation queue</li>
+              <li>Starter ($10): 1k Credits</li>
+              <li>Pro ($25): 2.8k Credits</li>
+              <li>Agency ($50): 6k Credits</li>
+              <li>Bonus Credits Included</li>
             </ul>
-            <a class="primary-action" href="signup.html">Choose Studio</a>
+            <a class="primary-action" href="workspace.html">View Plans</a>
           </article>
 
           <article class="pricing-card">
-            <span class="plan-label">Teams</span>
-            <h2>Agency</h2>
-            <div class="price">$149 <span>/ month</span></div>
-            <p>For teams that need repeatable client design systems.</p>
+            <span class="plan-label">Power User</span>
+            <h2>Bring Your Own Key</h2>
+            <div class="price">3 Credits<span> / Gen</span></div>
+            <p>Use your OpenAI API key.</p>
             <ul>
-              <li>1,000 flyer analyses</li>
-              <li>500 generated designs</li>
-              <li>Team seats</li>
-              <li>Client brand libraries</li>
-              <li>Advanced support</li>
+              <li>Pay OpenAI directly</li>
+              <li>Zero generation markup</li>
+              <li>Nominal 3-credit platform fee</li>
+              <li>Maximum cost control</li>
             </ul>
-            <a class="secondary-action" href="signup.html">Build with Agency</a>
+            <a class="secondary-action" href="workspace.html">Connect Key</a>
           </article>
         </div>
       </section>
@@ -194,19 +207,31 @@
           <span>FAQ</span>
           <h2>Questions before you spin the web?</h2>
         </div>
-        <div class="faq-grid">
-          <article>
-            <h3>Does Spyda copy the flyer?</h3>
-            <p>No. Spyda studies the structure and style direction so users can replace the ingredients and generate a fresh design.</p>
-          </article>
-          <article>
-            <h3>Can I change text and images?</h3>
-            <p>Yes. Text becomes editable fields, images become upload slots, and global style constants stay inside the Brand Card.</p>
-          </article>
-          <article>
-            <h3>Which model creates the output?</h3>
-            <p>Spyda uses GPT-Image 2 for generation, with Groq available for fast analysis and prompt intelligence.</p>
-          </article>
+        <div class="faq-accordion">
+          <details>
+            <summary>How does Spyda differ from standard AI generators?</summary>
+            <p>Spyda doesn't just generate from scratch. It mathematically dissects a reference flyer, extracts its DNA (ingredients and structure), and allows you to seamlessly replace those elements to generate a custom, high-end professional design.</p>
+          </details>
+          <details>
+            <summary>What are Credits and how are they used?</summary>
+            <p>Credits are our compute currency. Every action has a specific cost based on the processing power required. For example, a flyer analysis costs 2 credits, while generating a standard design costs 5.</p>
+          </details>
+          <details>
+            <summary>Do you copy the original reference design?</summary>
+            <p>No. Spyda studies the structure, layout, and style direction of the reference. You inject your own text, images, and brand constants to generate an entirely fresh and legally distinct design.</p>
+          </details>
+          <details>
+            <summary>How do Brand Constants work?</summary>
+            <p>Brand Constants ensure your generations stay on-brand. You can define global colors, typography, and mood boards in your Brand Card. Spyda will automatically apply these rules when rendering your final design.</p>
+          </details>
+          <details>
+            <summary>Can I remove the Spyda watermark?</summary>
+            <p>Yes. Exports are watermarked on the Free tier. By upgrading to any paid plan (Basic, Creator, or Pro), watermarks are completely removed and you unlock High-Definition exports.</p>
+          </details>
+          <details>
+            <summary>Are my uploaded flyers and generated designs private?</summary>
+            <p>Absolutely. Your uploaded references and ingredient maps are private to your workspace. Team-level users can securely share their ingredient maps and assets for collaborative production.</p>
+          </details>
         </div>
       </section>
     </main>
