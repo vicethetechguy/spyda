@@ -149,6 +149,81 @@ OCR word boxes:
 ${wordPreview}`;
 }
 
+function getBreakdownTextCorpus(breakdown: any) {
+  return JSON.stringify(breakdown || {}).toLowerCase();
+}
+
+function groupOcrWordsIntoLines(ocr?: OcrResult) {
+  if (!ocr?.enabled || !ocr.words.length) return [];
+
+  const sortedWords = [...ocr.words].sort((a, b) => {
+    const yDelta = a.box.y - b.box.y;
+    if (Math.abs(yDelta) > 10) return yDelta;
+    return a.box.x - b.box.x;
+  });
+
+  const lines: Array<{ text: string; x: number; y: number; width: number; height: number }> = [];
+
+  for (const word of sortedWords) {
+    const lastLine = lines[lines.length - 1];
+    const lineThreshold = Math.max(12, word.box.height * 0.65);
+
+    if (!lastLine || Math.abs(lastLine.y - word.box.y) > lineThreshold) {
+      lines.push({
+        text: word.text,
+        x: word.box.x,
+        y: word.box.y,
+        width: word.box.width,
+        height: word.box.height,
+      });
+      continue;
+    }
+
+    const rightEdge = Math.max(lastLine.x + lastLine.width, word.box.x + word.box.width);
+    const bottomEdge = Math.max(lastLine.y + lastLine.height, word.box.y + word.box.height);
+    lastLine.text = `${lastLine.text} ${word.text}`.trim();
+    lastLine.x = Math.min(lastLine.x, word.box.x);
+    lastLine.y = Math.min(lastLine.y, word.box.y);
+    lastLine.width = rightEdge - lastLine.x;
+    lastLine.height = bottomEdge - lastLine.y;
+  }
+
+  return lines.filter((line) => line.text.replace(/\s+/g, " ").trim().length > 1);
+}
+
+function enrichBreakdownWithOcrTextAtoms(breakdown: any, ocr?: OcrResult) {
+  if (!breakdown || typeof breakdown !== "object") return breakdown;
+
+  const sections = Array.isArray(breakdown.sections) ? breakdown.sections : [];
+  const textCorpus = getBreakdownTextCorpus(breakdown);
+  const ocrLines = groupOcrWordsIntoLines(ocr);
+  const missingTextAtoms = [];
+
+  for (const [index, line] of ocrLines.entries()) {
+    const normalizedLine = line.text.toLowerCase().replace(/\s+/g, " ").trim();
+    if (!normalizedLine || textCorpus.includes(normalizedLine)) continue;
+
+    missingTextAtoms.push({
+      id: `ocr-text-${index + 1}`,
+      name: `OCR Text ${index + 1}`,
+      type: "text",
+      current: {
+        text: line.text,
+        description: `OCR-detected text at x:${Math.round(line.x)}, y:${Math.round(line.y)}, width:${Math.round(line.width)}, height:${Math.round(line.height)}. The vision model missed this atom, so Spyda added it automatically.`,
+      },
+      replacementNeeded: ["Keep as-is or replace this exact text."],
+    });
+  }
+
+  return {
+    ...breakdown,
+    sections: [...sections, ...missingTextAtoms],
+    notes: [breakdown.notes, missingTextAtoms.length ? `Spyda added ${missingTextAtoms.length} OCR text atom(s) that the vision model missed.` : ""]
+      .filter(Boolean)
+      .join(" "),
+  };
+}
+
 export function extractJson(text: string) {
   try {
     return JSON.parse(text);
@@ -165,9 +240,10 @@ export function normalizeAiProvider(provider: string = "") {
 
 export function getBreakdownPrompt(ocr?: OcrResult) {
   return `You are Spyda, a visual design breakdown engine. Analyze the uploaded flyer/design.
-Identify every visible component that forms the design. Capture exact visible text.
-Return 8 to 14 editable atoms (headline, subheadline, image, logo, CTA, etc).
-Classify words as "text" or "action", and photos/logos as "image" or "brand".
+Identify every visible component that forms the design. Capture exact visible text. Be exhaustive.
+Return 16 to 35 editable atoms when the design is complex. Do not collapse multiple visible items into one vague atom.
+Break down: headline, subheadline, each text block, each CTA, each logo, each icon, each badge, each product/app screenshot, each person/subject, each sticker, each background shape, each line/wave/blob/pattern, each footer/social/contact detail, and each decorative overlay.
+Classify words as "text" or "action", logos as "brand", photos/products/app screens as "image", shapes/patterns/background marks as "decor", and color/font/style rules as "style".
 Put global constants such as colors (hex), fonts, visual style inside the constants object.
 Use the OCR data below as the source of truth for all readable text. If OCR text appears in the flyer, preserve it exactly in the matching atom and use the OCR coordinates to infer where it belongs.
 ${formatOcrForPrompt(ocr)}
@@ -176,9 +252,9 @@ Return ONLY valid JSON with no markdown formatting:
 {
   "sections": [
     {
-      "id": "hero", "name": "Hero Section", "type": "text|image|style|color|action|brand|decor",
-      "current": { "text": "exact visible text", "image": "what the visible image is", "description": "visual description and approximate placement" },
-      "replacementNeeded": ["e.g. New headline text"]
+      "id": "hero-headline", "name": "Hero Headline", "type": "text|image|style|color|action|brand|decor",
+      "current": { "text": "exact visible text", "image": "what the visible image is", "description": "visual description, approximate placement, scale, color, and relationship to other atoms" },
+      "replacementNeeded": ["e.g. New headline text, replacement logo, or keep exact atom"]
     }
   ],
   "constants": {
@@ -212,6 +288,69 @@ export async function analyzeDesignWithGroq(base64Image: string, prompt: string)
   return { ok: true, mode: "groq", breakdown: extractJson(payload.choices?.[0]?.message?.content || "") };
 }
 
+export async function analyzeDesignWithOpenAI(base64Image: string, prompt: string) {
+  const openaiKey = process.env.OPENAI_API_KEY || "";
+  if (!openaiKey) throw new Error("OPENAI_API_KEY is not configured.");
+
+  const response = await fetch("https://api.openai.com/v1/chat/completions", {
+    method: "POST",
+    headers: { "Authorization": `Bearer ${openaiKey}`, "Content-Type": "application/json" },
+    body: JSON.stringify({
+      model: analysisModel,
+      temperature: 0.1,
+      response_format: { type: "json_object" },
+      messages: [{ role: "user", content: [{ type: "text", text: prompt }, { type: "image_url", image_url: { url: base64Image } }] }]
+    })
+  });
+
+  if (!response.ok) {
+    const err = await response.json();
+    throw new Error(err.error?.message || "OpenAI request failed.");
+  }
+
+  const payload = await response.json();
+  return extractJson(payload.choices?.[0]?.message?.content || "");
+}
+
+export async function verifyBreakdownWithOpenAI(base64Image: string, firstBreakdown: any, ocr?: OcrResult) {
+  const openaiKey = process.env.OPENAI_API_KEY || "";
+  if (!openaiKey) return firstBreakdown;
+
+  const verifierPrompt = `You are Spyda's strict design atom verifier.
+Your job is to audit and expand an existing flyer breakdown. Do not summarize. Do not remove valid atoms.
+Compare the uploaded flyer, OCR data, and existing breakdown. Return a complete merged JSON breakdown with every missing visible atom added.
+Pay special attention to tiny footer text, logos, social/contact details, icons, stickers, price tags, app screens, badges, background shapes, shadows, gradients, borders, and decorative marks.
+If the existing breakdown missed any OCR text, add it as its own text atom.
+
+OCR data:
+${formatOcrForPrompt(ocr)}
+
+Existing breakdown:
+${JSON.stringify(firstBreakdown, null, 2)}
+
+Return ONLY valid JSON in this shape:
+{
+  "sections": [
+    {
+      "id": "unique-id",
+      "name": "Specific atom name",
+      "type": "text|image|style|color|action|brand|decor",
+      "current": { "text": "exact text if text", "image": "image/logo/subject description if visual", "description": "placement, color, size, visual relationship" },
+      "replacementNeeded": ["what user can replace or keep"]
+    }
+  ],
+  "constants": {
+    "headingFont": "suggested font",
+    "bodyFont": "suggested font",
+    "colors": { "primary": "dominant HEX", "secondary": "support HEX", "accent": "highlight HEX" },
+    "visualStyle": "style description"
+  },
+  "notes": "audit notes"
+}`;
+
+  return analyzeDesignWithOpenAI(base64Image, verifierPrompt);
+}
+
 export async function analyzeDesign(base64Image: string, provider = "openai") {
   let ocr: OcrResult = { enabled: false, fullText: "", words: [] };
 
@@ -230,33 +369,24 @@ export async function analyzeDesign(base64Image: string, provider = "openai") {
 
   if (normalizeAiProvider(provider) === "groq") {
     const result = await analyzeDesignWithGroq(base64Image, prompt);
-    return { ...result, ocr };
+    const verifiedBreakdown = await verifyBreakdownWithOpenAI(base64Image, result.breakdown, ocr).catch(() => result.breakdown);
+    return { ...result, mode: "groq+openai-verified", breakdown: enrichBreakdownWithOcrTextAtoms(verifiedBreakdown, ocr), ocr };
   }
 
   const openaiKey = process.env.OPENAI_API_KEY || "";
   if (!openaiKey) return { ok: true, mode: "mock", breakdown: buildMockBreakdown() };
 
-  const response = await fetch("https://api.openai.com/v1/chat/completions", {
-    method: "POST",
-    headers: { "Authorization": `Bearer ${openaiKey}`, "Content-Type": "application/json" },
-    body: JSON.stringify({
-      model: analysisModel, response_format: { type: "json_object" },
-      messages: [{ role: "user", content: [{ type: "text", text: prompt }, { type: "image_url", image_url: { url: base64Image } }] }]
-    })
-  });
-
-  if (!response.ok) {
-    const err = await response.json();
-    throw new Error(err.error?.message || "OpenAI request failed.");
-  }
-
-  const payload = await response.json();
-  return { ok: true, mode: "openai", breakdown: extractJson(payload.choices?.[0]?.message?.content || ""), ocr };
+  const breakdown = await analyzeDesignWithOpenAI(base64Image, prompt);
+  return { ok: true, mode: "openai", breakdown: enrichBreakdownWithOcrTextAtoms(breakdown, ocr), ocr };
 }
 
 export function buildGenerationPrompt(recipe: any) {
   return `Create a finished premium graphic design based on this Spyda recipe.
 Keep text clean, legible, and professionally composed.
+Use every non-deleted section in the recipe. Do not ignore required text atoms, brand atoms, image atoms, CTAs, footer details, icons, or decorative elements.
+If the user customized an atom, prioritize that replacement over the original.
+If constants.essentials contains instructions, treat them as hard requirements.
+For logos, uploaded subjects, app screenshots, or specific pictures described in the recipe, preserve their identity and placement as closely as possible. If exact image insertion is not possible, recreate a clear placeholder matching the description and layout.
 Recipe:
 ${JSON.stringify(recipe, null, 2)}`;
 }

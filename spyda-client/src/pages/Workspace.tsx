@@ -184,6 +184,7 @@ export default function Workspace() {
     secondaryColor: string
     accentColor: string
     visualStyle: string
+    essentials: string
   }>({
     headingFont: 'Space Grotesk',
     bodyFont: 'Montserrat',
@@ -191,6 +192,7 @@ export default function Workspace() {
     secondaryColor: '#22C55E',
     accentColor: '#F8FAFC',
     visualStyle: '',
+    essentials: '',
   })
 
   // Populate brand edits from breakdown
@@ -204,6 +206,7 @@ export default function Workspace() {
         secondaryColor: normalizeHexColor(c.colors?.secondary || '', prev.secondaryColor),
         accentColor: normalizeHexColor(c.colors?.accent || '', prev.accentColor),
         visualStyle: c.visualStyle || prev.visualStyle,
+        essentials: prev.essentials,
       }))
     }
   }, [breakdown])
@@ -324,6 +327,7 @@ export default function Workspace() {
             accent: brandEdits.accentColor,
           },
           visualStyle: brandEdits.visualStyle || breakdown.constants.visualStyle || 'Same as uploaded design',
+          essentials: brandEdits.essentials,
         },
       }
 
@@ -370,6 +374,7 @@ export default function Workspace() {
       secondaryColor: '#22C55E',
       accentColor: '#F8FAFC',
       visualStyle: '',
+      essentials: '',
     })
   }, [])
 
@@ -512,7 +517,15 @@ function CanvasView({
   analyzeError: string | null
   generateError: string | null
   atomEdits: Record<string, { mode: 'same' | 'customize'; value: string }>
-  brandEdits: { headingFont: string; bodyFont: string; primaryColor: string; secondaryColor: string; accentColor: string; visualStyle: string }
+  brandEdits: {
+    headingFont: string
+    bodyFont: string
+    primaryColor: string
+    secondaryColor: string
+    accentColor: string
+    visualStyle: string
+    essentials: string
+  }
   onUpload: (file: File) => void
   onSubjectUpload: (file: File) => void
   onGenerate: () => void
@@ -748,6 +761,18 @@ function CanvasView({
                   placeholder="Premium Photoshop style, lighting, texture, background feel"
                   className="w-full h-20 px-3 py-2 rounded-lg bg-white/[0.04] border border-white/[0.06] text-sm text-foreground placeholder:text-muted-foreground/40 outline-none focus:border-primary/40 transition-colors resize-none"
                 />
+              </div>
+              <div className="mt-4">
+                <label className="text-xs text-muted-foreground mb-1 block">Essentials</label>
+                <textarea
+                  value={brandEdits.essentials}
+                  onChange={e => onBrandEdit('essentials', e.target.value)}
+                  placeholder="Add anything Spyda missed or must include: logo placement, footer text, offer details, disclaimer, exact image direction, CTA, icons, layout rules..."
+                  className="w-full h-24 px-3 py-2 rounded-lg bg-white/[0.04] border border-white/[0.06] text-sm text-foreground placeholder:text-muted-foreground/40 outline-none focus:border-primary/40 transition-colors resize-none"
+                />
+                <p className="mt-2 text-[11px] leading-relaxed text-muted-foreground/60">
+                  These notes are treated as hard requirements when generating the new flyer.
+                </p>
               </div>
             </div>
 
