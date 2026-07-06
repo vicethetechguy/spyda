@@ -1,8 +1,17 @@
 {
   "buildCommand": "npm run build",
   "functions": {
-    "api/**/*": {
+    "api/generate.ts": {
+      "maxDuration": 300
+    },
+    "api/analyze.ts": {
       "maxDuration": 60
+    },
+    "api/ocr.ts": {
+      "maxDuration": 60
+    },
+    "api/health.ts": {
+      "maxDuration": 10
     }
   },
   "rewrites": [

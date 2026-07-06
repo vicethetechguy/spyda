@@ -300,7 +300,7 @@ export default function Workspace() {
 
   /* ── Generate handler ── */
   const handleAtomImageUpload = useCallback(async (section: AtomSection, file: File) => {
-    const assetDataUrl = await imageFileToDataUrl(file, 1024, 1024, 0.9)
+    const assetDataUrl = await imageFileToDataUrl(file, 768, 768, 0.82)
     const assetName = file.name
     setAtomEdits(prev => ({
       ...prev,

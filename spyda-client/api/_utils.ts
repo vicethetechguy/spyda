@@ -381,6 +381,8 @@ export async function analyzeDesign(base64Image: string, provider = "openai") {
 }
 
 function sanitizeRecipeForPrompt(recipe: any) {
+  const attachedReferenceIds = new Set(getReferenceImages(recipe).map((image: any) => image.sectionId));
+
   return {
     ...recipe,
     referenceImages: Array.isArray(recipe?.referenceImages)
@@ -390,17 +392,20 @@ function sanitizeRecipeForPrompt(recipe: any) {
           sectionName: image.sectionName,
           sectionType: image.sectionType,
           name: image.name,
-          dataUrl: "[attached separately as image input]",
+          dataUrl: attachedReferenceIds.has(image.sectionId)
+            ? "[attached separately as image input]"
+            : "[not attached to keep the generation request fast; use this as text-only direction]",
         }))
       : [],
   };
 }
 
 export function buildGenerationPrompt(recipe: any) {
-  const referenceImageInstructions = Array.isArray(recipe?.referenceImages) && recipe.referenceImages.length
+  const attachedReferenceImages = getReferenceImages(recipe);
+  const referenceImageInstructions = attachedReferenceImages.length
     ? `
 REFERENCE IMAGE REQUIREMENTS:
-${recipe.referenceImages.map((image: any, index: number) => `- Input image ${index + 1}: "${image.name}" belongs to section "${image.sectionName}" (${image.sectionId}). It is mandatory. Preserve the uploaded asset's identity as closely as possible and place it in the generated flyer according to that section's placement/role.`).join("\n")}
+${attachedReferenceImages.map((image: any, index: number) => `- Input image ${index + 1}: "${image.name}" belongs to section "${image.sectionName}" (${image.sectionId}). It is mandatory. Preserve the uploaded asset's identity as closely as possible and place it in the generated flyer according to that section's placement/role.`).join("\n")}
 `
     : "";
 
@@ -427,7 +432,7 @@ function getReferenceImages(recipe: any) {
   if (!Array.isArray(recipe?.referenceImages)) return [];
   return recipe.referenceImages
     .filter((image: any) => image?.dataUrl && image?.sectionId)
-    .slice(0, 8);
+    .slice(0, 6);
 }
 
 function buildImageEditForm({
