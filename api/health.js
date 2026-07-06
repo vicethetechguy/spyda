@@ -1,10 +1,18 @@
+function sendJson(response, statusCode, payload) {
+  response.writeHead(statusCode, {
+    "Content-Type": "application/json; charset=utf-8",
+    "Cache-Control": "no-store",
+  });
+  response.end(JSON.stringify(payload));
+}
+
 export default async function handler(request, response) {
   if (request.method !== "GET") {
-    response.status(405).json({ ok: false, error: "Method not allowed" });
+    sendJson(response, 405, { ok: false, error: "Method not allowed" });
     return;
   }
 
-  response.status(200).json({
+  sendJson(response, 200, {
     ok: true,
     hasApiKey: Boolean(process.env.OPENAI_API_KEY),
     hasOpenAiApiKey: Boolean(process.env.OPENAI_API_KEY),
