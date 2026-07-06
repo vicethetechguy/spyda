@@ -1,7 +1,7 @@
-import type { VercelRequest, VercelResponse } from '@vercel/node';
-import { analysisModel, groqAnalysisModel, imageModel } from './_utils';
+import process from "node:process";
+import { analysisModel, groqAnalysisModel, imageModel } from './_utils.js';
 
-export default async function handler(req: VercelRequest, res: VercelResponse) {
+export default async function handler(req: any, res: any) {
   if (req.method !== 'GET') {
     return res.status(405).json({ ok: false, error: 'Method not allowed' });
   }
