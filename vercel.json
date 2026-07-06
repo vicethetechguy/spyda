@@ -1,14 +1,8 @@
 {
   "version": 2,
   "functions": {
-    "api/index.mjs": {
+    "api/*.mjs": {
       "maxDuration": 60
     }
-  },
-  "rewrites": [
-    {
-      "source": "/api/(.*)",
-      "destination": "/api/index.mjs"
-    }
-  ]
+  }
 }
