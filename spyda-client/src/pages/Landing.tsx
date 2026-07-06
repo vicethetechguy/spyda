@@ -1,3 +1,4 @@
+import { useState } from "react"
 import { Link } from "react-router-dom"
 import { 
   ArrowRight, 
@@ -6,12 +7,14 @@ import {
   Zap, 
   Target, 
   Palette,
-  Image,
+  Image as ImageIcon,
   MousePointerClick,
   Wand2,
   Star,
   ChevronRight,
-  Play
+  Play,
+  CheckCircle2,
+  ChevronDown
 } from "lucide-react"
 
 /* ── tiny reusable pieces ── */
@@ -58,40 +61,55 @@ function PricingCard({ name, price, period, desc, features, cta, href, featured 
   features: string[]; cta: string; href: string; featured?: boolean;
 }) {
   return (
-    <div className={`relative flex flex-col rounded-2xl p-8 transition-all duration-300 hover:-translate-y-1 ${
-      featured
-        ? "border-2 border-primary bg-primary/[0.04] shadow-[0_0_80px_rgba(157,250,176,0.08)]"
-        : "border border-white/[0.06] bg-white/[0.02]"
-    }`}>
-      {featured && (
-        <div className="absolute -top-3 left-1/2 -translate-x-1/2 rounded-full bg-gradient-to-r from-[#22c55e] to-[#16a34a] px-4 py-1 text-[11px] font-bold tracking-wider uppercase text-primary-foreground shadow-lg">
-          Most Popular
-        </div>
-      )}
-      <h3 className="font-heading text-xl font-semibold">{name}</h3>
-      <div className="my-5">
-        <span className="font-heading text-5xl font-bold">{price}</span>
-        {period && <span className="text-lg text-muted-foreground ml-1">{period}</span>}
+    <div className={`relative flex flex-col p-8 rounded-3xl border ${featured ? 'border-primary/50 bg-primary/[0.03]' : 'border-white/[0.05] bg-black/40'} backdrop-blur-md transition-all duration-300 hover:-translate-y-1`}>
+      {featured && <div className="absolute -top-3 left-1/2 -translate-x-1/2 px-3 py-1 bg-gradient-to-r from-primary to-[#16a34a] text-primary-foreground text-[10px] font-bold uppercase tracking-wider rounded-full shadow-[0_0_20px_rgba(34,197,94,0.3)]">Most Popular</div>}
+      <h3 className="text-xl font-bold font-heading mb-2">{name}</h3>
+      <div className="flex items-baseline gap-1 mb-3">
+        {price !== 'Flexible' && <span className="text-2xl font-medium text-muted-foreground">$</span>}
+        <span className="text-4xl font-bold font-heading">{price}</span>
+        {period && <span className="text-muted-foreground">{period}</span>}
       </div>
       <p className="text-sm text-muted-foreground mb-8">{desc}</p>
-      <ul className="mb-8 flex-1 space-y-3">
+      
+      <ul className="flex-1 space-y-4 mb-8">
         {features.map((f, i) => (
-          <li key={i} className="flex items-center text-sm text-muted-foreground">
-            <ChevronRight className="mr-2 h-4 w-4 text-primary shrink-0" />
+          <li key={i} className="flex items-center gap-3 text-sm text-muted-foreground">
+            <CheckCircle2 className="w-4 h-4 text-primary shrink-0" />
             {f}
           </li>
         ))}
       </ul>
+
       <Link
         to={href}
-        className={`inline-flex w-full h-12 items-center justify-center rounded-lg text-sm font-semibold transition-all duration-300 ${
-          featured
-            ? "bg-gradient-to-r from-[#22c55e] to-[#16a34a] text-primary-foreground shadow-lg shadow-primary/20 hover:shadow-primary/30 hover:brightness-110"
-            : "border border-white/[0.08] bg-white/[0.03] hover:bg-white/[0.06]"
+        className={`inline-flex h-12 items-center justify-center rounded-xl font-bold text-sm transition-all ${
+          featured 
+            ? 'bg-primary text-primary-foreground hover:bg-primary/90 shadow-[0_0_20px_rgba(157,250,176,0.15)] hover:shadow-[0_0_30px_rgba(157,250,176,0.25)]' 
+            : 'bg-white/5 text-white hover:bg-white/10'
         }`}
       >
         {cta}
       </Link>
+    </div>
+  )
+}
+
+function FAQItem({ question, answer }: { question: string, answer: string }) {
+  const [isOpen, setIsOpen] = useState(false)
+  return (
+    <div className="border-b border-white/[0.05]">
+      <button 
+        onClick={() => setIsOpen(!isOpen)} 
+        className="w-full flex items-center justify-between py-6 text-left group"
+      >
+        <span className="text-lg font-medium text-white group-hover:text-primary transition-colors">{question}</span>
+        <ChevronDown className={`w-5 h-5 text-muted-foreground transition-transform duration-300 ${isOpen ? 'rotate-180 text-primary' : ''}`} />
+      </button>
+      <div 
+        className={`overflow-hidden transition-all duration-300 ease-in-out ${isOpen ? 'max-h-40 pb-6 opacity-100' : 'max-h-0 opacity-0'}`}
+      >
+        <p className="text-muted-foreground text-base pr-8">{answer}</p>
+      </div>
     </div>
   )
 }
@@ -219,7 +237,7 @@ export default function Landing() {
               {[
                 {
                   step: "01",
-                  icon: Image,
+                  icon: ImageIcon,
                   title: "Upload Reference",
                   desc: "Drop any flyer, poster, or ad. Spyda's AI instantly scans and maps every visual component — hero text, imagery, CTAs, brand marks."
                 },
@@ -267,7 +285,7 @@ export default function Landing() {
               <FeatureCard icon={Wand2} title="AI Generation" desc="One-click rendering via GPT-Image 2 with precision prompts built from your edits." />
               <FeatureCard icon={Palette} title="Brand Constants" desc="Lock your HEX codes, fonts, and logo placement so every generation stays perfectly on-brand." />
               <FeatureCard icon={Zap} title="Instant Variations" desc="Generate 10 different design directions from a single reference in seconds." />
-              <FeatureCard icon={Image} title="4K HD Exports" desc="Download print-ready, high-resolution images with no watermarks on paid plans." />
+              <FeatureCard icon={ImageIcon} title="4K HD Exports" desc="Download print-ready, high-resolution images with no watermarks on paid plans." />
             </div>
           </div>
         </section>
@@ -340,6 +358,40 @@ export default function Landing() {
                 features={["Pay OpenAI directly", "Zero generation markup", "Nominal 3-credit platform fee", "Maximum cost control"]}
                 cta="Connect Key"
                 href="/workspace"
+              />
+            </div>
+          </div>
+        </section>
+
+        {/* ─── FAQS ─── */}
+        <section id="faq" className="py-24 px-4 border-t border-white/[0.02] relative z-10 bg-black/20">
+          <div className="mx-auto max-w-3xl">
+            <div className="text-center mb-16">
+              <SectionLabel>FAQs</SectionLabel>
+              <h2 className="font-heading text-3xl sm:text-4xl font-bold tracking-tight">
+                Frequently Asked Questions
+              </h2>
+            </div>
+            <div className="flex flex-col">
+              <FAQItem 
+                question="What is Spyda?" 
+                answer="Spyda is an AI-powered visual design workspace that uses Reference-Guided Design to recreate, modify, or enhance existing layouts and graphics instantly."
+              />
+              <FAQItem 
+                question="How does the credit system work?" 
+                answer="Each standard design generation costs 12 credits. You can purchase credits through one-time top-ups or monthly subscriptions. If you use your own OpenAI API key, you only pay a nominal 3-credit platform fee per generation."
+              />
+              <FAQItem 
+                question="Can I use my own OpenAI API key?" 
+                answer="Yes! You can connect your own API key in the settings to generate designs at cost, allowing for maximum control and cheaper generation volume."
+              />
+              <FAQItem 
+                question="Is my data secure and private?" 
+                answer="Absolutely. Your uploaded references and generated designs are completely private to your workspace and are never used to train public AI models."
+              />
+              <FAQItem 
+                question="Do I get commercial rights to the generated images?" 
+                answer="Yes. You retain full commercial rights to use any design generated within your workspace for your business, marketing, or clients."
               />
             </div>
           </div>
