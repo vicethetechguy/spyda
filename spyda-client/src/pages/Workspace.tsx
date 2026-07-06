@@ -205,7 +205,6 @@ export default function Workspace() {
 
   const activeTitle = pageTitles[activeId] || 'Canvas'
 
-  /* ── Upload handler ── */
   const handleDesignUpload = useCallback(async (file: File) => {
     setUploadedFile(file)
     setUploadedPreview(URL.createObjectURL(file))
@@ -215,37 +214,70 @@ export default function Workspace() {
     setGenerateError(null)
     setAtomEdits({})
 
+    // Helper to compress image on client-side to bypass Vercel 4.5MB payload limit
+    const compressImage = (file: File): Promise<string> => {
+      return new Promise((resolve, reject) => {
+        const reader = new FileReader();
+        reader.readAsDataURL(file);
+        reader.onload = (event) => {
+          const img = new window.Image();
+          img.src = event.target?.result as string;
+          img.onload = () => {
+            const canvas = document.createElement('canvas');
+            const MAX_WIDTH = 1024;
+            const MAX_HEIGHT = 1024;
+            let width = img.width;
+            let height = img.height;
+
+            if (width > height) {
+              if (width > MAX_WIDTH) {
+                height *= MAX_WIDTH / width;
+                width = MAX_WIDTH;
+              }
+            } else {
+              if (height > MAX_HEIGHT) {
+                width *= MAX_HEIGHT / height;
+                height = MAX_HEIGHT;
+              }
+            }
+
+            canvas.width = width;
+            canvas.height = height;
+            const ctx = canvas.getContext('2d');
+            ctx?.drawImage(img, 0, 0, width, height);
+            
+            // Compress to JPEG with 0.8 quality
+            const dataUrl = canvas.toDataURL('image/jpeg', 0.8);
+            resolve(dataUrl);
+          };
+          img.onerror = (error: any) => reject(error);
+        };
+        reader.onerror = (error: any) => reject(error);
+      });
+    };
+
     // Auto-analyze
     setIsAnalyzing(true)
-    try {
-      const reader = new FileReader()
-      reader.onloadend = async () => {
-        const base64Image = reader.result as string
+      try {
+        const base64Image = await compressImage(file);
         
-        try {
-          const res = await fetch('/api/analyze', { 
-            method: 'POST', 
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ base64Image, aiProvider: aiModel.provider })
-          })
-          const data: ApiAnalyzeResponse = await res.json()
-          
-          if (data?.ok && data?.breakdown) {
-            setBreakdown(data.breakdown)
-          } else {
-            setAnalyzeError(data?.error || 'Analysis failed. Check your API keys.')
-          }
-        } catch (err: any) {
-          setAnalyzeError(err.message || 'Failed to connect to server.')
-        } finally {
-          setIsAnalyzing(false)
+        const res = await fetch('/api/analyze', { 
+          method: 'POST', 
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ base64Image, aiProvider: aiModel.provider })
+        })
+        const data: ApiAnalyzeResponse = await res.json()
+        
+        if (data?.ok && data?.breakdown) {
+          setBreakdown(data.breakdown)
+        } else {
+          setAnalyzeError(data?.error || 'Analysis failed. Check your API keys.')
         }
+      } catch (err: any) {
+        setAnalyzeError(err.message || 'Failed to connect to server.')
+      } finally {
+        setIsAnalyzing(false)
       }
-      reader.readAsDataURL(file)
-    } catch (err: any) {
-      setAnalyzeError(err.message || 'Failed to read file.')
-      setIsAnalyzing(false)
-    }
   }, [aiModel])
 
   /* ── Generate handler ── */
