@@ -89,6 +89,13 @@ type ApiGenerateResponse = {
    Main Workspace
    ═══════════════════════════════════════════════ */
 
+type AtomEdit = {
+  mode: 'same' | 'customize'
+  value: string
+  assetName?: string
+  assetDataUrl?: string
+}
+
 const HEX_COLOR_PATTERN = /^#?[0-9a-fA-F]{6}$/
 
 function normalizeHexColor(value: string, fallback: string) {
@@ -107,6 +114,40 @@ function formatHexDraft(value: string) {
 
   const hex = cleaned.startsWith('#') ? cleaned.slice(1, 7) : cleaned.slice(0, 6)
   return `#${hex.toUpperCase()}`
+}
+
+function imageFileToDataUrl(file: File, maxWidth = 1024, maxHeight = 1024, quality = 0.86): Promise<string> {
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader()
+    reader.readAsDataURL(file)
+    reader.onload = (event) => {
+      const img = new window.Image()
+      img.src = event.target?.result as string
+      img.onload = () => {
+        const canvas = document.createElement('canvas')
+        let width = img.width
+        let height = img.height
+
+        if (width > height && width > maxWidth) {
+          height *= maxWidth / width
+          width = maxWidth
+        } else if (height > maxHeight) {
+          width *= maxHeight / height
+          height = maxHeight
+        }
+
+        canvas.width = Math.round(width)
+        canvas.height = Math.round(height)
+        const ctx = canvas.getContext('2d')
+        ctx?.drawImage(img, 0, 0, canvas.width, canvas.height)
+
+        const mime = file.type === 'image/png' ? 'image/png' : 'image/jpeg'
+        resolve(canvas.toDataURL(mime, quality))
+      }
+      img.onerror = (error: any) => reject(error)
+    }
+    reader.onerror = (error: any) => reject(error)
+  })
 }
 
 async function readApiJson<T>(response: Response): Promise<T> {
@@ -164,8 +205,6 @@ export default function Workspace() {
   // Canvas state — lifted so it persists across sidebar nav
   const [uploadedFile, setUploadedFile] = useState<File | null>(null)
   const [uploadedPreview, setUploadedPreview] = useState<string | null>(null)
-  const [subjectFile, setSubjectFile] = useState<File | null>(null)
-  const [subjectPreview, setSubjectPreview] = useState<string | null>(null)
   const [breakdown, setBreakdown] = useState<BreakdownResult | null>(null)
   const [isAnalyzing, setIsAnalyzing] = useState(false)
   const [isGenerating, setIsGenerating] = useState(false)
@@ -174,7 +213,7 @@ export default function Workspace() {
   const [generateError, setGenerateError] = useState<string | null>(null)
 
   // Atom edits — keyed by section id
-  const [atomEdits, setAtomEdits] = useState<Record<string, { mode: 'same' | 'customize'; value: string }>>({})
+  const [atomEdits, setAtomEdits] = useState<Record<string, AtomEdit>>({})
 
   // Brand card state
   const [brandEdits, setBrandEdits] = useState<{
@@ -233,52 +272,10 @@ export default function Workspace() {
     setGenerateError(null)
     setAtomEdits({})
 
-    // Helper to compress image on client-side to bypass Vercel 4.5MB payload limit
-    const compressImage = (file: File): Promise<string> => {
-      return new Promise((resolve, reject) => {
-        const reader = new FileReader();
-        reader.readAsDataURL(file);
-        reader.onload = (event) => {
-          const img = new window.Image();
-          img.src = event.target?.result as string;
-          img.onload = () => {
-            const canvas = document.createElement('canvas');
-            const MAX_WIDTH = 1024;
-            const MAX_HEIGHT = 1024;
-            let width = img.width;
-            let height = img.height;
-
-            if (width > height) {
-              if (width > MAX_WIDTH) {
-                height *= MAX_WIDTH / width;
-                width = MAX_WIDTH;
-              }
-            } else {
-              if (height > MAX_HEIGHT) {
-                width *= MAX_HEIGHT / height;
-                height = MAX_HEIGHT;
-              }
-            }
-
-            canvas.width = width;
-            canvas.height = height;
-            const ctx = canvas.getContext('2d');
-            ctx?.drawImage(img, 0, 0, width, height);
-            
-            // Compress to JPEG with 0.8 quality
-            const dataUrl = canvas.toDataURL('image/jpeg', 0.8);
-            resolve(dataUrl);
-          };
-          img.onerror = (error: any) => reject(error);
-        };
-        reader.onerror = (error: any) => reject(error);
-      });
-    };
-
     // Auto-analyze
     setIsAnalyzing(true)
       try {
-        const base64Image = await compressImage(file);
+        const base64Image = await imageFileToDataUrl(file, 1024, 1024, 0.82);
         
         const res = await fetch('/api/analyze', { 
           method: 'POST', 
@@ -300,6 +297,20 @@ export default function Workspace() {
   }, [aiModel])
 
   /* ── Generate handler ── */
+  const handleAtomImageUpload = useCallback(async (section: AtomSection, file: File) => {
+    const assetDataUrl = await imageFileToDataUrl(file, 1024, 1024, 0.9)
+    const assetName = file.name
+    setAtomEdits(prev => ({
+      ...prev,
+      [section.id]: {
+        mode: 'customize',
+        value: prev[section.id]?.value || `Use uploaded reference image "${assetName}" for ${section.name}. Preserve this asset's identity, logo mark, subject, colors, and placement intent.`,
+        assetName,
+        assetDataUrl,
+      },
+    }))
+  }, [])
+
   const handleGenerate = useCallback(async () => {
     if (!uploadedFile || !breakdown) return
     setIsGenerating(true)
@@ -307,15 +318,37 @@ export default function Workspace() {
 
     try {
       // Build recipe from atoms + brand card
+      const referenceImages = breakdown.sections
+        .map(s => {
+          const edit = atomEdits[s.id]
+          if (s.deleted || edit?.mode !== 'customize' || !edit.assetDataUrl) return null
+          return {
+            sectionId: s.id,
+            sectionName: s.name,
+            sectionType: s.type,
+            name: edit.assetName || `${s.name} reference image`,
+            dataUrl: edit.assetDataUrl,
+          }
+        })
+        .filter(Boolean)
+
       const recipe: Record<string, any> = {
         aiProvider: aiModel.provider,
+        referenceImages,
         sections: breakdown.sections
           .filter(s => !s.deleted)
           .map(s => {
             const edit = atomEdits[s.id]
             return {
               ...s,
-              replacement: edit?.mode === 'customize' ? edit.value : 'Same as original',
+              replacement: edit?.mode === 'customize'
+                ? edit.assetDataUrl
+                  ? `${edit.value || `Use uploaded reference image ${edit.assetName || 'for this atom'}`}. This atom has a real uploaded reference image attached in recipe.referenceImages; it must appear in the generated flyer.`
+                  : edit.value
+                : 'Same as original',
+              replacementAsset: edit?.mode === 'customize' && edit.assetDataUrl
+                ? { name: edit.assetName, referenceKey: s.id }
+                : undefined,
             }
           }),
         constants: {
@@ -354,14 +387,12 @@ export default function Workspace() {
     } finally {
       setIsGenerating(false)
     }
-  }, [uploadedFile, subjectFile, breakdown, atomEdits, brandEdits, aiModel])
+  }, [uploadedFile, breakdown, atomEdits, brandEdits, aiModel])
 
   /* ── Reset handler ── */
   const handleReset = useCallback(() => {
     setUploadedFile(null)
     setUploadedPreview(null)
-    setSubjectFile(null)
-    setSubjectPreview(null)
     setBreakdown(null)
     setGeneratedImage(null)
     setAnalyzeError(null)
@@ -467,8 +498,6 @@ export default function Workspace() {
             <CanvasView
               uploadedFile={uploadedFile}
               uploadedPreview={uploadedPreview}
-              subjectFile={subjectFile}
-              subjectPreview={subjectPreview}
               breakdown={breakdown}
               isAnalyzing={isAnalyzing}
               isGenerating={isGenerating}
@@ -478,10 +507,10 @@ export default function Workspace() {
               atomEdits={atomEdits}
               brandEdits={brandEdits}
               onUpload={handleDesignUpload}
-              onSubjectUpload={(f) => { setSubjectFile(f); setSubjectPreview(URL.createObjectURL(f)) }}
+              onAtomImageUpload={handleAtomImageUpload}
               onGenerate={handleGenerate}
               onReset={handleReset}
-              onAtomEdit={(id, mode, value) => setAtomEdits(prev => ({ ...prev, [id]: { mode, value } }))}
+              onAtomEdit={(id, mode, value) => setAtomEdits(prev => ({ ...prev, [id]: { ...prev[id], mode, value } }))}
               onBrandEdit={(field, value) => setBrandEdits(prev => ({ ...prev, [field]: value }))}
             />
           )}
@@ -500,23 +529,21 @@ export default function Workspace() {
    ═══════════════════════════════════════════════ */
 
 function CanvasView({
-  uploadedFile, uploadedPreview, subjectFile, subjectPreview,
+  uploadedFile, uploadedPreview,
   breakdown, isAnalyzing, isGenerating, generatedImage,
   analyzeError, generateError, atomEdits, brandEdits,
-  onUpload, onSubjectUpload, onGenerate, onReset,
+  onUpload, onAtomImageUpload, onGenerate, onReset,
   onAtomEdit, onBrandEdit
 }: {
   uploadedFile: File | null
   uploadedPreview: string | null
-  subjectFile: File | null
-  subjectPreview: string | null
   breakdown: BreakdownResult | null
   isAnalyzing: boolean
   isGenerating: boolean
   generatedImage: string | null
   analyzeError: string | null
   generateError: string | null
-  atomEdits: Record<string, { mode: 'same' | 'customize'; value: string }>
+  atomEdits: Record<string, AtomEdit>
   brandEdits: {
     headingFont: string
     bodyFont: string
@@ -527,14 +554,13 @@ function CanvasView({
     essentials: string
   }
   onUpload: (file: File) => void
-  onSubjectUpload: (file: File) => void
+  onAtomImageUpload: (section: AtomSection, file: File) => void
   onGenerate: () => void
   onReset: () => void
   onAtomEdit: (id: string, mode: 'same' | 'customize', value: string) => void
   onBrandEdit: (field: string, value: string) => void
 }) {
   const fileInputRef = useRef<HTMLInputElement>(null)
-  const subjectInputRef = useRef<HTMLInputElement>(null)
   const [isDragging, setIsDragging] = useState(false)
 
   const handleDrop = useCallback((e: React.DragEvent) => {
@@ -687,10 +713,7 @@ function CanvasView({
                 index={i}
                 edit={atomEdits[section.id]}
                 onEdit={onAtomEdit}
-                subjectFile={subjectFile}
-                subjectPreview={subjectPreview}
-                onSubjectUpload={onSubjectUpload}
-                subjectInputRef={subjectInputRef}
+                onImageUpload={onAtomImageUpload}
               />
             ))}
 
@@ -787,7 +810,6 @@ function CanvasView({
                 {isGenerating ? 'Generating New Flyer...' : 'Generate New Flyer'}
               </button>
             </div>
-            <input ref={subjectInputRef} type="file" accept="image/*" className="hidden" onChange={e => { const f = e.target.files?.[0]; if (f) onSubjectUpload(f) }} />
           </div>
         ) : (
           <div className="flex-1 flex items-center justify-center p-8">
@@ -808,17 +830,15 @@ function CanvasView({
    ═══════════════════════════════════════════════ */
 
 function AtomCard({
-  section, index, edit, onEdit, subjectFile, subjectPreview, onSubjectUpload, subjectInputRef
+  section, index, edit, onEdit, onImageUpload
 }: {
   section: AtomSection
   index: number
-  edit?: { mode: 'same' | 'customize'; value: string }
+  edit?: AtomEdit
   onEdit: (id: string, mode: 'same' | 'customize', value: string) => void
-  subjectFile: File | null
-  subjectPreview: string | null
-  onSubjectUpload: (f: File) => void
-  subjectInputRef: React.RefObject<HTMLInputElement | null>
+  onImageUpload: (section: AtomSection, file: File) => void
 }) {
+  const imageInputRef = useRef<HTMLInputElement>(null)
   const mode = edit?.mode || 'same'
   const isImage = section.type === 'image' || /image|photo|subject|product|logo/i.test(`${section.id} ${section.name}`)
   const replacementHint = section.replacementNeeded?.[0] || `Replacement for ${section.name}`
@@ -873,17 +893,36 @@ function AtomCard({
       {mode === 'customize' && (
         <div className="animate-fade-in">
           {isImage ? (
-            <div className="flex items-center gap-3">
-              <button
-                onClick={() => subjectInputRef.current?.click()}
-                className="inline-flex h-9 items-center gap-2 rounded-lg border border-primary/20 bg-primary/5 px-4 text-xs font-semibold text-primary hover:bg-primary/10 transition-colors"
-              >
-                <Upload className="w-3.5 h-3.5" /> {subjectFile ? 'Replace' : 'Upload'} Subject
-              </button>
-              {subjectPreview && (
-                <img src={subjectPreview} alt="Subject" className="w-9 h-9 rounded-lg object-cover border border-white/[0.1]" />
-              )}
-              <span className="text-xs text-muted-foreground">{subjectFile?.name || 'No subject selected'}</span>
+            <div className="space-y-3">
+              <div className="flex items-center gap-3">
+                <button
+                  onClick={() => imageInputRef.current?.click()}
+                  className="inline-flex h-9 items-center gap-2 rounded-lg border border-primary/20 bg-primary/5 px-4 text-xs font-semibold text-primary hover:bg-primary/10 transition-colors"
+                >
+                  <Upload className="w-3.5 h-3.5" /> {edit?.assetDataUrl ? 'Replace' : 'Upload'} Asset
+                </button>
+                <input
+                  ref={imageInputRef}
+                  type="file"
+                  accept="image/*"
+                  className="hidden"
+                  onChange={e => {
+                    const file = e.target.files?.[0]
+                    if (file) onImageUpload(section, file)
+                    e.currentTarget.value = ''
+                  }}
+                />
+                {edit?.assetDataUrl && (
+                  <img src={edit.assetDataUrl} alt="Replacement asset" className="w-9 h-9 rounded-lg object-cover border border-white/[0.1]" />
+                )}
+                <span className="text-xs text-muted-foreground">{edit?.assetName || 'No asset selected'}</span>
+              </div>
+              <textarea
+                value={edit?.value || ''}
+                onChange={e => onEdit(section.id, 'customize', e.target.value)}
+                placeholder={`${replacementHint}. Example: place this logo at the top right and keep it sharp.`}
+                className="w-full h-16 px-3 py-2 rounded-lg bg-white/[0.04] border border-white/[0.06] text-sm text-foreground placeholder:text-muted-foreground/40 outline-none focus:border-primary/40 transition-colors resize-none"
+              />
             </div>
           ) : (
             <textarea

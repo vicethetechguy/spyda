@@ -2,12 +2,14 @@
   "name": "Spyda",
   "short_name": "Spyda",
   "description": "Turn reference designs into editable design intelligence and generate premium visuals.",
+  "id": "/workspace",
   "start_url": "/workspace",
   "scope": "/",
   "display": "standalone",
+  "display_override": ["fullscreen", "standalone"],
   "orientation": "portrait",
   "background_color": "#050606",
-  "theme_color": "#9dfab0",
+  "theme_color": "#050606",
   "categories": ["design", "productivity", "graphics"],
   "icons": [
     {

@@ -380,15 +380,116 @@ export async function analyzeDesign(base64Image: string, provider = "openai") {
   return { ok: true, mode: "openai", breakdown: enrichBreakdownWithOcrTextAtoms(breakdown, ocr), ocr };
 }
 
+function sanitizeRecipeForPrompt(recipe: any) {
+  return {
+    ...recipe,
+    referenceImages: Array.isArray(recipe?.referenceImages)
+      ? recipe.referenceImages.map((image: any, index: number) => ({
+          referenceInput: index + 1,
+          sectionId: image.sectionId,
+          sectionName: image.sectionName,
+          sectionType: image.sectionType,
+          name: image.name,
+          dataUrl: "[attached separately as image input]",
+        }))
+      : [],
+  };
+}
+
 export function buildGenerationPrompt(recipe: any) {
+  const referenceImageInstructions = Array.isArray(recipe?.referenceImages) && recipe.referenceImages.length
+    ? `
+REFERENCE IMAGE REQUIREMENTS:
+${recipe.referenceImages.map((image: any, index: number) => `- Input image ${index + 1}: "${image.name}" belongs to section "${image.sectionName}" (${image.sectionId}). It is mandatory. Preserve the uploaded asset's identity as closely as possible and place it in the generated flyer according to that section's placement/role.`).join("\n")}
+`
+    : "";
+
   return `Create a finished premium graphic design based on this Spyda recipe.
 Keep text clean, legible, and professionally composed.
 Use every non-deleted section in the recipe. Do not ignore required text atoms, brand atoms, image atoms, CTAs, footer details, icons, or decorative elements.
 If the user customized an atom, prioritize that replacement over the original.
-If constants.essentials contains instructions, treat them as hard requirements.
-For logos, uploaded subjects, app screenshots, or specific pictures described in the recipe, preserve their identity and placement as closely as possible. If exact image insertion is not possible, recreate a clear placeholder matching the description and layout.
+If constants.essentials contains instructions, treat them as hard requirements. Essentials override style preferences when they conflict.
+Do not omit user-specified logos, uploaded assets, offers, contact details, disclaimers, CTA text, product names, colors, or exact footer details.
+For every section with replacementAsset, use the matching input reference image and include it visibly in the flyer.
+${referenceImageInstructions}
 Recipe:
-${JSON.stringify(recipe, null, 2)}`;
+${JSON.stringify(sanitizeRecipeForPrompt(recipe), null, 2)}`;
+}
+
+function dataUrlToBlob(dataUrl: string) {
+  const match = dataUrl.match(/^data:(.+);base64,(.+)$/);
+  if (!match) throw new Error("Invalid reference image data.");
+  const [, mimeType, base64] = match;
+  return new Blob([Buffer.from(base64, "base64")], { type: mimeType });
+}
+
+function getReferenceImages(recipe: any) {
+  if (!Array.isArray(recipe?.referenceImages)) return [];
+  return recipe.referenceImages
+    .filter((image: any) => image?.dataUrl && image?.sectionId)
+    .slice(0, 8);
+}
+
+function buildImageEditForm({
+  model,
+  prompt,
+  size,
+  quality,
+  referenceImages,
+  imageFieldName,
+}: {
+  model: string;
+  prompt: string;
+  size: string;
+  quality: string;
+  referenceImages: any[];
+  imageFieldName: "image" | "image[]";
+}) {
+  const form = new FormData();
+  form.append("model", model);
+  form.append("prompt", prompt);
+  form.append("size", size);
+  form.append("quality", quality);
+  form.append("output_format", "png");
+
+  for (const [index, image] of referenceImages.entries()) {
+    const blob = dataUrlToBlob(image.dataUrl);
+    const extension = blob.type.includes("png") ? "png" : "jpg";
+    form.append(imageFieldName, blob, `reference-${index + 1}-${image.sectionId}.${extension}`);
+  }
+
+  return form;
+}
+
+async function requestOpenAiImageEdit({
+  openaiKey,
+  model,
+  prompt,
+  size,
+  quality,
+  referenceImages,
+  imageFieldName,
+}: {
+  openaiKey: string;
+  model: string;
+  prompt: string;
+  size: string;
+  quality: string;
+  referenceImages: any[];
+  imageFieldName: "image" | "image[]";
+}) {
+  const response = await fetch("https://api.openai.com/v1/images/edits", {
+    method: "POST",
+    headers: { "Authorization": `Bearer ${openaiKey}` },
+    body: buildImageEditForm({ model, prompt, size, quality, referenceImages, imageFieldName }),
+  });
+
+  if (!response.ok) {
+    const err = await response.json().catch(() => ({}));
+    throw new Error(err.error?.message || "OpenAI image edit failed.");
+  }
+
+  return response.json();
 }
 
 export async function generateDesign({ recipe }: { recipe: any }) {
@@ -399,6 +500,37 @@ export async function generateDesign({ recipe }: { recipe: any }) {
   const actualModel = imageModel || "gpt-image-1.5";
   const size = mapOutputSize(recipe?.format, recipe?.imageSize, actualModel);
   const quality = mapQuality(recipe?.quality, actualModel);
+  const referenceImages = getReferenceImages(recipe);
+
+  if (referenceImages.length && isGptImageModel(actualModel)) {
+    let payload;
+    try {
+      payload = await requestOpenAiImageEdit({
+        openaiKey,
+        model: actualModel,
+        prompt,
+        size,
+        quality,
+        referenceImages,
+        imageFieldName: "image[]",
+      });
+    } catch (error: any) {
+      const message = String(error?.message || "");
+      if (!/image\[\]|image/i.test(message)) throw error;
+      payload = await requestOpenAiImageEdit({
+        openaiKey,
+        model: actualModel,
+        prompt,
+        size,
+        quality,
+        referenceImages,
+        imageFieldName: "image",
+      });
+    }
+
+    return { ok: true, mode: "openai-edit", model: actualModel, image: payload.data?.[0]?.b64_json || payload.data?.[0]?.url || null };
+  }
+
   const requestBody: Record<string, unknown> = { model: actualModel, prompt, size, quality };
 
   if (isGptImageModel(actualModel)) {

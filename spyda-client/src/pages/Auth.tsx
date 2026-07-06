@@ -59,8 +59,8 @@ export default function Auth() {
 
       <div className="relative z-10 w-full max-w-[420px] p-8">
         <div className="text-center mb-10">
-          <div className="inline-flex items-center justify-center w-16 h-16 rounded-2xl bg-gradient-to-br from-[#22c55e] to-[#16a34a] shadow-[0_0_40px_rgba(34,197,94,0.3)] mb-6">
-            <span className="font-heading text-3xl font-bold text-primary-foreground">S</span>
+          <div className="inline-flex items-center justify-center mb-6">
+            <img src="/assets/spyda-logo-drive.webp" alt="Spyda" className="h-16 w-16 object-contain drop-shadow-[0_0_32px_rgba(157,250,176,0.3)]" />
           </div>
           <h1 className="font-heading text-3xl font-bold text-foreground mb-2">
             {isSignUp ? 'Create your account' : 'Welcome back'}

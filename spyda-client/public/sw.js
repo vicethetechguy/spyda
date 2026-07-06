@@ -1,4 +1,4 @@
-const CACHE_NAME = "spyda-shell-v1";
+const CACHE_NAME = "spyda-shell-v2";
 const APP_SHELL = [
   "/",
   "/workspace",
