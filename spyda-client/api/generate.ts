@@ -1,4 +1,4 @@
-import { generateDesign } from './_utils';
+import { generateDesign } from './_utils.js';
 
 export default async function handler(req: any, res: any) {
   if (req.method !== 'POST') {

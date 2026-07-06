@@ -109,10 +109,26 @@ function formatHexDraft(value: string) {
   return `#${hex.toUpperCase()}`
 }
 
+async function readApiJson<T>(response: Response): Promise<T> {
+  const contentType = response.headers.get('content-type') || ''
+
+  if (contentType.includes('application/json')) {
+    const payload = await response.json()
+    if (!response.ok) {
+      throw new Error(payload?.error || payload?.message || `Server returned ${response.status}.`)
+    }
+    return payload as T
+  }
+
+  const text = await response.text()
+  const serverMessage = text.trim().slice(0, 220) || `Server returned ${response.status}.`
+  throw new Error(serverMessage)
+}
+
 export default function Workspace() {
   const [sidebarOpen, setSidebarOpen] = useState(true)
   const [activeId, setActiveId] = useState('canvas')
-  const [aiModel, setAiModel] = useState<AiModel>(AI_MODELS[0])
+  const [aiModel, setAiModel] = useState<AiModel>(AI_MODELS[1])
   const [modelMenuOpen, setModelMenuOpen] = useState(false)
   const [profilePic, setProfilePic] = useState<string | null>(null)
   const { user, signOut } = useAuth()
@@ -266,7 +282,7 @@ export default function Workspace() {
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({ base64Image, aiProvider: aiModel.provider })
         })
-        const data: ApiAnalyzeResponse = await res.json()
+        const data = await readApiJson<ApiAnalyzeResponse>(res)
         
         if (data?.ok && data?.breakdown) {
           setBreakdown(data.breakdown)
@@ -316,7 +332,7 @@ export default function Workspace() {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ recipe }) 
       })
-      const data: ApiGenerateResponse = await res.json()
+      const data = await readApiJson<ApiGenerateResponse>(res)
 
       if (data?.ok && data?.image) {
         if (data.image.startsWith('http')) {

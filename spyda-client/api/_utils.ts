@@ -147,7 +147,13 @@ export async function generateDesign({ recipe }: { recipe: any }) {
   const actualModel = imageModel || "gpt-image-1.5";
   const size = mapOutputSize(recipe?.format, recipe?.imageSize, actualModel);
   const quality = mapQuality(recipe?.quality, actualModel);
-  const requestBody: Record<string, unknown> = { model: actualModel, prompt, size, quality, response_format: "url" };
+  const requestBody: Record<string, unknown> = { model: actualModel, prompt, size, quality };
+
+  if (isGptImageModel(actualModel)) {
+    requestBody.output_format = "png";
+  } else {
+    requestBody.response_format = "b64_json";
+  }
 
   const response = await fetch("https://api.openai.com/v1/images/generations", {
     method: "POST",
@@ -161,5 +167,5 @@ export async function generateDesign({ recipe }: { recipe: any }) {
   }
 
   const payload = await response.json();
-  return { ok: true, mode: "openai", model: actualModel, image: payload.data?.[0]?.url || payload.data?.[0]?.b64_json || null };
+  return { ok: true, mode: "openai", model: actualModel, image: payload.data?.[0]?.b64_json || payload.data?.[0]?.url || null };
 }

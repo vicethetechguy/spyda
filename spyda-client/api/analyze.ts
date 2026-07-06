@@ -1,4 +1,4 @@
-import { analyzeDesign } from './_utils';
+import { analyzeDesign } from './_utils.js';
 
 export default async function handler(req: any, res: any) {
   if (req.method !== 'POST') {
