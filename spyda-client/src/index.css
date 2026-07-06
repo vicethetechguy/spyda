@@ -144,6 +144,36 @@
   100% { transform: translateX(-50%); }
 }
 
+@keyframes spyda-splash-enter {
+  from { opacity: 0; transform: scale(0.98); }
+  to { opacity: 1; transform: scale(1); }
+}
+
+@keyframes spyda-web-spin {
+  to { transform: rotate(360deg); }
+}
+
+@keyframes spyda-web-pulse {
+  0%, 100% { opacity: 0.32; transform: rotate(var(--ray-angle)) scaleX(0.74); }
+  50% { opacity: 0.92; transform: rotate(var(--ray-angle)) scaleX(1); }
+}
+
+@keyframes spyda-logo-rise {
+  0% { opacity: 0; transform: translateY(14px) scale(0.92); filter: blur(8px); }
+  100% { opacity: 1; transform: translateY(0) scale(1); filter: blur(0); }
+}
+
+@keyframes spyda-beam-scan {
+  0% { transform: translateX(-120%) skewX(-18deg); opacity: 0; }
+  18%, 72% { opacity: 0.45; }
+  100% { transform: translateX(120%) skewX(-18deg); opacity: 0; }
+}
+
+@keyframes spyda-progress {
+  0% { transform: translateX(-100%); }
+  100% { transform: translateX(220%); }
+}
+
 .animate-float {
   animation: float 6s ease-in-out infinite;
 }
@@ -167,6 +197,170 @@
 
 .animate-marquee {
   animation: marquee 30s linear infinite;
+}
+
+.spyda-splash {
+  position: fixed;
+  inset: 0;
+  z-index: 9999;
+  display: grid;
+  place-items: center;
+  overflow: hidden;
+  background:
+    linear-gradient(135deg, rgba(5, 6, 6, 0.98), rgba(9, 13, 12, 0.96) 48%, rgba(3, 6, 5, 0.99)),
+    #050606;
+  color: hsl(var(--foreground));
+  animation: spyda-splash-enter 500ms ease both;
+}
+
+.spyda-splash__grid {
+  position: absolute;
+  inset: 0;
+  opacity: 0.26;
+  background-image:
+    linear-gradient(rgba(157, 250, 176, 0.1) 1px, transparent 1px),
+    linear-gradient(90deg, rgba(157, 250, 176, 0.08) 1px, transparent 1px);
+  background-size: 44px 44px;
+  mask-image: radial-gradient(circle at center, black 0 54%, transparent 76%);
+}
+
+.spyda-splash__beam {
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  width: 32%;
+  background: linear-gradient(90deg, transparent, rgba(157, 250, 176, 0.12), transparent);
+  animation: spyda-beam-scan 2.4s ease-in-out infinite;
+}
+
+.spyda-splash__beam--one {
+  left: 10%;
+}
+
+.spyda-splash__beam--two {
+  right: 4%;
+  animation-delay: 700ms;
+  background: linear-gradient(90deg, transparent, rgba(139, 211, 255, 0.1), transparent);
+}
+
+.spyda-splash__core {
+  position: relative;
+  width: min(82vw, 360px);
+  min-height: 360px;
+  display: grid;
+  place-items: center;
+  padding: 28px;
+}
+
+.spyda-splash__web {
+  position: absolute;
+  inset: 8%;
+  border: 1px solid rgba(157, 250, 176, 0.16);
+  border-radius: 999px;
+  animation: spyda-web-spin 11s linear infinite;
+}
+
+.spyda-splash__web::before,
+.spyda-splash__web::after {
+  content: "";
+  position: absolute;
+  inset: 17%;
+  border: 1px solid rgba(139, 211, 255, 0.14);
+  border-radius: inherit;
+}
+
+.spyda-splash__web::after {
+  inset: 34%;
+  border-color: rgba(247, 251, 255, 0.18);
+}
+
+.spyda-splash__web span {
+  position: absolute;
+  left: 50%;
+  top: 50%;
+  width: 50%;
+  height: 1px;
+  transform-origin: left;
+  background: linear-gradient(90deg, rgba(157, 250, 176, 0.05), rgba(157, 250, 176, 0.68), rgba(255, 255, 255, 0.05));
+  animation: spyda-web-pulse 1.9s ease-in-out infinite;
+}
+
+.spyda-splash__web span:nth-child(1) { --ray-angle: 0deg; }
+.spyda-splash__web span:nth-child(2) { --ray-angle: 45deg; animation-delay: 120ms; }
+.spyda-splash__web span:nth-child(3) { --ray-angle: 90deg; animation-delay: 240ms; }
+.spyda-splash__web span:nth-child(4) { --ray-angle: 135deg; animation-delay: 360ms; }
+
+.spyda-splash__logo-wrap {
+  position: relative;
+  z-index: 2;
+  width: clamp(94px, 28vw, 132px);
+  aspect-ratio: 1;
+  display: grid;
+  place-items: center;
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  border-radius: 28px;
+  background:
+    linear-gradient(145deg, rgba(255, 255, 255, 0.1), rgba(255, 255, 255, 0.03)),
+    rgba(7, 10, 9, 0.82);
+  box-shadow:
+    0 24px 70px rgba(0, 0, 0, 0.42),
+    inset 0 1px 0 rgba(255, 255, 255, 0.12);
+  animation: spyda-logo-rise 720ms ease 120ms both;
+}
+
+.spyda-splash__logo {
+  width: 66%;
+  height: 66%;
+  object-fit: contain;
+  filter: drop-shadow(0 0 22px rgba(157, 250, 176, 0.28));
+}
+
+.spyda-splash__copy {
+  position: absolute;
+  z-index: 2;
+  bottom: 20px;
+  width: 100%;
+  text-align: center;
+}
+
+.spyda-splash__copy p {
+  font-family: 'Space Grotesk', sans-serif;
+  font-size: clamp(2rem, 12vw, 3.5rem);
+  font-weight: 700;
+  line-height: 0.95;
+  letter-spacing: 0;
+  margin: 0;
+  color: transparent;
+  background: linear-gradient(135deg, #f7fbff, #9dfab0 48%, #8bd3ff);
+  background-clip: text;
+  -webkit-background-clip: text;
+}
+
+.spyda-splash__copy span {
+  display: block;
+  margin-top: 10px;
+  font-size: 0.82rem;
+  color: rgba(247, 251, 255, 0.68);
+}
+
+.spyda-splash__progress {
+  position: absolute;
+  z-index: 2;
+  bottom: 0;
+  width: min(58vw, 220px);
+  height: 3px;
+  overflow: hidden;
+  border-radius: 999px;
+  background: rgba(255, 255, 255, 0.08);
+}
+
+.spyda-splash__progress i {
+  display: block;
+  width: 42%;
+  height: 100%;
+  border-radius: inherit;
+  background: linear-gradient(90deg, #9dfab0, #8bd3ff);
+  animation: spyda-progress 1.15s ease-in-out infinite;
 }
 
 /* Grid Pattern Overlay */

@@ -1,0 +1,41 @@
+{
+  "name": "Spyda",
+  "short_name": "Spyda",
+  "description": "Turn reference designs into editable design intelligence and generate premium visuals.",
+  "start_url": "/workspace",
+  "scope": "/",
+  "display": "standalone",
+  "orientation": "portrait",
+  "background_color": "#050606",
+  "theme_color": "#9dfab0",
+  "categories": ["design", "productivity", "graphics"],
+  "icons": [
+    {
+      "src": "/assets/spyda-logo.png",
+      "sizes": "192x192",
+      "type": "image/png",
+      "purpose": "any"
+    },
+    {
+      "src": "/assets/spyda-logo.png",
+      "sizes": "512x512",
+      "type": "image/png",
+      "purpose": "any maskable"
+    }
+  ],
+  "shortcuts": [
+    {
+      "name": "Open Workspace",
+      "short_name": "Workspace",
+      "description": "Open the Spyda design workspace.",
+      "url": "/workspace",
+      "icons": [
+        {
+          "src": "/assets/spyda-logo.png",
+          "sizes": "192x192",
+          "type": "image/png"
+        }
+      ]
+    }
+  ]
+}
