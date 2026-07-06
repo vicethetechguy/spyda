@@ -1,0 +1,5 @@
+spyda-client/
+supabase/
+server.out.log
+server.err.log
+.env
