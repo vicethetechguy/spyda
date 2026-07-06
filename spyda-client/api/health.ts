@@ -1,5 +1,8 @@
-import process from "node:process";
 import { analysisModel, groqAnalysisModel, imageModel } from './_utils.js';
+
+declare const process: {
+  env: Record<string, string | undefined>;
+};
 
 export default async function handler(req: any, res: any) {
   if (req.method !== 'GET') {
