@@ -6,20 +6,29 @@ export const imageModel = process.env.OPENAI_IMAGE_MODEL || "gpt-image-2";
 export const analysisModel = process.env.OPENAI_ANALYSIS_MODEL || "gpt-4o";
 export const groqAnalysisModel = process.env.GROQ_ANALYSIS_MODEL || "llama-3.2-90b-vision-preview";
 
-export function mapOutputSize(format: string = "", imageSize: string = "") {
+export function isGptImageModel(model: string = "") {
+  return model.toLowerCase().startsWith("gpt-image");
+}
+
+export function mapOutputSize(format: string = "", imageSize: string = "", model: string = "") {
   const sizeChoice = imageSize.toLowerCase();
   const normalized = format.toLowerCase();
+  const portraitSize = isGptImageModel(model) ? "1024x1536" : "1024x1792";
+  const landscapeSize = isGptImageModel(model) ? "1536x1024" : "1792x1024";
+
   if (sizeChoice.includes("1024 x 1024") || sizeChoice.includes("square")) return "1024x1024";
-  if (sizeChoice.includes("portrait")) return "1024x1792";
-  if (sizeChoice.includes("landscape")) return "1792x1024";
-  if (normalized.includes("story") || normalized.includes("9:16")) return "1024x1792";
-  if (normalized.includes("a4") || normalized.includes("flyer")) return "1024x1792";
-  if (normalized.includes("landscape")) return "1792x1024";
+  if (sizeChoice.includes("portrait")) return portraitSize;
+  if (sizeChoice.includes("landscape")) return landscapeSize;
+  if (normalized.includes("story") || normalized.includes("9:16")) return portraitSize;
+  if (normalized.includes("a4") || normalized.includes("flyer")) return portraitSize;
+  if (normalized.includes("landscape")) return landscapeSize;
   return "1024x1024";
 }
 
-export function mapQuality(quality: string = "") {
-  return quality.toLowerCase().includes("premium") ? "hd" : "standard";
+export function mapQuality(quality: string = "", model: string = "") {
+  const normalized = quality.toLowerCase();
+  if (isGptImageModel(model)) return normalized.includes("premium") ? "high" : "medium";
+  return normalized.includes("premium") ? "hd" : "standard";
 }
 
 export function buildMockBreakdown() {
@@ -135,14 +144,21 @@ export async function generateDesign({ recipe }: { recipe: any }) {
   if (!openaiKey) throw new Error("OPENAI_API_KEY is not configured.");
 
   const prompt = buildGenerationPrompt(recipe);
-  const size = mapOutputSize(recipe?.format, recipe?.imageSize);
-  const quality = mapQuality(recipe?.quality);
-  const actualModel = imageModel.includes("dall-e") || imageModel.includes("gpt") ? "dall-e-3" : imageModel;
+  const actualModel = imageModel || "gpt-image-1.5";
+  const size = mapOutputSize(recipe?.format, recipe?.imageSize, actualModel);
+  const quality = mapQuality(recipe?.quality, actualModel);
+  const requestBody: Record<string, unknown> = { model: actualModel, prompt, size, quality };
+
+  if (isGptImageModel(actualModel)) {
+    requestBody.output_format = "png";
+  } else {
+    requestBody.response_format = "b64_json";
+  }
 
   const response = await fetch("https://api.openai.com/v1/images/generations", {
     method: "POST",
     headers: { "Authorization": `Bearer ${openaiKey}`, "Content-Type": "application/json" },
-    body: JSON.stringify({ model: actualModel, prompt, size, quality, response_format: "b64_json" }),
+    body: JSON.stringify(requestBody),
   });
 
   if (!response.ok) {
