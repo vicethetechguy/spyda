@@ -181,10 +181,11 @@ export default function Workspace() {
       formData.append('aiProvider', aiModel.provider)
       const res = await fetch('/api/analyze', { method: 'POST', body: formData })
       const data: ApiAnalyzeResponse = await res.json()
-      if (data.ok && data.breakdown) {
+      
+      if (data?.ok && data?.breakdown) {
         setBreakdown(data.breakdown)
       } else {
-        setAnalyzeError('Analysis failed. Check your API keys.')
+        setAnalyzeError(data?.error || 'Analysis failed. Check your API keys.')
       }
     } catch (err: any) {
       setAnalyzeError(err.message || 'Failed to connect to server.')
@@ -234,12 +235,12 @@ export default function Workspace() {
       const res = await fetch('/api/generate', { method: 'POST', body: formData })
       const data: ApiGenerateResponse = await res.json()
 
-      if (data.ok && data.image) {
+      if (data?.ok && data?.image) {
         setGeneratedImage(`data:image/png;base64,${data.image}`)
-      } else if (data.ok && !data.image) {
-        setGenerateError(data.message || 'Generation returned no image (mock mode — set OPENAI_API_KEY).')
+      } else if (data?.ok && !data?.image) {
+        setGenerateError(data?.message || 'Generation returned no image (mock mode — set OPENAI_API_KEY).')
       } else {
-        setGenerateError('Generation failed.')
+        setGenerateError(data?.error || 'Generation failed.')
       }
     } catch (err: any) {
       setGenerateError(err.message || 'Failed to connect to server.')
@@ -271,8 +272,16 @@ export default function Workspace() {
 
   return (
     <div className="flex h-screen bg-background text-foreground font-sans overflow-hidden">
+      {/* Mobile Sidebar Backdrop */}
+      {sidebarOpen && (
+        <div 
+          className="fixed inset-0 bg-black/60 z-40 lg:hidden backdrop-blur-sm" 
+          onClick={() => setSidebarOpen(false)}
+        />
+      )}
+      
       {/* Sidebar */}
-      <div className={`h-full shrink-0 transition-all duration-300 ease-in-out overflow-hidden ${sidebarOpen ? 'w-[260px]' : 'w-0'}`}>
+      <div className={`fixed inset-y-0 left-0 z-50 lg:relative h-full shrink-0 transition-all duration-300 ease-in-out overflow-hidden bg-[#060608]/95 backdrop-blur-2xl lg:bg-transparent border-r border-white/[0.04] lg:border-none ${sidebarOpen ? 'w-[260px] translate-x-0' : 'w-[260px] -translate-x-full lg:w-0 lg:translate-x-0'}`}>
         <SidebarNav className="w-[260px] h-full" activeId={activeId} onSelect={setActiveId} />
       </div>
 
@@ -457,7 +466,7 @@ function CanvasView({
   const visibleSections = breakdown?.sections.filter(s => !s.deleted) || []
 
   return (
-    <div className="h-full flex flex-col lg:flex-row">
+    <div className="min-h-full flex flex-col lg:flex-row lg:h-full">
       {/* Left: Reference + Generated */}
       <div className="lg:w-[45%] shrink-0 border-r border-white/[0.06] flex flex-col">
         {/* Reference Image */}
@@ -765,7 +774,7 @@ function GalleryView() {
           <Sparkles className="w-4 h-4" /> New Design
         </button>
       </div>
-      <div className="grid grid-cols-2 md:grid-cols-3 gap-6">
+      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-6">
         {samples.map((src, i) => (
           <div key={i} className="group relative aspect-[4/5] rounded-2xl overflow-hidden border border-white/[0.06] bg-white/[0.02] cursor-pointer transition-all hover:border-primary/30 hover:shadow-xl">
             <img src={`/assets/${src}`} alt="" className="w-full h-full object-cover transition-transform duration-500 group-hover:scale-105" />
@@ -873,7 +882,7 @@ function WalletView() {
         </div>
       </div>
       <h3 className="font-heading font-semibold text-lg mb-4">Quick Top-Up</h3>
-      <div className="grid grid-cols-3 gap-4 mb-8">
+      <div className="grid grid-cols-1 sm:grid-cols-3 gap-4 mb-8">
         {[
           { amountUSD: 5, credits: 500, label: "$5" },
           { amountUSD: 10, credits: 1000, label: "$10" },

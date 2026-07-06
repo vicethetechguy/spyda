@@ -169,7 +169,7 @@ export default function Landing() {
             </div>
 
             {/* Stats */}
-            <div className="mt-20 grid grid-cols-3 gap-8 max-w-lg mx-auto">
+            <div className="mt-20 grid grid-cols-1 sm:grid-cols-3 gap-8 max-w-lg mx-auto">
               <StatBlock value="10x" label="Faster Output" />
               <StatBlock value="∞" label="Variations" />
               <StatBlock value="4K" label="HD Exports" />
@@ -215,7 +215,7 @@ export default function Landing() {
               </p>
             </div>
 
-            <div className="grid md:grid-cols-3 gap-6">
+            <div className="grid grid-cols-1 md:grid-cols-3 gap-6 relative z-10">
               {[
                 {
                   step: "01",
@@ -313,7 +313,7 @@ export default function Landing() {
               </p>
             </div>
 
-            <div className="grid md:grid-cols-3 gap-8 max-w-5xl mx-auto">
+            <div className="grid grid-cols-1 md:grid-cols-3 gap-4 md:gap-6 relative z-10 max-w-5xl mx-auto">
               <PricingCard
                 name="Top-Up"
                 price="Flexible"
