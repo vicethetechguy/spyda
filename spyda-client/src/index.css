@@ -384,3 +384,33 @@
   pointer-events: none;
   z-index: 0;
 }
+
+.partners-marquee {
+  display: flex;
+  width: 100%;
+  overflow: hidden;
+  white-space: nowrap;
+  mask-image: linear-gradient(90deg, transparent, black 12%, black 88%, transparent);
+}
+
+.partners-marquee__track {
+  display: inline-flex;
+  min-width: max-content;
+  align-items: center;
+  gap: clamp(2.5rem, 7vw, 5rem);
+  padding-right: clamp(2.5rem, 7vw, 5rem);
+  animation: partners-scroll 26s linear infinite;
+}
+
+.partners-marquee:hover .partners-marquee__track {
+  animation-play-state: paused;
+}
+
+@keyframes partners-scroll {
+  from {
+    transform: translateX(-100%);
+  }
+  to {
+    transform: translateX(0);
+  }
+}

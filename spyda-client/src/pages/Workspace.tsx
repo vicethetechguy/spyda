@@ -20,7 +20,9 @@ import {
   Zap,
   Bot,
   ChevronUp,
-  ChevronRight
+  ChevronRight,
+  MoreHorizontal,
+  Trash2
 } from 'lucide-react'
 
 /* ═══════════════════════════════════════════════
@@ -311,6 +313,23 @@ export default function Workspace() {
     }))
   }, [])
 
+  const handleDeleteAtom = useCallback((sectionId: string) => {
+    setBreakdown(prev => {
+      if (!prev) return prev
+      return {
+        ...prev,
+        sections: prev.sections.map(section =>
+          section.id === sectionId ? { ...section, deleted: true } : section
+        ),
+      }
+    })
+    setAtomEdits(prev => {
+      const next = { ...prev }
+      delete next[sectionId]
+      return next
+    })
+  }, [])
+
   const handleGenerate = useCallback(async () => {
     if (!uploadedFile || !breakdown) return
     setIsGenerating(true)
@@ -508,6 +527,7 @@ export default function Workspace() {
               brandEdits={brandEdits}
               onUpload={handleDesignUpload}
               onAtomImageUpload={handleAtomImageUpload}
+              onDeleteAtom={handleDeleteAtom}
               onGenerate={handleGenerate}
               onReset={handleReset}
               onAtomEdit={(id, mode, value) => setAtomEdits(prev => ({ ...prev, [id]: { ...prev[id], mode, value } }))}
@@ -532,7 +552,7 @@ function CanvasView({
   uploadedFile, uploadedPreview,
   breakdown, isAnalyzing, isGenerating, generatedImage,
   analyzeError, generateError, atomEdits, brandEdits,
-  onUpload, onAtomImageUpload, onGenerate, onReset,
+  onUpload, onAtomImageUpload, onDeleteAtom, onGenerate, onReset,
   onAtomEdit, onBrandEdit
 }: {
   uploadedFile: File | null
@@ -555,6 +575,7 @@ function CanvasView({
   }
   onUpload: (file: File) => void
   onAtomImageUpload: (section: AtomSection, file: File) => void
+  onDeleteAtom: (sectionId: string) => void
   onGenerate: () => void
   onReset: () => void
   onAtomEdit: (id: string, mode: 'same' | 'customize', value: string) => void
@@ -714,6 +735,7 @@ function CanvasView({
                 edit={atomEdits[section.id]}
                 onEdit={onAtomEdit}
                 onImageUpload={onAtomImageUpload}
+                onDelete={onDeleteAtom}
               />
             ))}
 
@@ -830,15 +852,17 @@ function CanvasView({
    ═══════════════════════════════════════════════ */
 
 function AtomCard({
-  section, index, edit, onEdit, onImageUpload
+  section, index, edit, onEdit, onImageUpload, onDelete
 }: {
   section: AtomSection
   index: number
   edit?: AtomEdit
   onEdit: (id: string, mode: 'same' | 'customize', value: string) => void
   onImageUpload: (section: AtomSection, file: File) => void
+  onDelete: (sectionId: string) => void
 }) {
   const imageInputRef = useRef<HTMLInputElement>(null)
+  const [menuOpen, setMenuOpen] = useState(false)
   const mode = edit?.mode || 'same'
   const isImage = section.type === 'image' || /image|photo|subject|product|logo/i.test(`${section.id} ${section.name}`)
   const replacementHint = section.replacementNeeded?.[0] || `Replacement for ${section.name}`
@@ -863,7 +887,31 @@ function AtomCard({
           </span>
           <strong className="text-sm font-semibold">{section.name}</strong>
         </div>
-        <span className="text-[10px] font-mono text-muted-foreground/40">{String(index + 1).padStart(2, '0')}</span>
+        <div className="relative">
+          <button
+            type="button"
+            onClick={() => setMenuOpen(prev => !prev)}
+            aria-label={`${section.name} options`}
+            className="inline-flex h-8 w-8 items-center justify-center rounded-lg border border-white/[0.06] bg-white/[0.03] text-muted-foreground transition-colors hover:border-white/[0.12] hover:bg-white/[0.06] hover:text-foreground"
+          >
+            <MoreHorizontal className="h-4 w-4" />
+          </button>
+          {menuOpen && (
+            <div className="absolute right-0 top-9 z-30 w-40 overflow-hidden rounded-xl border border-white/[0.08] bg-[#101312] p-1 shadow-2xl shadow-black/40">
+              <button
+                type="button"
+                onClick={() => {
+                  setMenuOpen(false)
+                  onDelete(section.id)
+                }}
+                className="flex w-full items-center gap-2 rounded-lg px-3 py-2 text-left text-xs font-semibold text-rose-300 transition-colors hover:bg-rose-500/10"
+              >
+                <Trash2 className="h-3.5 w-3.5" />
+                Delete card
+              </button>
+            </div>
+          )}
+        </div>
       </div>
 
       {section.current.description && (

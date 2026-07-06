@@ -174,13 +174,13 @@ export default function Landing() {
             <div className="mt-10 flex flex-col sm:flex-row gap-4 justify-center">
               <Link
                 to="/workspace"
-                className="group inline-flex h-14 items-center gap-3 rounded-full bg-gradient-to-r from-[#22c55e] to-[#16a34a] px-8 text-sm font-bold text-primary-foreground shadow-[0_18px_44px_rgba(157,250,176,0.22)] transition-all hover:shadow-[0_22px_54px_rgba(157,250,176,0.32)] hover:-translate-y-0.5"
+                className="group inline-flex h-14 min-w-[190px] items-center justify-center gap-3 rounded-full bg-gradient-to-r from-[#22c55e] to-[#16a34a] px-8 text-center text-sm font-bold text-primary-foreground shadow-[0_18px_44px_rgba(157,250,176,0.22)] transition-all hover:shadow-[0_22px_54px_rgba(157,250,176,0.32)] hover:-translate-y-0.5"
               >
                 Start Designing <ArrowRight className="h-4 w-4 transition-transform group-hover:translate-x-1" />
               </Link>
               <a
                 href="#how"
-                className="inline-flex h-14 items-center gap-3 rounded-full border border-white/[0.1] bg-white/[0.03] px-8 text-sm font-semibold backdrop-blur-sm transition-all hover:bg-white/[0.06] hover:-translate-y-0.5"
+                className="inline-flex h-14 min-w-[190px] items-center justify-center gap-3 rounded-full border border-white/[0.1] bg-white/[0.03] px-8 text-center text-sm font-semibold backdrop-blur-sm transition-all hover:bg-white/[0.06] hover:-translate-y-0.5"
               >
                 <Play className="h-4 w-4 text-primary" /> See How It Works
               </a>
@@ -206,15 +206,19 @@ export default function Landing() {
         </section>
 
         {/* ─── TRUSTED BY ─── */}
-        <section className="border-y border-white/[0.04] py-14 px-4">
-          <div className="mx-auto max-w-5xl text-center">
+        <section className="py-14 overflow-hidden">
+          <div className="text-center">
             <p className="text-xs font-bold tracking-[0.2em] uppercase text-muted-foreground/50 mb-8">Trusted By Design Teams Worldwide</p>
-            <div className="flex flex-wrap justify-center items-center gap-10 md:gap-16 opacity-40 hover:opacity-60 transition-opacity duration-700">
-              <span className="font-heading text-xl font-bold flex items-center gap-2"><Zap className="w-5 h-5 text-primary" /> FlashCorp</span>
-              <span className="font-heading text-xl font-bold flex items-center gap-2"><Target className="w-5 h-5 text-[#8bd3ff]" /> Precision</span>
-              <span className="font-heading text-xl font-bold flex items-center gap-2"><Palette className="w-5 h-5 text-[#f43f7f]" /> ChromaLab</span>
-              <span className="font-heading text-xl font-bold flex items-center gap-2"><Star className="w-5 h-5 text-[#ffcf4d]" /> VertexUI</span>
-              <span className="font-heading text-xl font-bold flex items-center gap-2"><Layers className="w-5 h-5 text-primary" /> LayerStack</span>
+            <div className="partners-marquee opacity-40 hover:opacity-60 transition-opacity duration-700">
+              {[0, 1].map(loop => (
+                <div key={loop} className="partners-marquee__track">
+                  <span className="font-heading text-xl font-bold flex items-center gap-2"><Zap className="w-5 h-5 text-primary" /> FlashCorp</span>
+                  <span className="font-heading text-xl font-bold flex items-center gap-2"><Target className="w-5 h-5 text-[#8bd3ff]" /> Precision</span>
+                  <span className="font-heading text-xl font-bold flex items-center gap-2"><Palette className="w-5 h-5 text-[#f43f7f]" /> ChromaLab</span>
+                  <span className="font-heading text-xl font-bold flex items-center gap-2"><Star className="w-5 h-5 text-[#ffcf4d]" /> VertexUI</span>
+                  <span className="font-heading text-xl font-bold flex items-center gap-2"><Layers className="w-5 h-5 text-primary" /> LayerStack</span>
+                </div>
+              ))}
             </div>
           </div>
         </section>
