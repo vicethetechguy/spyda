@@ -1,10 +1,8 @@
-export const config = { runtime: 'edge' };
-
 export const imageModel = process.env.OPENAI_IMAGE_MODEL || "gpt-image-2"; 
 export const analysisModel = process.env.OPENAI_ANALYSIS_MODEL || "gpt-4o";
 export const groqAnalysisModel = process.env.GROQ_ANALYSIS_MODEL || "llama-3.2-90b-vision-preview";
 
-export async function fileToDataUrl(file) {
+export async function fileToDataUrl(file: File) {
   const buffer = await file.arrayBuffer();
   let binary = "";
   const bytes = new Uint8Array(buffer);
@@ -46,7 +44,7 @@ export function buildMockBreakdown() {
   };
 }
 
-export function extractJson(text) {
+export function extractJson(text: string) {
   try {
     return JSON.parse(text);
   } catch {
@@ -84,7 +82,7 @@ Return ONLY valid JSON with no markdown formatting:
 }`;
 }
 
-export async function analyzeDesignWithGroq(file, prompt) {
+export async function analyzeDesignWithGroq(file: File, prompt: string) {
   const groqKey = process.env.GROQ_API_KEY || "";
   if (!groqKey) throw new Error("GROQ_API_KEY is not configured.");
 
@@ -106,7 +104,7 @@ export async function analyzeDesignWithGroq(file, prompt) {
   return { ok: true, mode: "groq", breakdown: extractJson(payload.choices?.[0]?.message?.content || "") };
 }
 
-export async function analyzeDesign(file, provider = "openai") {
+export async function analyzeDesign(file: File, provider = "openai") {
   if (normalizeAiProvider(provider) === "groq") {
     return analyzeDesignWithGroq(file, getBreakdownPrompt());
   }
@@ -132,14 +130,14 @@ export async function analyzeDesign(file, provider = "openai") {
   return { ok: true, mode: "openai", breakdown: extractJson(payload.choices?.[0]?.message?.content || "") };
 }
 
-export function buildGenerationPrompt(recipe) {
+export function buildGenerationPrompt(recipe: any) {
   return `Create a finished premium graphic design based on this Spyda recipe.
 Keep text clean, legible, and professionally composed.
 Recipe:
 ${JSON.stringify(recipe, null, 2)}`;
 }
 
-export async function generateDesign({ recipe }) {
+export async function generateDesign({ recipe }: { recipe: any }) {
   const openaiKey = process.env.OPENAI_API_KEY || "";
   if (!openaiKey) throw new Error("OPENAI_API_KEY is not configured.");
 
