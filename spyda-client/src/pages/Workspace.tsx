@@ -266,7 +266,11 @@ export default function Workspace() {
       const data: ApiGenerateResponse = await res.json()
 
       if (data?.ok && data?.image) {
-        setGeneratedImage(`data:image/png;base64,${data.image}`)
+        if (data.image.startsWith('http')) {
+          setGeneratedImage(data.image)
+        } else {
+          setGeneratedImage(`data:image/png;base64,${data.image}`)
+        }
       } else if (data?.ok && !data?.image) {
         setGenerateError(data?.message || 'Generation returned no image (mock mode — set OPENAI_API_KEY).')
       } else {
