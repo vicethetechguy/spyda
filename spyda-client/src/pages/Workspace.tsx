@@ -152,6 +152,25 @@ function imageFileToDataUrl(file: File, maxWidth = 1024, maxHeight = 1024, quali
   })
 }
 
+function getImageSizeChoice(file: File): Promise<string> {
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader()
+    reader.readAsDataURL(file)
+    reader.onload = (event) => {
+      const img = new window.Image()
+      img.src = event.target?.result as string
+      img.onload = () => {
+        const ratio = img.width / Math.max(1, img.height)
+        if (ratio > 1.12) resolve('Landscape 1536 x 1024')
+        else if (ratio < 0.9) resolve('Portrait 1024 x 1536')
+        else resolve('Square 1024 x 1024')
+      }
+      img.onerror = (error: any) => reject(error)
+    }
+    reader.onerror = (error: any) => reject(error)
+  })
+}
+
 async function readApiJson<T>(response: Response): Promise<T> {
   const contentType = response.headers.get('content-type') || ''
 
@@ -337,6 +356,8 @@ export default function Workspace() {
 
     try {
       // Build recipe from atoms + brand card
+      const sourceReferenceImage = await imageFileToDataUrl(uploadedFile, 1024, 1536, 0.84)
+      const sourceImageSize = await getImageSizeChoice(uploadedFile)
       const referenceImages = breakdown.sections
         .map(s => {
           const edit = atomEdits[s.id]
@@ -353,6 +374,12 @@ export default function Workspace() {
 
       const recipe: Record<string, any> = {
         aiProvider: aiModel.provider,
+        imageSize: sourceImageSize,
+        sourceReferenceImage: {
+          name: uploadedFile.name || 'Uploaded reference flyer',
+          role: 'source-layout-reference',
+          dataUrl: sourceReferenceImage,
+        },
         referenceImages,
         sections: breakdown.sections
           .filter(s => !s.deleted)

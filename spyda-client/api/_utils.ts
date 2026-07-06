@@ -385,9 +385,16 @@ function sanitizeRecipeForPrompt(recipe: any) {
 
   return {
     ...recipe,
+    sourceReferenceImage: recipe?.sourceReferenceImage?.dataUrl
+      ? {
+          name: recipe.sourceReferenceImage.name || "Uploaded reference flyer",
+          role: "source-layout-reference",
+          dataUrl: "[attached separately as image input 1]",
+        }
+      : undefined,
     referenceImages: Array.isArray(recipe?.referenceImages)
       ? recipe.referenceImages.map((image: any, index: number) => ({
-          referenceInput: index + 1,
+          referenceInput: recipe?.sourceReferenceImage?.dataUrl ? index + 2 : index + 1,
           sectionId: image.sectionId,
           sectionName: image.sectionName,
           sectionType: image.sectionType,
@@ -402,15 +409,27 @@ function sanitizeRecipeForPrompt(recipe: any) {
 
 export function buildGenerationPrompt(recipe: any) {
   const attachedReferenceImages = getReferenceImages(recipe);
+  const hasSourceReference = Boolean(recipe?.sourceReferenceImage?.dataUrl);
   const referenceImageInstructions = attachedReferenceImages.length
     ? `
 REFERENCE IMAGE REQUIREMENTS:
-${attachedReferenceImages.map((image: any, index: number) => `- Input image ${index + 1}: "${image.name}" belongs to section "${image.sectionName}" (${image.sectionId}). It is mandatory. Preserve the uploaded asset's identity as closely as possible and place it in the generated flyer according to that section's placement/role.`).join("\n")}
+${attachedReferenceImages.map((image: any, index: number) => `- Input image ${hasSourceReference ? index + 2 : index + 1}: "${image.name}" belongs to section "${image.sectionName}" (${image.sectionId}). It is mandatory. Preserve the uploaded asset's identity as closely as possible and place it in the generated flyer according to that section's placement/role.`).join("\n")}
+`
+    : "";
+  const sourceReferenceInstructions = hasSourceReference
+    ? `SOURCE REFERENCE LAYOUT REQUIREMENTS:
+- Input image 1 is the uploaded reference flyer.
+- The generated flyer must follow input image 1's composition as closely as possible: same layout grid, same visual hierarchy, same element positions, same spacing rhythm, same cropping logic, same typography scale relationship, same background structure, same visual weight, and same overall design direction.
+- Do not invent a different layout, camera angle, poster structure, or visual system.
+- Only change the atoms the user customized, the brand constants, and the Essentials requirements.
+- Deleted atoms must stay removed. Non-deleted unchanged atoms should keep the same role and position from the reference.
 `
     : "";
 
   return `Create a finished premium graphic design based on this Spyda recipe.
+This is reference-guided design imitation, not a fresh redesign.
 Keep text clean, legible, and professionally composed.
+${sourceReferenceInstructions}
 Use every non-deleted section in the recipe. Do not ignore required text atoms, brand atoms, image atoms, CTAs, footer details, icons, or decorative elements.
 If the user customized an atom, prioritize that replacement over the original.
 If constants.essentials contains instructions, treat them as hard requirements. Essentials override style preferences when they conflict.
@@ -432,7 +451,23 @@ function getReferenceImages(recipe: any) {
   if (!Array.isArray(recipe?.referenceImages)) return [];
   return recipe.referenceImages
     .filter((image: any) => image?.dataUrl && image?.sectionId)
-    .slice(0, 6);
+    .slice(0, 5);
+}
+
+function getImageEditInputs(recipe: any) {
+  const inputs = [];
+
+  if (recipe?.sourceReferenceImage?.dataUrl) {
+    inputs.push({
+      sectionId: "source-reference",
+      sectionName: "Uploaded Reference Flyer",
+      sectionType: "source",
+      name: recipe.sourceReferenceImage.name || "Uploaded reference flyer",
+      dataUrl: recipe.sourceReferenceImage.dataUrl,
+    });
+  }
+
+  return [...inputs, ...getReferenceImages(recipe)];
 }
 
 function buildImageEditForm({
@@ -505,7 +540,7 @@ export async function generateDesign({ recipe }: { recipe: any }) {
   const actualModel = imageModel || "gpt-image-1.5";
   const size = mapOutputSize(recipe?.format, recipe?.imageSize, actualModel);
   const quality = mapQuality(recipe?.quality, actualModel);
-  const referenceImages = getReferenceImages(recipe);
+  const referenceImages = getImageEditInputs(recipe);
 
   if (referenceImages.length && isGptImageModel(actualModel)) {
     let payload;
