@@ -89,6 +89,26 @@ type ApiGenerateResponse = {
    Main Workspace
    ═══════════════════════════════════════════════ */
 
+const HEX_COLOR_PATTERN = /^#?[0-9a-fA-F]{6}$/
+
+function normalizeHexColor(value: string, fallback: string) {
+  const trimmed = value.trim()
+  if (!HEX_COLOR_PATTERN.test(trimmed)) return fallback
+  return `#${trimmed.replace('#', '').toUpperCase()}`
+}
+
+function formatHexDraft(value: string) {
+  const trimmed = value.trim()
+  const cleaned = trimmed
+    .replace(/[^#0-9a-fA-F]/g, '')
+    .replace(/(?!^)#/g, '')
+
+  if (!cleaned) return ''
+
+  const hex = cleaned.startsWith('#') ? cleaned.slice(1, 7) : cleaned.slice(0, 6)
+  return `#${hex.toUpperCase()}`
+}
+
 export default function Workspace() {
   const [sidebarOpen, setSidebarOpen] = useState(true)
   const [activeId, setActiveId] = useState('canvas')
@@ -143,9 +163,9 @@ export default function Workspace() {
       setBrandEdits(prev => ({
         headingFont: c.headingFont || prev.headingFont,
         bodyFont: c.bodyFont || prev.bodyFont,
-        primaryColor: c.colors?.primary || prev.primaryColor,
-        secondaryColor: c.colors?.secondary || prev.secondaryColor,
-        accentColor: c.colors?.accent || prev.accentColor,
+        primaryColor: normalizeHexColor(c.colors?.primary || '', prev.primaryColor),
+        secondaryColor: normalizeHexColor(c.colors?.secondary || '', prev.secondaryColor),
+        accentColor: normalizeHexColor(c.colors?.accent || '', prev.accentColor),
         visualStyle: c.visualStyle || prev.visualStyle,
       }))
     }
@@ -613,21 +633,38 @@ function CanvasView({
                   />
                 </div>
               </div>
-              <div className="flex items-center gap-4 mb-4">
+              <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 mb-4">
                 {[
-                  { label: '60%', field: 'primaryColor' as const },
-                  { label: '30%', field: 'secondaryColor' as const },
-                  { label: '10%', field: 'accentColor' as const },
+                  { label: '60%', name: 'Primary', field: 'primaryColor' as const },
+                  { label: '30%', name: 'Secondary', field: 'secondaryColor' as const },
+                  { label: '10%', name: 'Accent', field: 'accentColor' as const },
                 ].map(c => (
-                  <label key={c.field} className="flex items-center gap-2 cursor-pointer">
-                    <input
-                      type="color"
-                      value={brandEdits[c.field]}
-                      onChange={e => onBrandEdit(c.field, e.target.value)}
-                      className="w-8 h-8 rounded-lg border border-white/[0.1] cursor-pointer bg-transparent"
-                    />
-                    <span className="text-xs text-muted-foreground">{c.label}</span>
-                  </label>
+                  <div key={c.field} className="rounded-xl border border-white/[0.06] bg-white/[0.025] p-3">
+                    <label className="mb-2 flex items-center justify-between gap-2">
+                      <span className="text-[11px] font-semibold text-muted-foreground">{c.name}</span>
+                      <span className="rounded-full bg-white/[0.05] px-2 py-0.5 text-[10px] font-bold text-primary">{c.label}</span>
+                    </label>
+                    <div className="flex items-center gap-2">
+                      <input
+                        type="color"
+                        aria-label={`${c.name} brand color picker`}
+                        value={normalizeHexColor(brandEdits[c.field], '#000000')}
+                        onChange={e => onBrandEdit(c.field, e.target.value.toUpperCase())}
+                        className="h-9 w-9 shrink-0 rounded-full border border-white/[0.1] cursor-pointer bg-transparent p-0"
+                      />
+                      <input
+                        type="text"
+                        inputMode="text"
+                        value={brandEdits[c.field]}
+                        onChange={e => onBrandEdit(c.field, formatHexDraft(e.target.value))}
+                        onBlur={e => onBrandEdit(c.field, normalizeHexColor(e.target.value, brandEdits[c.field] || '#000000'))}
+                        placeholder="#9DFAB0"
+                        maxLength={7}
+                        aria-label={`${c.name} HEX color code`}
+                        className="min-w-0 flex-1 h-9 rounded-lg border border-white/[0.06] bg-black/20 px-2 font-mono text-xs text-foreground outline-none transition-colors placeholder:text-muted-foreground/35 focus:border-primary/40"
+                      />
+                    </div>
+                  </div>
                 ))}
               </div>
               <div>
