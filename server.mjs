@@ -41,7 +41,7 @@ const port = Number(process.env.PORT || 4173);
 const openaiApiKey = process.env.OPENAI_API_KEY || "";
 const groqApiKey = process.env.GROQ_API_KEY || "";
 const imageModel = process.env.OPENAI_IMAGE_MODEL || "gpt-image-2";
-const analysisModel = process.env.OPENAI_ANALYSIS_MODEL || "gpt-5.5";
+const analysisModel = process.env.OPENAI_ANALYSIS_MODEL || "gpt-4o";
 const groqAnalysisModel = process.env.GROQ_ANALYSIS_MODEL || "meta-llama/llama-4-scout-17b-16e-instruct";
 const maxUploadBytes = 28 * 1024 * 1024;
 const groq = groqApiKey ? new Groq({ apiKey: groqApiKey }) : null;
@@ -583,7 +583,7 @@ async function handleSaveDemoVideo(request, response) {
   sendJson(response, 200, { ok: true, path: "assets/spyda-workflow-demo.webm" });
 }
 
-const server = createServer(async (request, response) => {
+export async function handleRequest(request, response) {
   try {
     const url = new URL(request.url, `http://${request.headers.host}`);
 
@@ -619,10 +619,14 @@ const server = createServer(async (request, response) => {
   } catch (error) {
     sendError(response, 500, error.message || "Unexpected server error.");
   }
-});
+}
 
-server.listen(port, "127.0.0.1", () => {
-  console.log(`Spyda server running at http://127.0.0.1:${port}/`);
-  console.log(openaiApiKey ? `OpenAI enabled with ${imageModel}` : "OpenAI disabled until OPENAI_API_KEY is set.");
-  console.log(groqApiKey ? `Groq enabled with ${groqAnalysisModel}` : "Groq disabled until GROQ_API_KEY is set.");
-});
+if (!process.env.VERCEL) {
+  const server = createServer(handleRequest);
+
+  server.listen(port, "127.0.0.1", () => {
+    console.log(`Spyda server running at http://127.0.0.1:${port}/`);
+    console.log(openaiApiKey ? `OpenAI enabled with ${imageModel}` : "OpenAI disabled until OPENAI_API_KEY is set.");
+    console.log(groqApiKey ? `Groq enabled with ${groqAnalysisModel}` : "Groq disabled until GROQ_API_KEY is set.");
+  });
+}
