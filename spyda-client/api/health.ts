@@ -14,6 +14,7 @@ export default async function handler(req: any, res: any) {
     hasApiKey: Boolean(process.env.OPENAI_API_KEY),
     hasOpenAiApiKey: Boolean(process.env.OPENAI_API_KEY),
     hasGroqApiKey: Boolean(process.env.GROQ_API_KEY),
+    hasGoogleVisionCredentials: Boolean(process.env.GOOGLE_CLOUD_VISION_CREDENTIALS_BASE64 || process.env.GOOGLE_CLOUD_VISION_CREDENTIALS_JSON),
     imageModel,
     analysisModel,
     groqAnalysisModel,

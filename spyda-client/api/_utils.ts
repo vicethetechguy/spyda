@@ -2,9 +2,24 @@ declare const process: {
   env: Record<string, string | undefined>;
 };
 
+import vision from "@google-cloud/vision";
+
 export const imageModel = process.env.OPENAI_IMAGE_MODEL || "gpt-image-2"; 
 export const analysisModel = process.env.OPENAI_ANALYSIS_MODEL || "gpt-4o";
 export const groqAnalysisModel = process.env.GROQ_ANALYSIS_MODEL || "llama-3.2-90b-vision-preview";
+
+type OcrWord = {
+  text: string;
+  confidence?: number;
+  box: { x: number; y: number; width: number; height: number };
+};
+
+type OcrResult = {
+  enabled: boolean;
+  fullText: string;
+  words: OcrWord[];
+  error?: string;
+};
 
 export function isGptImageModel(model: string = "") {
   return model.toLowerCase().startsWith("gpt-image");
@@ -46,6 +61,94 @@ export function buildMockBreakdown() {
   };
 }
 
+function getGoogleVisionCredentials() {
+  const base64Credentials = process.env.GOOGLE_CLOUD_VISION_CREDENTIALS_BASE64 || "";
+  const jsonCredentials = process.env.GOOGLE_CLOUD_VISION_CREDENTIALS_JSON || "";
+
+  if (base64Credentials) {
+    return JSON.parse(Buffer.from(base64Credentials, "base64").toString("utf8"));
+  }
+
+  if (jsonCredentials) {
+    return JSON.parse(jsonCredentials);
+  }
+
+  return null;
+}
+
+function getTextBox(vertices: Array<{ x?: number | null; y?: number | null }> = []) {
+  const xs = vertices.map((vertex) => Number(vertex.x || 0));
+  const ys = vertices.map((vertex) => Number(vertex.y || 0));
+  const minX = Math.min(...xs);
+  const minY = Math.min(...ys);
+  const maxX = Math.max(...xs);
+  const maxY = Math.max(...ys);
+
+  return {
+    x: minX,
+    y: minY,
+    width: Math.max(0, maxX - minX),
+    height: Math.max(0, maxY - minY),
+  };
+}
+
+function base64ImageToBuffer(base64Image: string) {
+  return Buffer.from(base64Image.replace(/^data:image\/\w+;base64,/, ""), "base64");
+}
+
+export async function runOcr(base64Image: string): Promise<OcrResult> {
+  const credentials = getGoogleVisionCredentials();
+  if (!credentials) return { enabled: false, fullText: "", words: [] };
+
+  const client = new vision.ImageAnnotatorClient({ credentials });
+  const [result] = await client.documentTextDetection({
+    image: { content: base64ImageToBuffer(base64Image) },
+  });
+
+  const annotation = result.fullTextAnnotation;
+  const words: OcrWord[] = [];
+
+  for (const page of annotation?.pages || []) {
+    for (const block of page.blocks || []) {
+      for (const paragraph of block.paragraphs || []) {
+        for (const word of paragraph.words || []) {
+          const text = (word.symbols || []).map((symbol) => symbol.text || "").join("");
+          if (!text.trim()) continue;
+
+          words.push({
+            text,
+            confidence: word.confidence ?? undefined,
+            box: getTextBox(word.boundingBox?.vertices || []),
+          });
+        }
+      }
+    }
+  }
+
+  return {
+    enabled: true,
+    fullText: annotation?.text || "",
+    words,
+  };
+}
+
+export function formatOcrForPrompt(ocr?: OcrResult) {
+  if (!ocr?.enabled || !ocr.fullText.trim()) {
+    return "OCR was not available for this analysis.";
+  }
+
+  const wordPreview = ocr.words
+    .slice(0, 120)
+    .map((word) => `${word.text} @ x:${Math.round(word.box.x)}, y:${Math.round(word.box.y)}, w:${Math.round(word.box.width)}, h:${Math.round(word.box.height)}`)
+    .join("\n");
+
+  return `OCR full text:
+${ocr.fullText}
+
+OCR word boxes:
+${wordPreview}`;
+}
+
 export function extractJson(text: string) {
   try {
     return JSON.parse(text);
@@ -60,18 +163,21 @@ export function normalizeAiProvider(provider: string = "") {
   return provider.toLowerCase().includes("groq") ? "groq" : "openai";
 }
 
-export function getBreakdownPrompt() {
+export function getBreakdownPrompt(ocr?: OcrResult) {
   return `You are Spyda, a visual design breakdown engine. Analyze the uploaded flyer/design.
 Identify every visible component that forms the design. Capture exact visible text.
 Return 8 to 14 editable atoms (headline, subheadline, image, logo, CTA, etc).
 Classify words as "text" or "action", and photos/logos as "image" or "brand".
 Put global constants such as colors (hex), fonts, visual style inside the constants object.
+Use the OCR data below as the source of truth for all readable text. If OCR text appears in the flyer, preserve it exactly in the matching atom and use the OCR coordinates to infer where it belongs.
+${formatOcrForPrompt(ocr)}
+
 Return ONLY valid JSON with no markdown formatting:
 {
   "sections": [
     {
       "id": "hero", "name": "Hero Section", "type": "text|image|style|color|action|brand|decor",
-      "current": { "text": "exact visible text", "image": "what the visible image is" },
+      "current": { "text": "exact visible text", "image": "what the visible image is", "description": "visual description and approximate placement" },
       "replacementNeeded": ["e.g. New headline text"]
     }
   ],
@@ -107,8 +213,24 @@ export async function analyzeDesignWithGroq(base64Image: string, prompt: string)
 }
 
 export async function analyzeDesign(base64Image: string, provider = "openai") {
+  let ocr: OcrResult = { enabled: false, fullText: "", words: [] };
+
+  try {
+    ocr = await runOcr(base64Image);
+  } catch (error: any) {
+    ocr = {
+      enabled: false,
+      fullText: "",
+      words: [],
+      error: error?.message || "OCR failed.",
+    };
+  }
+
+  const prompt = getBreakdownPrompt(ocr);
+
   if (normalizeAiProvider(provider) === "groq") {
-    return analyzeDesignWithGroq(base64Image, getBreakdownPrompt());
+    const result = await analyzeDesignWithGroq(base64Image, prompt);
+    return { ...result, ocr };
   }
 
   const openaiKey = process.env.OPENAI_API_KEY || "";
@@ -119,7 +241,7 @@ export async function analyzeDesign(base64Image: string, provider = "openai") {
     headers: { "Authorization": `Bearer ${openaiKey}`, "Content-Type": "application/json" },
     body: JSON.stringify({
       model: analysisModel, response_format: { type: "json_object" },
-      messages: [{ role: "user", content: [{ type: "text", text: getBreakdownPrompt() }, { type: "image_url", image_url: { url: base64Image } }] }]
+      messages: [{ role: "user", content: [{ type: "text", text: prompt }, { type: "image_url", image_url: { url: base64Image } }] }]
     })
   });
 
@@ -129,7 +251,7 @@ export async function analyzeDesign(base64Image: string, provider = "openai") {
   }
 
   const payload = await response.json();
-  return { ok: true, mode: "openai", breakdown: extractJson(payload.choices?.[0]?.message?.content || "") };
+  return { ok: true, mode: "openai", breakdown: extractJson(payload.choices?.[0]?.message?.content || ""), ocr };
 }
 
 export function buildGenerationPrompt(recipe: any) {
