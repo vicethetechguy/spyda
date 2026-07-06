@@ -71,17 +71,18 @@ type BreakdownResult = {
 
 type ApiAnalyzeResponse = {
   ok: boolean
-  mode: string
-  model: string
-  breakdown: BreakdownResult
+  mode?: string
+  breakdown?: any
+  error?: string
 }
 
 type ApiGenerateResponse = {
   ok: boolean
-  mode: string
-  model: string
-  image: string | null
+  mode?: string
+  model?: string
+  image?: string
   message?: string
+  error?: string
 }
 
 /* ═══════════════════════════════════════════════
