@@ -1,26 +1,21 @@
 import { analyzeDesign } from './_utils';
+import type { VercelRequest, VercelResponse } from '@vercel/node';
 
-export const config = {
-  runtime: 'edge',
-};
-
-export default async function handler(req: Request) {
+export default async function handler(req: VercelRequest, res: VercelResponse) {
   if (req.method !== 'POST') {
-    return new Response(JSON.stringify({ error: 'Method not allowed' }), { status: 405 });
+    return res.status(405).json({ error: 'Method not allowed' });
   }
 
   try {
-    const formData = await req.formData();
-    const designFile = formData.get('design') || formData.get('file');
-    const aiProvider = formData.get('aiProvider') as string;
+    const { base64Image, aiProvider } = req.body;
 
-    if (!designFile) {
-      return new Response(JSON.stringify({ error: 'Upload a design image first.' }), { status: 400 });
+    if (!base64Image) {
+      return res.status(400).json({ error: 'Upload a design image first.' });
     }
 
-    const result = await analyzeDesign(designFile as File, aiProvider);
-    return new Response(JSON.stringify(result), { status: 200, headers: { 'Content-Type': 'application/json' } });
+    const result = await analyzeDesign(base64Image, aiProvider);
+    return res.status(200).json(result);
   } catch (error: any) {
-    return new Response(JSON.stringify({ ok: false, error: error.message }), { status: 500, headers: { 'Content-Type': 'application/json' } });
+    return res.status(500).json({ ok: false, error: error.message });
   }
 }

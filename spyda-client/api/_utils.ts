@@ -2,18 +2,7 @@ export const imageModel = process.env.OPENAI_IMAGE_MODEL || "gpt-image-2";
 export const analysisModel = process.env.OPENAI_ANALYSIS_MODEL || "gpt-4o";
 export const groqAnalysisModel = process.env.GROQ_ANALYSIS_MODEL || "llama-3.2-90b-vision-preview";
 
-export async function fileToDataUrl(file: File) {
-  const buffer = await file.arrayBuffer();
-  let binary = "";
-  const bytes = new Uint8Array(buffer);
-  const len = bytes.byteLength;
-  for (let i = 0; i < len; i++) {
-    binary += String.fromCharCode(bytes[i]);
-  }
-  return `data:${file.type};base64,${btoa(binary)}`;
-}
-
-export function mapOutputSize(format = "", imageSize = "") {
+export function mapOutputSize(format: string = "", imageSize: string = "") {
   const sizeChoice = imageSize.toLowerCase();
   const normalized = format.toLowerCase();
   if (sizeChoice.includes("1024 x 1024") || sizeChoice.includes("square")) return "1024x1024";
@@ -25,7 +14,7 @@ export function mapOutputSize(format = "", imageSize = "") {
   return "1024x1024";
 }
 
-export function mapQuality(quality = "") {
+export function mapQuality(quality: string = "") {
   return quality.toLowerCase().includes("premium") ? "hd" : "standard";
 }
 
@@ -54,7 +43,7 @@ export function extractJson(text: string) {
   }
 }
 
-export function normalizeAiProvider(provider = "") {
+export function normalizeAiProvider(provider: string = "") {
   return provider.toLowerCase().includes("groq") ? "groq" : "openai";
 }
 
@@ -82,7 +71,7 @@ Return ONLY valid JSON with no markdown formatting:
 }`;
 }
 
-export async function analyzeDesignWithGroq(file: File, prompt: string) {
+export async function analyzeDesignWithGroq(base64Image: string, prompt: string) {
   const groqKey = process.env.GROQ_API_KEY || "";
   if (!groqKey) throw new Error("GROQ_API_KEY is not configured.");
 
@@ -91,7 +80,7 @@ export async function analyzeDesignWithGroq(file: File, prompt: string) {
     headers: { "Authorization": `Bearer ${groqKey}`, "Content-Type": "application/json" },
     body: JSON.stringify({
       model: groqAnalysisModel, temperature: 0.2, max_completion_tokens: 1800,
-      messages: [{ role: "user", content: [{ type: "text", text: prompt }, { type: "image_url", image_url: { url: await fileToDataUrl(file) } }] }]
+      messages: [{ role: "user", content: [{ type: "text", text: prompt }, { type: "image_url", image_url: { url: base64Image } }] }]
     })
   });
 
@@ -104,9 +93,9 @@ export async function analyzeDesignWithGroq(file: File, prompt: string) {
   return { ok: true, mode: "groq", breakdown: extractJson(payload.choices?.[0]?.message?.content || "") };
 }
 
-export async function analyzeDesign(file: File, provider = "openai") {
+export async function analyzeDesign(base64Image: string, provider = "openai") {
   if (normalizeAiProvider(provider) === "groq") {
-    return analyzeDesignWithGroq(file, getBreakdownPrompt());
+    return analyzeDesignWithGroq(base64Image, getBreakdownPrompt());
   }
 
   const openaiKey = process.env.OPENAI_API_KEY || "";
@@ -117,7 +106,7 @@ export async function analyzeDesign(file: File, provider = "openai") {
     headers: { "Authorization": `Bearer ${openaiKey}`, "Content-Type": "application/json" },
     body: JSON.stringify({
       model: analysisModel, response_format: { type: "json_object" },
-      messages: [{ role: "user", content: [{ type: "text", text: getBreakdownPrompt() }, { type: "image_url", image_url: { url: await fileToDataUrl(file) } }] }]
+      messages: [{ role: "user", content: [{ type: "text", text: getBreakdownPrompt() }, { type: "image_url", image_url: { url: base64Image } }] }]
     })
   });
 

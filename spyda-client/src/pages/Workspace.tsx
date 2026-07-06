@@ -176,20 +176,32 @@ export default function Workspace() {
     // Auto-analyze
     setIsAnalyzing(true)
     try {
-      const formData = new FormData()
-      formData.append('design', file)
-      formData.append('aiProvider', aiModel.provider)
-      const res = await fetch('/api/analyze', { method: 'POST', body: formData })
-      const data: ApiAnalyzeResponse = await res.json()
-      
-      if (data?.ok && data?.breakdown) {
-        setBreakdown(data.breakdown)
-      } else {
-        setAnalyzeError(data?.error || 'Analysis failed. Check your API keys.')
+      const reader = new FileReader()
+      reader.onloadend = async () => {
+        const base64Image = reader.result as string
+        
+        try {
+          const res = await fetch('/api/analyze', { 
+            method: 'POST', 
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ base64Image, aiProvider: aiModel.provider })
+          })
+          const data: ApiAnalyzeResponse = await res.json()
+          
+          if (data?.ok && data?.breakdown) {
+            setBreakdown(data.breakdown)
+          } else {
+            setAnalyzeError(data?.error || 'Analysis failed. Check your API keys.')
+          }
+        } catch (err: any) {
+          setAnalyzeError(err.message || 'Failed to connect to server.')
+        } finally {
+          setIsAnalyzing(false)
+        }
       }
+      reader.readAsDataURL(file)
     } catch (err: any) {
-      setAnalyzeError(err.message || 'Failed to connect to server.')
-    } finally {
+      setAnalyzeError(err.message || 'Failed to read file.')
       setIsAnalyzing(false)
     }
   }, [aiModel])
@@ -225,14 +237,11 @@ export default function Workspace() {
         },
       }
 
-      const formData = new FormData()
-      formData.append('recipe', JSON.stringify(recipe))
-      formData.append('reference', uploadedFile)
-      if (subjectFile) {
-        formData.append('subject', subjectFile)
-      }
-
-      const res = await fetch('/api/generate', { method: 'POST', body: formData })
+      const res = await fetch('/api/generate', { 
+        method: 'POST', 
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ recipe }) 
+      })
       const data: ApiGenerateResponse = await res.json()
 
       if (data?.ok && data?.image) {
