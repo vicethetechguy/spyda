@@ -115,7 +115,7 @@ export default function Workspace() {
   const [aiModel, setAiModel] = useState<AiModel>(AI_MODELS[0])
   const [modelMenuOpen, setModelMenuOpen] = useState(false)
   const [profilePic, setProfilePic] = useState<string | null>(null)
-  const { signOut } = useAuth()
+  const { user, signOut } = useAuth()
 
   // Handle logout
   useEffect(() => {
@@ -123,6 +123,27 @@ export default function Workspace() {
       signOut()
     }
   }, [activeId, signOut])
+
+  // Fetch profile picture globally for the sidebar
+  useEffect(() => {
+    async function loadGlobalProfile() {
+      if (!user) return
+      try {
+        const { data } = await supabase
+          .from('profiles')
+          .select('avatar_url')
+          .eq('id', user.id)
+          .single()
+        
+        if (data?.avatar_url) {
+          setProfilePic(data.avatar_url)
+        }
+      } catch (err) {
+        console.error('Error fetching global profile:', err)
+      }
+    }
+    loadGlobalProfile()
+  }, [user])
 
   // Canvas state — lifted so it persists across sidebar nav
   const [uploadedFile, setUploadedFile] = useState<File | null>(null)
