@@ -70,6 +70,16 @@ function sendError(response, statusCode, message, details = undefined) {
   sendJson(response, statusCode, { ok: false, error: message, details });
 }
 
+function getHttpErrorStatus(error) {
+  const message = error?.message?.toLowerCase() || "";
+
+  if (message.includes("api_key") || message.includes("api key") || message.includes("unauthorized")) return 401;
+  if (message.includes("quota") || message.includes("billing") || message.includes("insufficient_quota")) return 402;
+  if (message.includes("model") || message.includes("unsupported") || message.includes("invalid")) return 400;
+  if (message.includes("too large")) return 413;
+  return 500;
+}
+
 async function readRequestBody(request) {
   const chunks = [];
   let totalLength = 0;
@@ -617,7 +627,11 @@ export async function handleRequest(request, response) {
 
     await serveStatic(request, response);
   } catch (error) {
-    sendError(response, 500, error.message || "Unexpected server error.");
+    console.error("[Spyda API error]", {
+      message: error?.message,
+      stack: error?.stack,
+    });
+    sendError(response, getHttpErrorStatus(error), error.message || "Unexpected server error.");
   }
 }
 

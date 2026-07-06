@@ -263,6 +263,19 @@ function syncModelButtons(modelName) {
   });
 }
 
+async function readApiPayload(response) {
+  const text = await response.text();
+
+  try {
+    return text ? JSON.parse(text) : {};
+  } catch {
+    return {
+      ok: false,
+      error: text || `Request failed with status ${response.status}.`,
+    };
+  }
+}
+
 function switchView(viewName) {
   const header = viewHeaderMeta[viewName] || viewHeaderMeta.canvas;
   activeViewName = viewName;
@@ -978,7 +991,7 @@ async function analyzeFlyer() {
       method: "POST",
       body: formData,
     });
-    const payload = await response.json();
+    const payload = await readApiPayload(response);
 
     if (!response.ok || !payload.ok) {
       throw new Error(payload.error || "Analysis failed.");
@@ -1146,7 +1159,7 @@ async function markReadyToGenerate() {
       method: "POST",
       body: formData,
     });
-    const payload = await response.json();
+    const payload = await readApiPayload(response);
 
     if (!response.ok || !payload.ok) {
       throw new Error(payload.error || "Generation failed.");
