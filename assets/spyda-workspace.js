@@ -1,3 +1,4 @@
+// Browser-only workspace script for Spyda's canvas experience.
 const flyerInput = document.querySelector("#flyerInput");
 const dropZone = document.querySelector("#dropZone");
 const analyzeButton = document.querySelector("#analyzeButton");

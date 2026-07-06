@@ -3,6 +3,7 @@
   "version": "0.1.0",
   "private": true,
   "scripts": {
+    "build": "node -e \"console.log('Spyda has no static build step')\"",
     "dev": "node server.mjs",
     "start": "node server.mjs"
   },

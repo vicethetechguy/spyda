@@ -11,7 +11,7 @@
 ## 3. Core Architecture & Tech Stack
 The application is a client-side web app utilizing:
 - **HTML5/CSS3:** Grid/Flexbox layouts, fluid responsiveness, custom UI styling (dark mode, premium glassmorphic aesthetic).
-- **Vanilla JavaScript (`app.js`):** State management, interactive canvas controls (panning, zooming, drag-and-drop), SVG rendering for connection lines, and event listeners.
+- **Vanilla JavaScript (`assets/spyda-workspace.js`):** State management, interactive canvas controls (panning, zooming, drag-and-drop), SVG rendering for connection lines, and event listeners.
 - **AI Integrations (Mocked/Future):** 
   - Vision models (e.g., Groq Vision) for parsing and analyzing the uploaded reference.
   - Image Generation models (e.g., GPT-Image 2) for rendering the final output.
@@ -46,7 +46,7 @@ Located in the "Ingredients" panel, this acts as the control center for modifyin
 ## 6. Project Files
 - `workspace.html`: The main structural DOM layout containing the App Shell, navigation rail, Canvas panel, Ingredients panel, and Generate panel.
 - `styles.css`: The central stylesheet containing CSS variables, layout rules, custom scrollbars, and interactive states.
-- `app.js`: Contains logic for drag-and-drop, UI state transitions, SVG line updating (`updateWebLines`), viewport math (`syncCanvasStageSize`), and simulated AI processing flows.
+- `assets/spyda-workspace.js`: Contains logic for drag-and-drop, UI state transitions, SVG line updating (`updateWebLines`), viewport math (`syncCanvasStageSize`), and simulated AI processing flows.
 
 ## 7. Future AI Implementation Notes for Agents
 If you are an AI tasked with modifying this codebase:
