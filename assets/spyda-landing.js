@@ -1,3 +1,4 @@
+// Browser-only landing page script for Spyda's marketing pages.
 const demoVideo = document.querySelector("[data-demo-video]");
 const navLinks = Array.from(document.querySelectorAll("[data-nav-link]"));
 const pageName = document.body.dataset.page || "home";
