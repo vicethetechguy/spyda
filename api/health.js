@@ -6,7 +6,7 @@ function sendJson(response, statusCode, payload) {
   response.end(JSON.stringify(payload));
 }
 
-export default async function handler(request, response) {
+module.exports = async function handler(request, response) {
   if (request.method !== "GET") {
     sendJson(response, 405, { ok: false, error: "Method not allowed" });
     return;
@@ -21,4 +21,4 @@ export default async function handler(request, response) {
     analysisModel: process.env.OPENAI_ANALYSIS_MODEL || "gpt-4o",
     groqAnalysisModel: process.env.GROQ_ANALYSIS_MODEL || "meta-llama/llama-4-scout-17b-16e-instruct",
   });
-}
+};

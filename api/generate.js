@@ -1,12 +1,13 @@
-import { handleRequest } from "../server.mjs";
+async function handler(request, response) {
+  const { handleRequest } = await import("../server.mjs");
+  request.url = "/api/generate";
+  await handleRequest(request, response);
+}
 
-export const config = {
+handler.config = {
   api: {
     bodyParser: false,
   },
 };
 
-export default async function handler(request, response) {
-  request.url = "/api/generate";
-  await handleRequest(request, response);
-}
+module.exports = handler;
