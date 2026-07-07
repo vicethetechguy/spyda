@@ -1008,6 +1008,8 @@ function CanvasView({
               sections={visibleSections}
               atomEdits={atomEdits}
               brandEdits={brandEdits}
+              onAtomEdit={onAtomEdit}
+              onAtomImageUpload={onAtomImageUpload}
             />
             {isAnalyzing && (
               <div className="absolute inset-0 bg-background/80 backdrop-blur-sm flex flex-col items-center justify-center">
@@ -1301,6 +1303,8 @@ function EditableFlyerCanvas({
   sections,
   atomEdits,
   brandEdits,
+  onAtomEdit,
+  onAtomImageUpload,
 }: {
   uploadedPreview: string | null
   sections: EditableComponent[]
@@ -1315,6 +1319,8 @@ function EditableFlyerCanvas({
     essentials: string
     outputSize: string
   }
+  onAtomEdit: (id: string, mode: 'same' | 'customize', value: string) => void
+  onAtomImageUpload: (section: EditableComponent, file: File) => void
 }) {
   const canvasRef = useRef<HTMLDivElement>(null)
   const [selectedId, setSelectedId] = useState<string | null>(null)
@@ -1391,10 +1397,10 @@ function EditableFlyerCanvas({
           const displayText = isCustomized && edit?.value ? edit.value : section.content || section.current?.text || section.name
 
           return (
-            <button
+            <div
               key={section.id}
-              type="button"
               onPointerDown={(event) => {
+                if ((event.target as HTMLElement).closest('[data-layer-control]')) return
                 setSelectedId(section.id)
                 setDragState({
                   id: section.id,
@@ -1403,6 +1409,9 @@ function EditableFlyerCanvas({
                   startBox: box,
                 })
               }}
+              role="button"
+              tabIndex={0}
+              aria-label={`Edit ${section.name}`}
               className={`group absolute overflow-hidden rounded-lg border text-left transition-all ${
                 isSelected
                   ? 'border-primary bg-primary/10 shadow-[0_0_0_2px_rgba(157,250,176,0.18)]'
@@ -1417,23 +1426,51 @@ function EditableFlyerCanvas({
                 cursor: dragState?.id === section.id ? 'grabbing' : 'grab',
               }}
             >
-              {isCustomized ? (
-                isImage && edit?.assetDataUrl ? (
-                  <img src={edit.assetDataUrl} alt={section.name} className="h-full w-full object-cover" draggable={false} />
-                ) : (
-                  <span
-                    className="flex h-full w-full items-center rounded-md bg-black/45 px-2 py-1 text-[clamp(9px,1.4vw,15px)] font-bold leading-tight text-white backdrop-blur-[1px]"
-                    style={{ color: brandEdits.accentColor || '#ffffff', fontFamily: brandEdits.headingFont }}
-                  >
-                    {displayText}
-                  </span>
-                )
-              ) : (
+              {isImage && isCustomized && edit?.assetDataUrl && (
+                <img src={edit.assetDataUrl} alt={section.name} className="h-full w-full object-cover" draggable={false} />
+              )}
+
+              {!isImage && (isCustomized || isSelected) && (
+                <textarea
+                  data-layer-control
+                  autoFocus={isSelected}
+                  value={displayText}
+                  onChange={event => onAtomEdit(section.id, 'customize', event.target.value)}
+                  onFocus={() => {
+                    setSelectedId(section.id)
+                    if (!isCustomized) onAtomEdit(section.id, 'customize', displayText)
+                  }}
+                  className="h-full w-full resize-none rounded-md border-0 bg-black/50 px-2 py-1 text-[clamp(9px,1.4vw,15px)] font-bold leading-tight text-white outline-none backdrop-blur-[1px] focus:ring-2 focus:ring-primary/60"
+                  style={{ color: brandEdits.accentColor || '#ffffff', fontFamily: brandEdits.headingFont }}
+                />
+              )}
+
+              {isImage && isSelected && (
+                <div data-layer-control className="absolute inset-0 flex flex-col items-center justify-center gap-2 bg-black/55 p-2 text-center backdrop-blur-sm">
+                  <span className="line-clamp-2 text-[10px] font-bold uppercase tracking-[0.1em] text-primary">{section.name}</span>
+                  <label className="inline-flex cursor-pointer items-center gap-1.5 rounded-full bg-primary px-3 py-1.5 text-[10px] font-bold text-primary-foreground shadow-lg">
+                    <Upload className="h-3 w-3" />
+                    {edit?.assetDataUrl ? 'Replace' : 'Upload'}
+                    <input
+                      type="file"
+                      accept="image/*"
+                      className="hidden"
+                      onChange={event => {
+                        const file = event.target.files?.[0]
+                        if (file) onAtomImageUpload(section, file)
+                        event.currentTarget.value = ''
+                      }}
+                    />
+                  </label>
+                </div>
+              )}
+
+              {!isSelected && !isCustomized && (
                 <span className="absolute left-1 top-1 max-w-[calc(100%-8px)] truncate rounded bg-black/55 px-1.5 py-0.5 text-[9px] font-bold uppercase tracking-[0.08em] text-primary opacity-0 backdrop-blur transition-opacity group-hover:opacity-100">
                   {section.name}
                 </span>
               )}
-            </button>
+            </div>
           )
         })}
       </div>
