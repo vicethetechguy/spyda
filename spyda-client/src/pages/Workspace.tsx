@@ -301,9 +301,11 @@ function resizeImageToDimensions(imageSrc: string, width: number, height: number
         return
       }
 
-      const scale = Math.max(width / img.width, height / img.height)
+      const scale = Math.min(width / img.width, height / img.height)
       const drawWidth = img.width * scale
       const drawHeight = img.height * scale
+      ctx.fillStyle = '#ffffff'
+      ctx.fillRect(0, 0, width, height)
       ctx.drawImage(img, (width - drawWidth) / 2, (height - drawHeight) / 2, drawWidth, drawHeight)
       resolve(canvas.toDataURL('image/png'))
     }

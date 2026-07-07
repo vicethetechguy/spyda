@@ -499,6 +499,8 @@ export async function analyzeDesign(base64Image: string, provider = "openai", oc
 function sanitizeRecipeForPrompt(recipe: any) {
   const attachedReferenceIds = new Set(getReferenceImages(recipe).map((image: any) => image.sectionId));
   const imageInputOffset = (recipe?.sourceReferenceImage?.dataUrl ? 1 : 0) + (recipe?.childSourceImage?.dataUrl ? 1 : 0) + (recipe?.essentialsImage?.dataUrl ? 1 : 0);
+  const childSourceInput = recipe?.childSourceImage?.dataUrl ? 1 : null;
+  const sourceReferenceInput = recipe?.sourceReferenceImage?.dataUrl ? (recipe?.childSourceImage?.dataUrl ? 2 : 1) : null;
 
   return {
     ...recipe,
@@ -506,14 +508,14 @@ function sanitizeRecipeForPrompt(recipe: any) {
       ? {
           name: recipe.sourceReferenceImage.name || "Uploaded reference flyer",
           role: "source-layout-reference",
-          dataUrl: "[attached separately as image input 1]",
+          dataUrl: `[attached separately as image input ${sourceReferenceInput}]`,
         }
       : undefined,
     childSourceImage: recipe?.childSourceImage?.dataUrl
       ? {
           name: recipe.childSourceImage.name || "Current child source",
           role: "current-working-design",
-          dataUrl: "[attached separately as child source image input]",
+          dataUrl: `[attached separately as image input ${childSourceInput}]`,
         }
       : undefined,
     essentialsImage: recipe?.essentialsImage?.dataUrl
@@ -544,6 +546,8 @@ export function buildGenerationPrompt(recipe: any) {
   const hasChildSource = Boolean(recipe?.childSourceImage?.dataUrl);
   const hasEssentialsImage = Boolean(recipe?.essentialsImage?.dataUrl);
   const imageInputOffset = (hasSourceReference ? 1 : 0) + (hasChildSource ? 1 : 0) + (hasEssentialsImage ? 1 : 0);
+  const childSourceInput = hasChildSource ? 1 : null;
+  const sourceReferenceInput = hasSourceReference ? (hasChildSource ? 2 : 1) : null;
   const referenceImageInstructions = attachedReferenceImages.length
     ? `
 REFERENCE IMAGE REQUIREMENTS:
@@ -552,18 +556,21 @@ ${attachedReferenceImages.map((image: any, index: number) => `- Input image ${in
     : "";
   const sourceReferenceInstructions = hasSourceReference
     ? `SOURCE REFERENCE LAYOUT REQUIREMENTS:
-- Input image 1 is the uploaded reference flyer.
-- Treat input image 1 as immutable truth. It never changes and is used only for comparison.
-- Every output must stay visually close to input image 1: same layout grid, hierarchy, spacing rhythm, typography scale relationship, background structure, visual weight, and overall design direction.
+- Input image ${sourceReferenceInput} is the uploaded Source flyer.
+- Treat input image ${sourceReferenceInput} as immutable truth. It never changes and is used only for comparison.
+- Every output must stay visually close to input image ${sourceReferenceInput}: same layout grid, hierarchy, spacing rhythm, typography scale relationship, background structure, visual weight, and overall design direction.
 `
     : "";
   const childSourceInstructions = hasChildSource
     ? `CHILD SOURCE UPDATE REQUIREMENTS:
-- Input image ${hasSourceReference ? 2 : 1} is the current Child Source, the working version that should receive this round's edits.
-- Update the Child Source only with the current editRound changes. Do not restart from scratch.
+- Input image ${childSourceInput} is the current Child Source and is the primary image to edit.
+- Update input image ${childSourceInput} only with the current editRound changes. Do not restart from scratch.
 - Preserve all previously applied edits already visible in the Child Source.
 - Do not reapply or reinterpret atoms listed in editRound.previouslyEditedAtomIds.
 - Apply exactly the current round's selected atoms and Essential prompts, up to 3 focused changes, with premium realistic integration.
+- Lock unchanged elements to their existing Child Source positions, scale, crop, and visual hierarchy.
+- Do not enlarge, stretch, vertically expand, reposition, or recrop unchanged elements.
+- Preserve the top logo area, headline block, subheadline, phone/product/device positions, footer CTA bar, margins, and spacing unless one of those exact atoms is selected in this round.
 `
     : "";
   const essentialsImageInstruction = hasEssentialsImage
@@ -597,6 +604,7 @@ ${attachedReferenceImages.map((image: any, index: number) => `- Input image ${in
 This is Phase 12 (AI Reconstruction) of the Spyda Flyer Reconstruction Architecture.
 Apply Content Normalization to user inputs, preserve original layer hierarchy, bounds, and layout, and apply the extracted styleTokens (gradients, shadows, effects) to produce a highly accurate, aesthetic replica.
 Keep text clean, legible, and professionally composed.
+This is an in-place Child Source update, not a full redesign. The safest output is one that looks like the Child Source with only the requested 3 changes applied.
 ${sourceReferenceInstructions}
 ${childSourceInstructions}
 ${essentialsImageInstruction}
@@ -634,16 +642,6 @@ function getReferenceImages(recipe: any) {
 function getImageEditInputs(recipe: any) {
   const inputs = [];
 
-  if (recipe?.sourceReferenceImage?.dataUrl) {
-    inputs.push({
-      sectionId: "source-reference",
-      sectionName: "Uploaded Reference Flyer",
-      sectionType: "source",
-      name: recipe.sourceReferenceImage.name || "Uploaded reference flyer",
-      dataUrl: recipe.sourceReferenceImage.dataUrl,
-    });
-  }
-
   if (recipe?.childSourceImage?.dataUrl) {
     inputs.push({
       sectionId: "child-source",
@@ -651,6 +649,16 @@ function getImageEditInputs(recipe: any) {
       sectionType: "child-source",
       name: recipe.childSourceImage.name || "Current child source",
       dataUrl: recipe.childSourceImage.dataUrl,
+    });
+  }
+
+  if (recipe?.sourceReferenceImage?.dataUrl) {
+    inputs.push({
+      sectionId: "source-reference",
+      sectionName: "Uploaded Reference Flyer",
+      sectionType: "source",
+      name: recipe.sourceReferenceImage.name || "Uploaded reference flyer",
+      dataUrl: recipe.sourceReferenceImage.dataUrl,
     });
   }
 
