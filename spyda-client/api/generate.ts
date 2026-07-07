@@ -1,4 +1,5 @@
 import { generateDesign } from './_utils.js';
+import { runGenerationQa } from './qa.js';
 import formidable from 'formidable';
 import { readFile } from 'node:fs/promises';
 
@@ -77,7 +78,12 @@ export default async function handler(req: any, res: any) {
     }
 
     const result = await generateDesign({ recipe });
-    return res.status(200).json(result);
+    const qa = await runGenerationQa({ recipe, generatedImage: result.image }).catch((error: any) => ({
+      ok: false,
+      skipped: true,
+      error: error?.message || 'QA failed.',
+    }));
+    return res.status(200).json({ ...result, qa });
   } catch (error: any) {
     return res.status(500).json({ ok: false, error: error.message });
   }

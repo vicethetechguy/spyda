@@ -3,10 +3,9 @@ declare const process: {
 };
 
 import vision from "@google-cloud/vision";
+import { analysisModel, groqAnalysisModel, imageModel } from "./models.js";
 
-export const imageModel = process.env.OPENAI_IMAGE_MODEL || "gpt-image-2"; 
-export const analysisModel = process.env.OPENAI_ANALYSIS_MODEL || "gpt-4o";
-export const groqAnalysisModel = process.env.GROQ_ANALYSIS_MODEL || "llama-3.2-90b-vision-preview";
+export { analysisModel, groqAnalysisModel, imageModel } from "./models.js";
 
 type OcrWord = {
   text: string;
@@ -357,6 +356,44 @@ function enrichBreakdownWithOcrTextAtoms(breakdown: any, ocr?: OcrResult) {
   };
 }
 
+function validateDesignBreakdown(breakdown: any) {
+  const normalized = normalizeBreakdownArchitecture(breakdown || {});
+  const components = Array.isArray(normalized.design?.editableComponents)
+    ? normalized.design.editableComponents
+    : [];
+
+  return {
+    ...normalized,
+    design: {
+      ...normalized.design,
+      styleTokens: normalized.design.styleTokens || {
+        palette: { primary: "#0F172A", secondary: "#22C55E", accent: "#F8FAFC" },
+        typography: { headingFont: "Space Grotesk", bodyFont: "Montserrat" },
+        visualStyle: "Same as uploaded design",
+      },
+      sections: Array.isArray(normalized.design.sections) && normalized.design.sections.length
+        ? normalized.design.sections
+        : [{ id: "main-section", name: "Main Design", bounds: "full canvas" }],
+      editableComponents: components.map((component: any, index: number) => ({
+        id: component.id || `component-${index + 1}`,
+        type: component.type || "text",
+        editable: component.editable ?? true,
+        name: component.name || `Component ${index + 1}`,
+        content: String(component.content || ""),
+        style: String(component.style || ""),
+        layerIndex: Number.isFinite(Number(component.layerIndex)) ? Number(component.layerIndex) : index,
+        boundingBox: component.boundingBox || "approx placement",
+        sectionId: component.sectionId || "main-section",
+        deleted: component.deleted,
+        current: component.current,
+        replacementNeeded: Array.isArray(component.replacementNeeded)
+          ? component.replacementNeeded
+          : ["Keep as-is or replace this component."],
+      })),
+    },
+  };
+}
+
 export function extractJson(text: string) {
   try {
     return JSON.parse(text);
@@ -532,14 +569,14 @@ export async function analyzeDesign(base64Image: string, provider = "openai") {
   if (normalizeAiProvider(provider) === "groq") {
     const result = await analyzeDesignWithGroq(base64Image, prompt);
     const verifiedBreakdown = await verifyBreakdownWithOpenAI(base64Image, result.breakdown, ocr).catch(() => result.breakdown);
-    return { ...result, mode: "groq+openai-verified", breakdown: enrichBreakdownWithOcrTextAtoms(normalizeBreakdownArchitecture(verifiedBreakdown), ocr), ocr };
+    return { ...result, mode: "groq+openai-verified", breakdown: validateDesignBreakdown(enrichBreakdownWithOcrTextAtoms(verifiedBreakdown, ocr)), ocr };
   }
 
   const openaiKey = process.env.OPENAI_API_KEY || "";
-  if (!openaiKey) return { ok: true, mode: "mock", breakdown: normalizeBreakdownArchitecture(buildMockBreakdown()) };
+  if (!openaiKey) return { ok: true, mode: "mock", breakdown: validateDesignBreakdown(buildMockBreakdown()) };
 
   const breakdown = await analyzeDesignWithOpenAI(base64Image, prompt);
-  return { ok: true, mode: "openai", breakdown: enrichBreakdownWithOcrTextAtoms(normalizeBreakdownArchitecture(breakdown), ocr), ocr };
+  return { ok: true, mode: "openai", breakdown: validateDesignBreakdown(enrichBreakdownWithOcrTextAtoms(breakdown, ocr)), ocr };
 }
 
 function sanitizeRecipeForPrompt(recipe: any) {

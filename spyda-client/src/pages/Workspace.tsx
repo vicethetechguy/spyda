@@ -97,8 +97,44 @@ type ApiGenerateResponse = {
   mode?: string
   model?: string
   image?: string
+  qa?: GenerationQaReport
   message?: string
   error?: string
+}
+
+type GenerationQaReport = {
+  ok?: boolean
+  skipped?: boolean
+  score?: number
+  layoutMatch?: string
+  textMatch?: string
+  assetMatch?: string
+  sizeMatch?: string
+  issues?: string[]
+  suggestions?: string[]
+  error?: string
+}
+
+type SavedSpydaProject = {
+  id: string
+  name: string
+  createdAt: string
+  updatedAt: string
+  referencePreview?: string | null
+  generatedImage?: string | null
+  breakdown?: BreakdownResult | null
+  atomEdits?: Record<string, AtomEdit>
+  brandEdits?: {
+    headingFont: string
+    bodyFont: string
+    primaryColor: string
+    secondaryColor: string
+    accentColor: string
+    visualStyle: string
+    essentials: string
+    outputSize: string
+  }
+  qa?: GenerationQaReport | null
 }
 
 /* ═══════════════════════════════════════════════
@@ -272,6 +308,25 @@ async function readApiJson<T>(response: Response): Promise<T> {
   throw new Error(serverMessage)
 }
 
+const SAVED_PROJECTS_KEY = 'spyda.savedProjects.v1'
+
+function loadSavedProjects(): SavedSpydaProject[] {
+  if (typeof window === 'undefined') return []
+  try {
+    const saved = window.localStorage.getItem(SAVED_PROJECTS_KEY)
+    return saved ? JSON.parse(saved) : []
+  } catch {
+    return []
+  }
+}
+
+function saveProjectSnapshot(project: SavedSpydaProject) {
+  if (typeof window === 'undefined') return
+  const existing = loadSavedProjects()
+  const next = [project, ...existing.filter(item => item.id !== project.id)].slice(0, 24)
+  window.localStorage.setItem(SAVED_PROJECTS_KEY, JSON.stringify(next))
+}
+
 export default function Workspace() {
   const [sidebarOpen, setSidebarOpen] = useState(true)
   const [activeId, setActiveId] = useState('canvas')
@@ -311,11 +366,15 @@ export default function Workspace() {
   // Canvas state — lifted so it persists across sidebar nav
   const [uploadedFile, setUploadedFile] = useState<File | null>(null)
   const [uploadedPreview, setUploadedPreview] = useState<string | null>(null)
+  const [currentProjectId, setCurrentProjectId] = useState<string | null>(null)
   const [essentialsImage, setEssentialsImage] = useState<{ name: string; dataUrl: string } | null>(null)
   const [breakdown, setBreakdown] = useState<BreakdownResult | null>(null)
   const [isAnalyzing, setIsAnalyzing] = useState(false)
   const [isGenerating, setIsGenerating] = useState(false)
   const [generatedImage, setGeneratedImage] = useState<string | null>(null)
+  const [generationQa, setGenerationQa] = useState<GenerationQaReport | null>(null)
+  const [analysisStage, setAnalysisStage] = useState('')
+  const [generationStage, setGenerationStage] = useState('')
   const [analyzeError, setAnalyzeError] = useState<string | null>(null)
   const [generateError, setGenerateError] = useState<string | null>(null)
 
@@ -373,19 +432,57 @@ export default function Workspace() {
 
   const activeTitle = pageTitles[activeId] || 'Canvas'
 
+  const persistCurrentProject = useCallback((updates: Partial<SavedSpydaProject>) => {
+    const id = currentProjectId || updates.id || `spyda-${Date.now()}`
+    const existing = loadSavedProjects().find(project => project.id === id)
+    saveProjectSnapshot({
+      id,
+      name: updates.name || existing?.name || uploadedFile?.name || 'Untitled Spyda project',
+      createdAt: existing?.createdAt || updates.createdAt || new Date().toISOString(),
+      updatedAt: new Date().toISOString(),
+      referencePreview: updates.referencePreview ?? existing?.referencePreview ?? uploadedPreview,
+      generatedImage: updates.generatedImage ?? existing?.generatedImage ?? generatedImage,
+      breakdown: updates.breakdown ?? existing?.breakdown ?? breakdown,
+      atomEdits: updates.atomEdits ?? existing?.atomEdits ?? atomEdits,
+      brandEdits: updates.brandEdits ?? existing?.brandEdits ?? brandEdits,
+      qa: updates.qa ?? existing?.qa ?? generationQa,
+    })
+  }, [atomEdits, brandEdits, breakdown, currentProjectId, generatedImage, generationQa, uploadedFile, uploadedPreview])
+
   const handleDesignUpload = useCallback(async (file: File) => {
+    const projectId = typeof crypto !== 'undefined' && 'randomUUID' in crypto
+      ? crypto.randomUUID()
+      : `spyda-${Date.now()}`
     setUploadedFile(file)
     setUploadedPreview(URL.createObjectURL(file))
+    setCurrentProjectId(projectId)
     setBreakdown(null)
     setGeneratedImage(null)
+    setGenerationQa(null)
     setAnalyzeError(null)
     setGenerateError(null)
+    setAnalysisStage('Preparing reference image')
+    setGenerationStage('')
     setAtomEdits({})
 
     // Auto-analyze
     setIsAnalyzing(true)
       try {
         const base64Image = await imageFileToDataUrl(file, 1024, 1024, 0.82);
+        setUploadedPreview(base64Image)
+        saveProjectSnapshot({
+          id: projectId,
+          name: file.name || 'Uploaded reference',
+          createdAt: new Date().toISOString(),
+          updatedAt: new Date().toISOString(),
+          referencePreview: base64Image,
+          generatedImage: null,
+          breakdown: null,
+          atomEdits: {},
+          brandEdits,
+          qa: null,
+        })
+        setAnalysisStage('Reading text, layout, colors, and atoms')
         
         const res = await fetch('/api/analyze', { 
           method: 'POST', 
@@ -393,18 +490,32 @@ export default function Workspace() {
           body: JSON.stringify({ base64Image, aiProvider: aiModel.provider })
         })
         const data = await readApiJson<ApiAnalyzeResponse>(res)
+        setAnalysisStage('Validating editable design atoms')
         
         if (data?.ok && data?.breakdown) {
           setBreakdown(data.breakdown)
+          saveProjectSnapshot({
+            id: projectId,
+            name: file.name || 'Uploaded reference',
+            createdAt: new Date().toISOString(),
+            updatedAt: new Date().toISOString(),
+            referencePreview: base64Image,
+            generatedImage: null,
+            breakdown: data.breakdown,
+            atomEdits: {},
+            brandEdits,
+            qa: null,
+          })
         } else {
           setAnalyzeError(data?.error || 'Analysis failed. Check your API keys.')
         }
       } catch (err: any) {
         setAnalyzeError(err.message || 'Failed to connect to server.')
       } finally {
+        setAnalysisStage('')
         setIsAnalyzing(false)
       }
-  }, [aiModel])
+  }, [aiModel, brandEdits])
 
   /* ── Generate handler ── */
   const handleAtomImageUpload = useCallback(async (section: EditableComponent, file: File) => {
@@ -449,6 +560,8 @@ export default function Workspace() {
   const handleGenerate = useCallback(async () => {
     if (!uploadedFile || !breakdown) return
     setIsGenerating(true)
+    setGenerationQa(null)
+    setGenerationStage('Preparing reference images')
     setGenerateError(null)
 
     try {
@@ -526,6 +639,7 @@ export default function Workspace() {
         },
       }
 
+      setGenerationStage('Sending recipe to GPT-Image 2')
       const form = new FormData()
       form.append('recipe', JSON.stringify(recipe))
       form.append('sourceReferenceImage', sourceReferenceBlob, uploadedFile.name || 'reference-flyer.jpg')
@@ -546,11 +660,20 @@ export default function Workspace() {
       const data = await readApiJson<ApiGenerateResponse>(res)
 
       if (data?.ok && data?.image) {
-        if (data.image.startsWith('http')) {
-          setGeneratedImage(data.image)
-        } else {
-          setGeneratedImage(`data:image/png;base64,${data.image}`)
-        }
+        setGenerationStage(data.qa ? 'Checking reference match' : 'Finalizing design')
+        const imageSrc = data.image.startsWith('http') ? data.image : `data:image/png;base64,${data.image}`
+        setGeneratedImage(imageSrc)
+        setGenerationQa(data.qa || null)
+        persistCurrentProject({
+          id: currentProjectId || undefined,
+          name: uploadedFile.name || 'Spyda generated design',
+          referencePreview: uploadedPreview,
+          generatedImage: imageSrc,
+          breakdown,
+          atomEdits,
+          brandEdits,
+          qa: data.qa || null,
+        })
       } else if (data?.ok && !data?.image) {
         setGenerateError(data?.message || 'Generation returned no image (mock mode — set OPENAI_API_KEY).')
       } else {
@@ -564,17 +687,22 @@ export default function Workspace() {
           : message || 'Generation request could not reach the server. Try again with fewer uploaded replacement images.'
       )
     } finally {
+      setGenerationStage('')
       setIsGenerating(false)
     }
-  }, [uploadedFile, breakdown, atomEdits, brandEdits, essentialsImage, aiModel])
+  }, [uploadedFile, breakdown, atomEdits, brandEdits, essentialsImage, aiModel, currentProjectId, uploadedPreview, persistCurrentProject])
 
   /* ── Reset handler ── */
   const handleReset = useCallback(() => {
     setUploadedFile(null)
     setUploadedPreview(null)
+    setCurrentProjectId(null)
     setEssentialsImage(null)
     setBreakdown(null)
     setGeneratedImage(null)
+    setGenerationQa(null)
+    setAnalysisStage('')
+    setGenerationStage('')
     setAnalyzeError(null)
     setGenerateError(null)
     setAtomEdits({})
@@ -683,6 +811,9 @@ export default function Workspace() {
               isAnalyzing={isAnalyzing}
               isGenerating={isGenerating}
               generatedImage={generatedImage}
+              generationQa={generationQa}
+              analysisStage={analysisStage}
+              generationStage={generationStage}
               analyzeError={analyzeError}
               generateError={generateError}
               atomEdits={atomEdits}
@@ -716,6 +847,7 @@ export default function Workspace() {
 function CanvasView({
   uploadedFile, uploadedPreview,
   breakdown, isAnalyzing, isGenerating, generatedImage,
+  generationQa, analysisStage, generationStage,
   analyzeError, generateError, atomEdits, brandEdits,
   essentialsImage,
   onUpload, onAtomImageUpload, onEssentialsImageUpload, onRemoveEssentialsImage, onDeleteAtom, onGenerate, onReset,
@@ -727,6 +859,9 @@ function CanvasView({
   isAnalyzing: boolean
   isGenerating: boolean
   generatedImage: string | null
+  generationQa: GenerationQaReport | null
+  analysisStage: string
+  generationStage: string
   analyzeError: string | null
   generateError: string | null
   atomEdits: Record<string, AtomEdit>
@@ -818,7 +953,7 @@ function CanvasView({
               <div className="absolute inset-0 bg-background/80 backdrop-blur-sm flex flex-col items-center justify-center">
                 <Loader2 className="w-8 h-8 text-primary animate-spin mb-3" />
                 <span className="text-sm font-medium text-primary">Spyda is dissecting...</span>
-                <span className="text-xs text-muted-foreground mt-1">Analyzing layout, text, colors, structure</span>
+                <span className="text-xs text-muted-foreground mt-1">{analysisStage || 'Analyzing layout, text, colors, structure'}</span>
               </div>
             )}
           </div>
@@ -849,13 +984,32 @@ function CanvasView({
                 <>
                   <Loader2 className="w-8 h-8 text-primary animate-spin mb-3" />
                   <span className="text-sm font-medium text-primary">Generating design...</span>
-                  <span className="text-xs text-muted-foreground mt-1">This may take 15-30 seconds</span>
+                  <span className="text-xs text-muted-foreground mt-1">{generationStage || 'This may take 15-30 seconds'}</span>
                 </>
               ) : (
                 <>
                   <Sparkles className="w-8 h-8 text-muted-foreground/20 mb-3" />
                   <span className="text-sm text-muted-foreground">Generated design will appear here</span>
                 </>
+              )}
+            </div>
+          )}
+          {generationQa && !generationQa.skipped && (
+            <div className="mt-3 rounded-xl border border-primary/20 bg-primary/[0.04] px-4 py-3 text-sm">
+              <div className="flex items-center justify-between gap-3">
+                <span className="text-[11px] font-bold tracking-[0.12em] uppercase text-primary">Reference Match QA</span>
+                {typeof generationQa.score === 'number' && (
+                  <span className="rounded-full bg-primary/10 px-2.5 py-1 text-xs font-bold text-primary">{generationQa.score}/100</span>
+                )}
+              </div>
+              <div className="mt-2 grid gap-1 text-xs text-muted-foreground sm:grid-cols-2">
+                {generationQa.layoutMatch && <span>Layout: {generationQa.layoutMatch}</span>}
+                {generationQa.textMatch && <span>Text: {generationQa.textMatch}</span>}
+                {generationQa.assetMatch && <span>Assets: {generationQa.assetMatch}</span>}
+                {generationQa.sizeMatch && <span>Size: {generationQa.sizeMatch}</span>}
+              </div>
+              {!!generationQa.issues?.length && (
+                <p className="mt-2 text-xs text-muted-foreground">{generationQa.issues.slice(0, 2).join(' ')}</p>
               )}
             </div>
           )}
@@ -874,7 +1028,7 @@ function CanvasView({
             <div className="text-center">
               <Loader2 className="w-10 h-10 text-primary animate-spin mx-auto mb-4" />
               <h3 className="font-heading text-xl font-semibold mb-2">Dissecting design atoms...</h3>
-              <p className="text-sm text-muted-foreground">Spyda is mapping every component of your reference</p>
+              <p className="text-sm text-muted-foreground">{analysisStage || 'Spyda is mapping every component of your reference'}</p>
             </div>
           </div>
         ) : breakdown ? (
@@ -1222,34 +1376,67 @@ function AtomCard({
    ═══════════════════════════════════════════════ */
 
 function GalleryView() {
-  const samples = [
-    "spyda-sample-01.jpeg", "spyda-sample-02.jpeg", "spyda-sample-03.jpeg",
-    "spyda-sample-04.jpeg", "spyda-sample-05.jpeg", "spyda-sample-06.jpeg",
-  ]
+  const [projects, setProjects] = useState<SavedSpydaProject[]>([])
+
+  useEffect(() => {
+    setProjects(loadSavedProjects())
+  }, [])
+
   return (
     <div className="p-8">
       <div className="flex items-center justify-between mb-8">
         <div>
           <h2 className="font-heading text-2xl font-bold">Gallery</h2>
-          <p className="text-sm text-muted-foreground mt-1">Your generated designs</p>
+          <p className="text-sm text-muted-foreground mt-1">Your saved references, breakdowns, and generated designs</p>
         </div>
         <button className="inline-flex h-9 items-center gap-2 rounded-lg bg-primary/10 border border-primary/20 px-4 text-sm font-medium text-primary hover:bg-primary/15 transition-colors">
           <Sparkles className="w-4 h-4" /> New Design
         </button>
       </div>
-      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-6">
-        {samples.map((src, i) => (
-          <div key={i} className="group relative aspect-[4/5] rounded-2xl overflow-hidden border border-white/[0.06] bg-white/[0.02] cursor-pointer transition-all hover:border-primary/30 hover:shadow-xl">
-            <img src={`/assets/${src}`} alt="" className="w-full h-full object-cover transition-transform duration-500 group-hover:scale-105" />
-            <div className="absolute inset-0 bg-gradient-to-t from-black/60 via-transparent opacity-0 group-hover:opacity-100 transition-opacity duration-300 flex items-end p-4">
-              <div className="flex items-center gap-2">
-                <Image className="w-4 h-4 text-primary" />
-                <span className="text-sm font-medium">View Design</span>
+      {projects.length ? (
+        <div className="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-3 gap-6">
+          {projects.map(project => (
+            <div key={project.id} className="group rounded-2xl overflow-hidden border border-white/[0.06] bg-white/[0.025] transition-all hover:border-primary/30 hover:shadow-xl">
+              <div className="relative aspect-[4/5] bg-black/30">
+                {project.generatedImage || project.referencePreview ? (
+                  <img
+                    src={project.generatedImage || project.referencePreview || ''}
+                    alt={project.name}
+                    className="h-full w-full object-cover transition-transform duration-500 group-hover:scale-105"
+                  />
+                ) : (
+                  <div className="flex h-full items-center justify-center">
+                    <Image className="h-10 w-10 text-muted-foreground/30" />
+                  </div>
+                )}
+                <div className="absolute left-3 top-3 rounded-full bg-black/55 px-3 py-1 text-[10px] font-bold uppercase tracking-[0.12em] text-white backdrop-blur">
+                  {project.generatedImage ? 'Generated' : 'Draft'}
+                </div>
+                {typeof project.qa?.score === 'number' && (
+                  <div className="absolute right-3 top-3 rounded-full bg-primary/90 px-3 py-1 text-xs font-bold text-primary-foreground">
+                    {project.qa.score}/100
+                  </div>
+                )}
+              </div>
+              <div className="p-4">
+                <h3 className="line-clamp-1 font-heading text-base font-semibold">{project.name}</h3>
+                <p className="mt-1 text-xs text-muted-foreground">
+                  {project.breakdown?.design?.editableComponents?.filter(atom => !atom.deleted).length || 0} design atoms saved
+                </p>
+                <p className="mt-3 text-[11px] text-muted-foreground/60">
+                  Updated {new Date(project.updatedAt).toLocaleDateString()}
+                </p>
               </div>
             </div>
-          </div>
-        ))}
-      </div>
+          ))}
+        </div>
+      ) : (
+        <div className="rounded-2xl border border-dashed border-white/[0.08] bg-white/[0.02] p-12 text-center">
+          <Sparkles className="mx-auto mb-4 h-9 w-9 text-primary/50" />
+          <h3 className="font-heading text-lg font-semibold">No saved designs yet</h3>
+          <p className="mt-2 text-sm text-muted-foreground">Analyze or generate a flyer and Spyda will save it here automatically.</p>
+        </div>
+      )}
     </div>
   )
 }

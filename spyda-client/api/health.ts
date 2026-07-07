@@ -1,4 +1,4 @@
-import { analysisModel, groqAnalysisModel, imageModel } from './_utils.js';
+import { analysisModel, groqAnalysisModel, imageModel } from './models.js';
 
 declare const process: {
   env: Record<string, string | undefined>;
