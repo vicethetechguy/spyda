@@ -1,80 +1,87 @@
 import { generateDesign } from './_utils.js';
-import { runGenerationQa } from './qa.js';
+import formidable from 'formidable';
+import { readFile } from 'node:fs/promises';
 
 export const config = {
-  runtime: 'edge',
+  maxDuration: 300,
+  api: {
+    bodyParser: false,
+  },
 };
 
-async function fileToDataUrl(file: File) {
-  const arrayBuffer = await file.arrayBuffer();
-  let binary = '';
-  const bytes = new Uint8Array(arrayBuffer);
-  const len = bytes.byteLength;
-  for (let i = 0; i < len; i++) {
-    binary += String.fromCharCode(bytes[i]);
-  }
-  return `data:${file.type || 'image/jpeg'};base64,${btoa(binary)}`;
+function isMultipart(req: any) {
+  return String(req.headers?.['content-type'] || '').includes('multipart/form-data');
 }
 
-export default async function handler(req: Request) {
+function firstValue(value: any) {
+  return Array.isArray(value) ? value[0] : value;
+}
+
+function firstFile(value: any) {
+  return Array.isArray(value) ? value[0] : value;
+}
+
+async function fileToDataUrl(file: any) {
+  const buffer = await readFile(file.filepath);
+  const mimeType = file.mimetype || 'image/jpeg';
+  return `data:${mimeType};base64,${buffer.toString('base64')}`;
+}
+
+async function readMultipartRecipe(req: any) {
+  const form = formidable({
+    multiples: true,
+    maxFiles: 8,
+    maxFileSize: 4 * 1024 * 1024,
+    maxTotalFileSize: 14 * 1024 * 1024,
+  });
+
+  const [fields, files] = await form.parse(req);
+  const recipeText = firstValue(fields.recipe);
+  if (!recipeText) throw new Error('Missing recipe data.');
+
+  const recipe = JSON.parse(String(recipeText));
+  const sourceFile = firstFile(files.sourceReferenceImage);
+  if (sourceFile && recipe.sourceReferenceImage) {
+    recipe.sourceReferenceImage.dataUrl = await fileToDataUrl(sourceFile);
+  }
+
+  const childFile = firstFile(files.childSourceImage);
+  if (childFile && recipe.childSourceImage) {
+    recipe.childSourceImage.dataUrl = await fileToDataUrl(childFile);
+  }
+
+  const essentialsFile = firstFile(files.essentialsImage);
+  if (essentialsFile && recipe.essentialsImage) {
+    recipe.essentialsImage.dataUrl = await fileToDataUrl(essentialsFile);
+  }
+
+  if (Array.isArray(recipe.referenceImages)) {
+    for (const image of recipe.referenceImages) {
+      const fieldName = image.fieldName;
+      const uploadedFile = fieldName ? firstFile(files[fieldName]) : null;
+      if (uploadedFile) {
+        image.dataUrl = await fileToDataUrl(uploadedFile);
+      }
+    }
+  }
+
+  return recipe;
+}
+
+export default async function handler(req: any, res: any) {
   if (req.method !== 'POST') {
-    return new Response(JSON.stringify({ error: 'Method not allowed' }), { status: 405 });
+    return res.status(405).json({ ok: false, error: 'Method not allowed' });
   }
 
   try {
-    const contentType = req.headers.get('content-type') || '';
-    let recipe: any = null;
-
-    if (contentType.includes('multipart/form-data')) {
-      const formData = await req.formData();
-      const recipeText = formData.get('recipe');
-      if (!recipeText) throw new Error('Missing recipe data.');
-      recipe = JSON.parse(recipeText.toString());
-
-      const sourceFile = formData.get('sourceReferenceImage') as File | null;
-      if (sourceFile && sourceFile.size > 0 && recipe.sourceReferenceImage) {
-        recipe.sourceReferenceImage.dataUrl = await fileToDataUrl(sourceFile);
-      }
-
-      const childFile = formData.get('childSourceImage') as File | null;
-      if (childFile && childFile.size > 0 && recipe.childSourceImage) {
-        recipe.childSourceImage.dataUrl = await fileToDataUrl(childFile);
-      }
-
-      const essentialsFile = formData.get('essentialsImage') as File | null;
-      if (essentialsFile && essentialsFile.size > 0 && recipe.essentialsImage) {
-        recipe.essentialsImage.dataUrl = await fileToDataUrl(essentialsFile);
-      }
-
-      if (Array.isArray(recipe.referenceImages)) {
-        for (const image of recipe.referenceImages) {
-          const fieldName = image.fieldName;
-          if (fieldName) {
-            const uploadedFile = formData.get(fieldName) as File | null;
-            if (uploadedFile && uploadedFile.size > 0) {
-              image.dataUrl = await fileToDataUrl(uploadedFile);
-            }
-          }
-        }
-      }
-    } else {
-      const body = await req.json();
-      recipe = body?.recipe;
-    }
-
+    const recipe = isMultipart(req) ? await readMultipartRecipe(req) : req.body?.recipe;
     if (!recipe) {
-      return new Response(JSON.stringify({ error: 'Missing recipe data.' }), { status: 400 });
+      return res.status(400).json({ ok: false, error: 'Missing recipe data.' });
     }
 
     const result = await generateDesign({ recipe });
-    const qa = await runGenerationQa({ recipe, generatedImage: result.image }).catch((error: any) => ({
-      ok: false,
-      skipped: true,
-      error: error?.message || 'QA failed.',
-    }));
-
-    return new Response(JSON.stringify({ ...result, qa }), { status: 200, headers: { 'Content-Type': 'application/json' } });
+    return res.status(200).json({ ...result, qa: { ok: false, skipped: true } });
   } catch (error: any) {
-    return new Response(JSON.stringify({ ok: false, error: error.message }), { status: 500, headers: { 'Content-Type': 'application/json' } });
+    return res.status(500).json({ ok: false, error: error?.message || 'Generation failed.' });
   }
 }

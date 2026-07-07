@@ -498,7 +498,7 @@ export async function analyzeDesign(base64Image: string, provider = "openai", oc
 
 function sanitizeRecipeForPrompt(recipe: any) {
   const attachedReferenceIds = new Set(getReferenceImages(recipe).map((image: any) => image.sectionId));
-  const imageInputOffset = (recipe?.sourceReferenceImage?.dataUrl ? 1 : 0) + (recipe?.essentialsImage?.dataUrl ? 1 : 0);
+  const imageInputOffset = (recipe?.sourceReferenceImage?.dataUrl ? 1 : 0) + (recipe?.childSourceImage?.dataUrl ? 1 : 0) + (recipe?.essentialsImage?.dataUrl ? 1 : 0);
 
   return {
     ...recipe,
