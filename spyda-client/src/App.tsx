@@ -5,6 +5,7 @@ import Landing from './pages/Landing'
 import Workspace from './pages/Workspace'
 import Auth from './pages/Auth'
 import SpydaSplash from './components/SpydaSplash'
+import WorkspaceErrorBoundary from './components/WorkspaceErrorBoundary'
 
 function ProtectedRoute({ children }: { children: React.ReactNode }) {
   const { session, loading } = useAuth()
@@ -40,7 +41,9 @@ function App() {
           <Route path="/auth" element={<Auth />} />
           <Route path="/workspace" element={
             <ProtectedRoute>
-              <Workspace />
+              <WorkspaceErrorBoundary>
+                <Workspace />
+              </WorkspaceErrorBoundary>
             </ProtectedRoute>
           } />
           <Route path="*" element={<Navigate to="/" replace />} />

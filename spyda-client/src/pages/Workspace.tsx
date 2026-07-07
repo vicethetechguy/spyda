@@ -322,9 +322,13 @@ function loadSavedProjects(): SavedSpydaProject[] {
 
 function saveProjectSnapshot(project: SavedSpydaProject) {
   if (typeof window === 'undefined') return
-  const existing = loadSavedProjects()
-  const next = [project, ...existing.filter(item => item.id !== project.id)].slice(0, 24)
-  window.localStorage.setItem(SAVED_PROJECTS_KEY, JSON.stringify(next))
+  try {
+    const existing = loadSavedProjects()
+    const next = [project, ...existing.filter(item => item.id !== project.id)].slice(0, 24)
+    window.localStorage.setItem(SAVED_PROJECTS_KEY, JSON.stringify(next))
+  } catch (error) {
+    console.warn('Spyda could not save this project snapshot locally.', error)
+  }
 }
 
 export default function Workspace() {
