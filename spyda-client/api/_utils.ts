@@ -572,6 +572,18 @@ ${attachedReferenceImages.map((image: any, index: number) => `- Input image ${in
 - Treat it as a hard visual requirement together with constants.essentials. Use it for the specific logo, product, screenshot, subject, mood, or detail the user wants included.
 `
     : "";
+  const brandConstants = recipe?.styleTokens || {};
+  const brandConstantsInstructions = `MANDATORY BRAND CONSTANTS:
+- Use the exact heading font direction: ${brandConstants?.typography?.headingFont || "Space Grotesk"}.
+- Use the exact body font direction: ${brandConstants?.typography?.bodyFont || "Montserrat"}.
+- Use the exact 60/30/10 color system:
+  - Primary / 60%: ${brandConstants?.palette?.primary || "#0F172A"}
+  - Secondary / 30%: ${brandConstants?.palette?.secondary || "#22C55E"}
+  - Accent / 10%: ${brandConstants?.palette?.accent || "#F8FAFC"}
+- Use the visual style exactly as direction: ${brandConstants?.visualStyle || "Same premium visual style as the uploaded reference"}.
+- Do not invent a different palette. Do not replace the selected HEX colors with approximate colors.
+- Keep all generated text, CTA surfaces, accents, overlays, and new graphic details aligned to these constants unless the immutable Source requires a stronger match.
+`;
   const outputSizeInstruction = recipe?.imageSize
     ? `OUTPUT SIZE REQUIREMENT:
 - Target output: ${recipe.outputSizeLabel || recipe.imageSize} (${recipe.imageSize}).
@@ -588,9 +600,10 @@ ${sourceReferenceInstructions}
 ${childSourceInstructions}
 ${essentialsImageInstruction}
 ${outputSizeInstruction}
+${brandConstantsInstructions}
 Use only the selected editableComponents for this round. Do not modify unrelated atoms.
 If the user customized an atom, prioritize that replacement over the original.
-If constants.essentials contains instructions, treat them as hard requirements. Essentials override style preferences when they conflict.
+If constants.essentials contains instructions, treat them as hard requirements. Essentials override style preferences when they conflict, but preserve the mandatory brand constants unless the Essential prompt explicitly replaces one.
 Do not omit user-specified logos, uploaded assets, offers, contact details, disclaimers, CTA text, product names, colors, or exact footer details.
 For every section with replacementAsset, use the matching input reference image and include it visibly in the flyer.
 ${referenceImageInstructions}

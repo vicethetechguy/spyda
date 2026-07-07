@@ -1008,8 +1008,8 @@ function CanvasView({
             </div>
             <button onClick={onReset} className="text-xs text-muted-foreground hover:text-foreground transition-colors">Change</button>
           </div>
-          <div className="relative rounded-xl overflow-hidden border border-white/[0.06] bg-white/[0.02]">
-            <img src={uploadedPreview!} alt="Original source flyer" className="w-full object-contain max-h-[300px]" />
+          <div className="relative flex h-[340px] items-center justify-center rounded-xl overflow-hidden border border-white/[0.06] bg-white/[0.02]">
+            <img src={uploadedPreview!} alt="Original source flyer" className="h-full w-full object-contain" />
             {isAnalyzing && (
               <div className="absolute inset-0 bg-background/80 backdrop-blur-sm flex flex-col items-center justify-center">
                 <Loader2 className="w-8 h-8 text-primary animate-spin mb-3" />
@@ -1034,8 +1034,8 @@ function CanvasView({
             </span>
           </div>
           {generatedImage || uploadedPreview ? (
-            <div className="relative rounded-xl overflow-hidden border border-primary/20 bg-white/[0.02] flex-1 flex items-center justify-center">
-              <img src={generatedImage || uploadedPreview || ''} alt="Child source design" className="w-full object-contain max-h-[400px]" />
+            <div className="relative flex h-[340px] w-full items-center justify-center rounded-xl overflow-hidden border border-primary/20 bg-white/[0.02]">
+              <img src={generatedImage || uploadedPreview || ''} alt="Child source design" className="h-full w-full object-contain" />
               {generatedImage && <a
                 href={generatedImage}
                 download={`spyda-output-${Date.now()}.png`}
