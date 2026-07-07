@@ -31,6 +31,9 @@ export function mapOutputSize(format: string = "", imageSize: string = "", model
   const portraitSize = isGptImageModel(model) ? "1024x1536" : "1024x1792";
   const landscapeSize = isGptImageModel(model) ? "1536x1024" : "1792x1024";
 
+  if (sizeChoice.includes("story") || sizeChoice.includes("reel") || sizeChoice.includes("shorts") || sizeChoice.includes("portrait") || sizeChoice.includes("4:5") || sizeChoice.includes("9:16") || sizeChoice.includes("a4-portrait") || sizeChoice.includes("1080x1920") || sizeChoice.includes("1080x1350") || sizeChoice.includes("1024x1536") || sizeChoice.includes("2480x3508")) return portraitSize;
+  if (sizeChoice.includes("landscape") || sizeChoice.includes("thumbnail") || sizeChoice.includes("banner") || sizeChoice.includes("cover") || sizeChoice.includes("16:9") || sizeChoice.includes("1.91:1") || sizeChoice.includes("3:1") || sizeChoice.includes("1536x1024") || sizeChoice.includes("1280x720") || sizeChoice.includes("1920x1080") || sizeChoice.includes("3000x1000") || sizeChoice.includes("3508x2480")) return landscapeSize;
+  if (sizeChoice.includes("instagram-square") || sizeChoice.includes("linkedin-post") || sizeChoice.includes("1:1")) return "1024x1024";
   if (sizeChoice.includes("1024 x 1024") || sizeChoice.includes("square")) return "1024x1024";
   if (sizeChoice.includes("portrait")) return portraitSize;
   if (sizeChoice.includes("landscape")) return landscapeSize;
@@ -382,6 +385,7 @@ export async function analyzeDesign(base64Image: string, provider = "openai") {
 
 function sanitizeRecipeForPrompt(recipe: any) {
   const attachedReferenceIds = new Set(getReferenceImages(recipe).map((image: any) => image.sectionId));
+  const imageInputOffset = (recipe?.sourceReferenceImage?.dataUrl ? 1 : 0) + (recipe?.essentialsImage?.dataUrl ? 1 : 0);
 
   return {
     ...recipe,
@@ -392,9 +396,16 @@ function sanitizeRecipeForPrompt(recipe: any) {
           dataUrl: "[attached separately as image input 1]",
         }
       : undefined,
+    essentialsImage: recipe?.essentialsImage?.dataUrl
+      ? {
+          name: recipe.essentialsImage.name || "Essentials reference image",
+          role: "user-provided essentials reference",
+          dataUrl: "[attached separately as essentials image input]",
+        }
+      : undefined,
     referenceImages: Array.isArray(recipe?.referenceImages)
       ? recipe.referenceImages.map((image: any, index: number) => ({
-          referenceInput: recipe?.sourceReferenceImage?.dataUrl ? index + 2 : index + 1,
+          referenceInput: index + 1 + imageInputOffset,
           sectionId: image.sectionId,
           sectionName: image.sectionName,
           sectionType: image.sectionType,
@@ -410,10 +421,12 @@ function sanitizeRecipeForPrompt(recipe: any) {
 export function buildGenerationPrompt(recipe: any) {
   const attachedReferenceImages = getReferenceImages(recipe);
   const hasSourceReference = Boolean(recipe?.sourceReferenceImage?.dataUrl);
+  const hasEssentialsImage = Boolean(recipe?.essentialsImage?.dataUrl);
+  const imageInputOffset = (hasSourceReference ? 1 : 0) + (hasEssentialsImage ? 1 : 0);
   const referenceImageInstructions = attachedReferenceImages.length
     ? `
 REFERENCE IMAGE REQUIREMENTS:
-${attachedReferenceImages.map((image: any, index: number) => `- Input image ${hasSourceReference ? index + 2 : index + 1}: "${image.name}" belongs to section "${image.sectionName}" (${image.sectionId}). It is mandatory. Preserve the uploaded asset's identity as closely as possible and place it in the generated flyer according to that section's placement/role.`).join("\n")}
+${attachedReferenceImages.map((image: any, index: number) => `- Input image ${index + 1 + imageInputOffset}: "${image.name}" belongs to section "${image.sectionName}" (${image.sectionId}). It is mandatory. Preserve the uploaded asset's identity as closely as possible and place it in the generated flyer according to that section's placement/role.`).join("\n")}
 `
     : "";
   const sourceReferenceInstructions = hasSourceReference
@@ -425,11 +438,26 @@ ${attachedReferenceImages.map((image: any, index: number) => `- Input image ${ha
 - Deleted atoms must stay removed. Non-deleted unchanged atoms should keep the same role and position from the reference.
 `
     : "";
+  const essentialsImageInstruction = hasEssentialsImage
+    ? `ESSENTIALS IMAGE REQUIREMENT:
+- One attached image is the user's Essentials reference: "${recipe.essentialsImage.name || "Essentials reference image"}".
+- Treat it as a hard visual requirement together with constants.essentials. Use it for the specific logo, product, screenshot, subject, mood, or detail the user wants included.
+`
+    : "";
+  const outputSizeInstruction = recipe?.imageSize
+    ? `OUTPUT SIZE REQUIREMENT:
+- Target output: ${recipe.outputSizeLabel || recipe.imageSize} (${recipe.imageSize}).
+- Preserve the chosen aspect ratio and compose the flyer for that platform. If the model canvas is an approximation, keep all important content within the intended safe area and avoid changing the uploaded reference structure unnecessarily.
+- The uploaded reference's original aspect setting was: ${recipe.sourceImageSize || "not provided"}.
+`
+    : "";
 
   return `Create a finished premium graphic design based on this Spyda recipe.
 This is reference-guided design imitation, not a fresh redesign.
 Keep text clean, legible, and professionally composed.
 ${sourceReferenceInstructions}
+${essentialsImageInstruction}
+${outputSizeInstruction}
 Use every non-deleted section in the recipe. Do not ignore required text atoms, brand atoms, image atoms, CTAs, footer details, icons, or decorative elements.
 If the user customized an atom, prioritize that replacement over the original.
 If constants.essentials contains instructions, treat them as hard requirements. Essentials override style preferences when they conflict.
@@ -464,6 +492,16 @@ function getImageEditInputs(recipe: any) {
       sectionType: "source",
       name: recipe.sourceReferenceImage.name || "Uploaded reference flyer",
       dataUrl: recipe.sourceReferenceImage.dataUrl,
+    });
+  }
+
+  if (recipe?.essentialsImage?.dataUrl) {
+    inputs.push({
+      sectionId: "essentials-reference",
+      sectionName: "Essentials Reference Image",
+      sectionType: "essentials",
+      name: recipe.essentialsImage.name || "Essentials reference image",
+      dataUrl: recipe.essentialsImage.dataUrl,
     });
   }
 

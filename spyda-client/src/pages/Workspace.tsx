@@ -111,6 +111,25 @@ function isGenerationReferenceImage(value: GenerationReferenceImage | null): val
   return value !== null
 }
 
+const OUTPUT_SIZE_OPTIONS = [
+  { value: 'match-reference', label: 'Match uploaded reference', detail: 'Use the uploaded flyer ratio' },
+  { value: 'instagram-square-1080x1080', label: 'Instagram Square', detail: '1080 x 1080, 1:1' },
+  { value: 'instagram-portrait-1080x1350', label: 'Instagram Portrait', detail: '1080 x 1350, 4:5' },
+  { value: 'instagram-story-1080x1920', label: 'Instagram Story/Reel', detail: '1080 x 1920, 9:16' },
+  { value: 'facebook-post-1200x630', label: 'Facebook Post', detail: '1200 x 630, 1.91:1' },
+  { value: 'facebook-cover-1640x924', label: 'Facebook Cover', detail: '1640 x 924' },
+  { value: 'youtube-thumbnail-1280x720', label: 'YouTube Thumbnail', detail: '1280 x 720, 16:9' },
+  { value: 'youtube-shorts-1080x1920', label: 'YouTube Shorts', detail: '1080 x 1920, 9:16' },
+  { value: 'linkedin-post-1200x1200', label: 'LinkedIn Post', detail: '1200 x 1200, 1:1' },
+  { value: 'x-post-1600x900', label: 'X / Twitter Post', detail: '1600 x 900, 16:9' },
+  { value: 'web-banner-1920x1080', label: 'Web Banner', detail: '1920 x 1080, 16:9' },
+  { value: 'display-banner-3000x1000', label: 'Wide Display Banner', detail: '3000 x 1000, 3:1' },
+  { value: 'flyer-portrait-1024x1536', label: 'Flyer Portrait', detail: '1024 x 1536' },
+  { value: 'flyer-landscape-1536x1024', label: 'Flyer Landscape', detail: '1536 x 1024' },
+  { value: 'a4-portrait-2480x3508', label: 'A4 Portrait', detail: '2480 x 3508' },
+  { value: 'a4-landscape-3508x2480', label: 'A4 Landscape', detail: '3508 x 2480' },
+]
+
 const HEX_COLOR_PATTERN = /^#?[0-9a-fA-F]{6}$/
 
 function normalizeHexColor(value: string, fallback: string) {
@@ -278,6 +297,7 @@ export default function Workspace() {
   // Canvas state — lifted so it persists across sidebar nav
   const [uploadedFile, setUploadedFile] = useState<File | null>(null)
   const [uploadedPreview, setUploadedPreview] = useState<string | null>(null)
+  const [essentialsImage, setEssentialsImage] = useState<{ name: string; dataUrl: string } | null>(null)
   const [breakdown, setBreakdown] = useState<BreakdownResult | null>(null)
   const [isAnalyzing, setIsAnalyzing] = useState(false)
   const [isGenerating, setIsGenerating] = useState(false)
@@ -297,6 +317,7 @@ export default function Workspace() {
     accentColor: string
     visualStyle: string
     essentials: string
+    outputSize: string
   }>({
     headingFont: 'Space Grotesk',
     bodyFont: 'Montserrat',
@@ -305,6 +326,7 @@ export default function Workspace() {
     accentColor: '#F8FAFC',
     visualStyle: '',
     essentials: '',
+    outputSize: 'match-reference',
   })
 
   // Populate brand edits from breakdown
@@ -319,6 +341,7 @@ export default function Workspace() {
         accentColor: normalizeHexColor(c.colors?.accent || '', prev.accentColor),
         visualStyle: c.visualStyle || prev.visualStyle,
         essentials: prev.essentials,
+        outputSize: prev.outputSize,
       }))
     }
   }, [breakdown])
@@ -384,6 +407,11 @@ export default function Workspace() {
     }))
   }, [])
 
+  const handleEssentialsImageUpload = useCallback(async (file: File) => {
+    const dataUrl = await imageFileToDataUrl(file, 768, 768, 0.78)
+    setEssentialsImage({ name: file.name, dataUrl })
+  }, [])
+
   const handleDeleteAtom = useCallback((sectionId: string) => {
     setBreakdown(prev => {
       if (!prev) return prev
@@ -410,6 +438,7 @@ export default function Workspace() {
       // Build recipe from atoms + brand card
       const sourceReferenceBlob = await imageFileToBlob(uploadedFile, 768, 1152, 0.72)
       const sourceImageSize = await getImageSizeChoice(uploadedFile)
+      const chosenOutputSize = brandEdits.outputSize === 'match-reference' ? sourceImageSize : brandEdits.outputSize
       const referenceImages = breakdown.sections
         .map(s => {
           const edit = atomEdits[s.id]
@@ -428,12 +457,19 @@ export default function Workspace() {
 
       const recipe: Record<string, any> = {
         aiProvider: aiModel.provider,
-        imageSize: sourceImageSize,
+        imageSize: chosenOutputSize,
+        sourceImageSize,
+        outputSizeLabel: OUTPUT_SIZE_OPTIONS.find(option => option.value === brandEdits.outputSize)?.label || 'Match uploaded reference',
         sourceReferenceImage: {
           name: uploadedFile.name || 'Uploaded reference flyer',
           role: 'source-layout-reference',
           fieldName: 'sourceReferenceImage',
         },
+        essentialsImage: essentialsImage ? {
+          name: essentialsImage.name,
+          fieldName: 'essentialsImage',
+          role: 'user-provided essentials reference',
+        } : undefined,
         referenceImages: referenceImages.map(image => ({
           sectionId: image.sectionId,
           sectionName: image.sectionName,
@@ -473,6 +509,10 @@ export default function Workspace() {
       const form = new FormData()
       form.append('recipe', JSON.stringify(recipe))
       form.append('sourceReferenceImage', sourceReferenceBlob, uploadedFile.name || 'reference-flyer.jpg')
+      if (essentialsImage) {
+        const essentialsBlob = await dataUrlToBlob(essentialsImage.dataUrl)
+        form.append('essentialsImage', essentialsBlob, essentialsImage.name || 'essentials-reference.jpg')
+      }
 
       for (const image of referenceImages) {
         const blob = await dataUrlToBlob(image.dataUrl)
@@ -506,12 +546,13 @@ export default function Workspace() {
     } finally {
       setIsGenerating(false)
     }
-  }, [uploadedFile, breakdown, atomEdits, brandEdits, aiModel])
+  }, [uploadedFile, breakdown, atomEdits, brandEdits, essentialsImage, aiModel])
 
   /* ── Reset handler ── */
   const handleReset = useCallback(() => {
     setUploadedFile(null)
     setUploadedPreview(null)
+    setEssentialsImage(null)
     setBreakdown(null)
     setGeneratedImage(null)
     setAnalyzeError(null)
@@ -525,6 +566,7 @@ export default function Workspace() {
       accentColor: '#F8FAFC',
       visualStyle: '',
       essentials: '',
+      outputSize: 'match-reference',
     })
   }, [])
 
@@ -625,8 +667,11 @@ export default function Workspace() {
               generateError={generateError}
               atomEdits={atomEdits}
               brandEdits={brandEdits}
+              essentialsImage={essentialsImage}
               onUpload={handleDesignUpload}
               onAtomImageUpload={handleAtomImageUpload}
+              onEssentialsImageUpload={handleEssentialsImageUpload}
+              onRemoveEssentialsImage={() => setEssentialsImage(null)}
               onDeleteAtom={handleDeleteAtom}
               onGenerate={handleGenerate}
               onReset={handleReset}
@@ -652,7 +697,8 @@ function CanvasView({
   uploadedFile, uploadedPreview,
   breakdown, isAnalyzing, isGenerating, generatedImage,
   analyzeError, generateError, atomEdits, brandEdits,
-  onUpload, onAtomImageUpload, onDeleteAtom, onGenerate, onReset,
+  essentialsImage,
+  onUpload, onAtomImageUpload, onEssentialsImageUpload, onRemoveEssentialsImage, onDeleteAtom, onGenerate, onReset,
   onAtomEdit, onBrandEdit
 }: {
   uploadedFile: File | null
@@ -664,6 +710,7 @@ function CanvasView({
   analyzeError: string | null
   generateError: string | null
   atomEdits: Record<string, AtomEdit>
+  essentialsImage: { name: string; dataUrl: string } | null
   brandEdits: {
     headingFont: string
     bodyFont: string
@@ -672,9 +719,12 @@ function CanvasView({
     accentColor: string
     visualStyle: string
     essentials: string
+    outputSize: string
   }
   onUpload: (file: File) => void
   onAtomImageUpload: (section: AtomSection, file: File) => void
+  onEssentialsImageUpload: (file: File) => void
+  onRemoveEssentialsImage: () => void
   onDeleteAtom: (sectionId: string) => void
   onGenerate: () => void
   onReset: () => void
@@ -682,6 +732,7 @@ function CanvasView({
   onBrandEdit: (field: string, value: string) => void
 }) {
   const fileInputRef = useRef<HTMLInputElement>(null)
+  const essentialsInputRef = useRef<HTMLInputElement>(null)
   const [isDragging, setIsDragging] = useState(false)
 
   const handleDrop = useCallback((e: React.DragEvent) => {
@@ -917,6 +968,66 @@ function CanvasView({
                 />
                 <p className="mt-2 text-[11px] leading-relaxed text-muted-foreground/60">
                   These notes are treated as hard requirements when generating the new flyer.
+                </p>
+                <div className="mt-3 rounded-xl border border-white/[0.06] bg-white/[0.025] p-3">
+                  <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+                    <div className="min-w-0">
+                      <p className="text-xs font-semibold text-foreground">Essentials image</p>
+                      <p className="mt-0.5 truncate text-[11px] text-muted-foreground">
+                        {essentialsImage?.name || 'Upload logo, product, screenshot, mood reference, or exact visual requirement'}
+                      </p>
+                    </div>
+                    <div className="flex shrink-0 items-center gap-2">
+                      {essentialsImage?.dataUrl && (
+                        <img src={essentialsImage.dataUrl} alt="Essentials reference" className="h-9 w-9 rounded-lg border border-white/[0.1] object-cover" />
+                      )}
+                      {essentialsImage && (
+                        <button
+                          type="button"
+                          onClick={onRemoveEssentialsImage}
+                          className="inline-flex h-9 items-center rounded-lg border border-white/[0.06] bg-white/[0.03] px-3 text-xs font-semibold text-muted-foreground transition-colors hover:bg-white/[0.06] hover:text-foreground"
+                        >
+                          Remove
+                        </button>
+                      )}
+                      <button
+                        type="button"
+                        onClick={() => essentialsInputRef.current?.click()}
+                        className="inline-flex h-9 items-center gap-2 rounded-lg border border-primary/20 bg-primary/5 px-3 text-xs font-semibold text-primary transition-colors hover:bg-primary/10"
+                      >
+                        <Upload className="h-3.5 w-3.5" />
+                        {essentialsImage ? 'Replace' : 'Upload'}
+                      </button>
+                      <input
+                        ref={essentialsInputRef}
+                        type="file"
+                        accept="image/*"
+                        className="hidden"
+                        onChange={e => {
+                          const file = e.target.files?.[0]
+                          if (file) onEssentialsImageUpload(file)
+                          e.currentTarget.value = ''
+                        }}
+                      />
+                    </div>
+                  </div>
+                </div>
+              </div>
+              <div className="mt-4">
+                <label className="text-xs text-muted-foreground mb-1 block">Flyer Size</label>
+                <select
+                  value={brandEdits.outputSize}
+                  onChange={e => onBrandEdit('outputSize', e.target.value)}
+                  className="w-full h-11 rounded-lg border border-white/[0.06] bg-[#101312] px-3 text-sm text-foreground outline-none transition-colors focus:border-primary/40"
+                >
+                  {OUTPUT_SIZE_OPTIONS.map(option => (
+                    <option key={option.value} value={option.value}>
+                      {option.label} - {option.detail}
+                    </option>
+                  ))}
+                </select>
+                <p className="mt-2 text-[11px] leading-relaxed text-muted-foreground/60">
+                  Match uploaded reference keeps the closest source aspect ratio. Platform sizes guide composition and map to the nearest supported GPT-Image canvas.
                 </p>
               </div>
             </div>

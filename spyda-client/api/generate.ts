@@ -47,6 +47,11 @@ async function readMultipartRecipe(req: any) {
     recipe.sourceReferenceImage.dataUrl = await fileToDataUrl(sourceFile);
   }
 
+  const essentialsFile = firstFile(files.essentialsImage);
+  if (essentialsFile && recipe.essentialsImage) {
+    recipe.essentialsImage.dataUrl = await fileToDataUrl(essentialsFile);
+  }
+
   if (Array.isArray(recipe.referenceImages)) {
     for (const image of recipe.referenceImages) {
       const fieldName = image.fieldName;
