@@ -102,6 +102,14 @@ type ApiGenerateResponse = {
   error?: string
 }
 
+type ApiRemoveAtomResponse = {
+  ok: boolean
+  image?: string
+  model?: string
+  mode?: string
+  error?: string
+}
+
 type GenerationQaReport = {
   ok?: boolean
   skipped?: boolean
@@ -280,6 +288,59 @@ async function dataUrlToBlob(dataUrl: string) {
   return response.blob()
 }
 
+function loadImageElement(src: string): Promise<HTMLImageElement> {
+  return new Promise((resolve, reject) => {
+    const img = new window.Image()
+    img.onload = () => resolve(img)
+    img.onerror = reject
+    img.src = src
+  })
+}
+
+function canvasToBlob(canvas: HTMLCanvasElement, type = 'image/png', quality?: number): Promise<Blob> {
+  return new Promise((resolve, reject) => {
+    canvas.toBlob(blob => {
+      if (blob) resolve(blob)
+      else reject(new Error('Could not prepare editable mask.'))
+    }, type, quality)
+  })
+}
+
+async function createAtomMask(imageSrc: string, box: EditableLayerBox) {
+  const image = await loadImageElement(imageSrc)
+  const width = image.naturalWidth || image.width
+  const height = image.naturalHeight || image.height
+  const canvas = document.createElement('canvas')
+  canvas.width = width
+  canvas.height = height
+  const ctx = canvas.getContext('2d')
+  if (!ctx) throw new Error('Could not create mask.')
+
+  ctx.fillStyle = 'rgba(0,0,0,1)'
+  ctx.fillRect(0, 0, width, height)
+
+  const padding = Math.max(width, height) * 0.015
+  const x = (box.left / 100) * width
+  const y = (box.top / 100) * height
+  const w = (box.width / 100) * width
+  const h = (box.height / 100) * height
+
+  ctx.globalCompositeOperation = 'destination-out'
+  ctx.fillStyle = 'rgba(0,0,0,1)'
+  ctx.fillRect(
+    Math.max(0, x - padding),
+    Math.max(0, y - padding),
+    Math.min(width, w + padding * 2),
+    Math.min(height, h + padding * 2),
+  )
+
+  return {
+    blob: await canvasToBlob(canvas, 'image/png'),
+    width,
+    height,
+  }
+}
+
 function getImageSizeChoice(file: File): Promise<string> {
   return new Promise((resolve, reject) => {
     const reader = new FileReader()
@@ -430,6 +491,7 @@ export default function Workspace() {
   const [generationQa, setGenerationQa] = useState<GenerationQaReport | null>(null)
   const [analysisStage, setAnalysisStage] = useState('')
   const [generationStage, setGenerationStage] = useState('')
+  const [removingAtomId, setRemovingAtomId] = useState<string | null>(null)
   const [analyzeError, setAnalyzeError] = useState<string | null>(null)
   const [generateError, setGenerateError] = useState<string | null>(null)
 
@@ -612,6 +674,61 @@ export default function Workspace() {
     })
   }, [])
 
+  const handleRemoveAtomFromBase = useCallback(async (section: EditableComponent, index: number) => {
+    if (!uploadedPreview) return
+    setRemovingAtomId(section.id)
+    setGenerateError(null)
+
+    try {
+      const box = getLayerBox(section, index)
+      const imageBlob = await dataUrlToBlob(uploadedPreview)
+      const mask = await createAtomMask(uploadedPreview, box)
+      const imageSize = mask.width / Math.max(1, mask.height) > 1.12
+        ? 'Landscape 1536 x 1024'
+        : mask.width / Math.max(1, mask.height) < 0.9
+          ? 'Portrait 1024 x 1536'
+          : 'Square 1024 x 1024'
+
+      const form = new FormData()
+      form.append('image', imageBlob, 'spyda-base.png')
+      form.append('mask', mask.blob, 'spyda-mask.png')
+      form.append('imageSize', imageSize)
+      form.append('component', JSON.stringify({
+        id: section.id,
+        name: section.name,
+        type: section.type,
+        content: section.content,
+        style: section.style,
+        boundingBox: section.boundingBox,
+      }))
+
+      const res = await fetch('/api/remove-atom', {
+        method: 'POST',
+        body: form,
+      })
+      const data = await readApiJson<ApiRemoveAtomResponse>(res)
+
+      if (data?.ok && data.image) {
+        const imageSrc = data.image.startsWith('http') ? data.image : `data:image/png;base64,${data.image}`
+        setUploadedPreview(imageSrc)
+        setAtomEdits(prev => ({
+          ...prev,
+          [section.id]: {
+            ...prev[section.id],
+            mode: 'customize',
+            value: prev[section.id]?.value || section.content || '',
+          },
+        }))
+      } else {
+        setGenerateError(data?.error || 'Spyda could not clean this atom from the base flyer.')
+      }
+    } catch (err: any) {
+      setGenerateError(err?.message || 'Spyda could not clean this atom from the base flyer.')
+    } finally {
+      setRemovingAtomId(null)
+    }
+  }, [uploadedPreview])
+
   const handleGenerate = useCallback(async () => {
     if (!uploadedFile || !breakdown) return
     setIsGenerating(true)
@@ -758,6 +875,7 @@ export default function Workspace() {
     setGenerationQa(null)
     setAnalysisStage('')
     setGenerationStage('')
+    setRemovingAtomId(null)
     setAnalyzeError(null)
     setGenerateError(null)
     setAtomEdits({})
@@ -874,10 +992,12 @@ export default function Workspace() {
               atomEdits={atomEdits}
               brandEdits={brandEdits}
               essentialsImage={essentialsImage}
+              removingAtomId={removingAtomId}
               onUpload={handleDesignUpload}
               onAtomImageUpload={handleAtomImageUpload}
               onEssentialsImageUpload={handleEssentialsImageUpload}
               onRemoveEssentialsImage={() => setEssentialsImage(null)}
+              onRemoveAtomFromBase={handleRemoveAtomFromBase}
               onDeleteAtom={handleDeleteAtom}
               onGenerate={handleGenerate}
               onReset={handleReset}
@@ -905,8 +1025,9 @@ function CanvasView({
   generationQa, analysisStage, generationStage,
   analyzeError, generateError, atomEdits, brandEdits,
   essentialsImage,
+  removingAtomId,
   onUpload, onAtomImageUpload, onEssentialsImageUpload, onRemoveEssentialsImage, onDeleteAtom, onGenerate, onReset,
-  onAtomEdit, onBrandEdit
+  onAtomEdit, onBrandEdit, onRemoveAtomFromBase
 }: {
   uploadedFile: File | null
   uploadedPreview: string | null
@@ -921,6 +1042,7 @@ function CanvasView({
   generateError: string | null
   atomEdits: Record<string, AtomEdit>
   essentialsImage: { name: string; dataUrl: string } | null
+  removingAtomId: string | null
   brandEdits: {
     headingFont: string
     bodyFont: string
@@ -935,6 +1057,7 @@ function CanvasView({
   onAtomImageUpload: (section: EditableComponent, file: File) => void
   onEssentialsImageUpload: (file: File) => void
   onRemoveEssentialsImage: () => void
+  onRemoveAtomFromBase: (section: EditableComponent, index: number) => void
   onDeleteAtom: (sectionId: string) => void
   onGenerate: () => void
   onReset: () => void
@@ -1122,6 +1245,8 @@ function CanvasView({
                 edit={atomEdits[section.id]}
                 onEdit={onAtomEdit}
                 onImageUpload={onAtomImageUpload}
+                onRemoveFromBase={onRemoveAtomFromBase}
+                isRemovingBase={removingAtomId === section.id}
                 onDelete={onDeleteAtom}
               />
             ))}
@@ -1479,13 +1604,15 @@ function EditableFlyerCanvas({
 }
 
 function AtomCard({
-  section, index, edit, onEdit, onImageUpload, onDelete
+  section, index, edit, onEdit, onImageUpload, onRemoveFromBase, isRemovingBase, onDelete
 }: {
   section: EditableComponent
   index: number
   edit?: AtomEdit
   onEdit: (id: string, mode: 'same' | 'customize', value: string) => void
   onImageUpload: (section: EditableComponent, file: File) => void
+  onRemoveFromBase: (section: EditableComponent, index: number) => void
+  isRemovingBase: boolean
   onDelete: (sectionId: string) => void
 }) {
   const imageInputRef = useRef<HTMLInputElement>(null)
@@ -1549,7 +1676,7 @@ function AtomCard({
       )}
 
       {/* Same / Customize toggle */}
-      <div className="flex items-center gap-2 mb-3">
+      <div className="flex flex-wrap items-center gap-2 mb-3">
         <button
           onClick={() => onEdit(section.id, 'same', edit?.value || '')}
           className={`inline-flex h-7 items-center gap-1.5 rounded-md px-3 text-[11px] font-semibold transition-colors ${mode === 'same' ? 'bg-primary/15 text-primary border border-primary/30' : 'bg-white/[0.03] text-muted-foreground border border-white/[0.06] hover:bg-white/[0.06]'}`}
@@ -1561,6 +1688,15 @@ function AtomCard({
           className={`inline-flex h-7 items-center gap-1.5 rounded-md px-3 text-[11px] font-semibold transition-colors ${mode === 'customize' ? 'bg-primary/15 text-primary border border-primary/30' : 'bg-white/[0.03] text-muted-foreground border border-white/[0.06] hover:bg-white/[0.06]'}`}
         >
           Customize
+        </button>
+        <button
+          type="button"
+          onClick={() => onRemoveFromBase(section, index)}
+          disabled={isRemovingBase}
+          className="inline-flex h-7 items-center gap-1.5 rounded-md border border-white/[0.08] bg-white/[0.035] px-3 text-[11px] font-semibold text-muted-foreground transition-colors hover:bg-white/[0.07] hover:text-foreground disabled:opacity-50"
+        >
+          {isRemovingBase ? <Loader2 className="h-3 w-3 animate-spin" /> : <Wand2 className="h-3 w-3" />}
+          Clean from base
         </button>
       </div>
 
