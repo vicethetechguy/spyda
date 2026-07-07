@@ -301,12 +301,24 @@ function resizeImageToDimensions(imageSrc: string, width: number, height: number
         return
       }
 
-      const scale = Math.min(width / img.width, height / img.height)
-      const drawWidth = img.width * scale
-      const drawHeight = img.height * scale
+      const targetRatio = width / height
+      const imageRatio = img.width / img.height
+      let cropX = 0
+      let cropY = 0
+      let cropWidth = img.width
+      let cropHeight = img.height
+
+      if (imageRatio > targetRatio) {
+        cropWidth = img.height * targetRatio
+        cropX = (img.width - cropWidth) / 2
+      } else if (imageRatio < targetRatio) {
+        cropHeight = img.width / targetRatio
+        cropY = (img.height - cropHeight) / 2
+      }
+
       ctx.fillStyle = '#ffffff'
       ctx.fillRect(0, 0, width, height)
-      ctx.drawImage(img, (width - drawWidth) / 2, (height - drawHeight) / 2, drawWidth, drawHeight)
+      ctx.drawImage(img, cropX, cropY, cropWidth, cropHeight, 0, 0, width, height)
       resolve(canvas.toDataURL('image/png'))
     }
     img.onerror = (error: any) => reject(error)

@@ -570,6 +570,7 @@ ${attachedReferenceImages.map((image: any, index: number) => `- Input image ${in
 - Apply exactly the current round's selected atoms and Essential prompts, up to 3 focused changes, with premium realistic integration.
 - Lock unchanged elements to their existing Child Source positions, scale, crop, and visual hierarchy.
 - Do not enlarge, stretch, vertically expand, reposition, or recrop unchanged elements.
+- Do not squeeze, compress, or shrink the internal artwork to make it fit the canvas. Keep the Child Source's natural element scale and margins.
 - Preserve the top logo area, headline block, subheadline, phone/product/device positions, footer CTA bar, margins, and spacing unless one of those exact atoms is selected in this round.
 `
     : "";
@@ -597,6 +598,7 @@ ${attachedReferenceImages.map((image: any, index: number) => `- Input image ${in
 - Preserve the chosen aspect ratio and compose the flyer for that platform. If the model canvas is an approximation, keep all important content within the intended safe area and avoid changing the uploaded reference structure unnecessarily.
 - The uploaded reference's original aspect setting was: ${recipe.sourceImageSize || "not provided"}.
 - The uploaded reference's exact pixel dimensions were: ${recipe?.sourceDimensions?.width || "unknown"} x ${recipe?.sourceDimensions?.height || "unknown"}. Match that aspect ratio exactly.
+- Fill the full output canvas edge-to-edge with the same internal scale, margins, and bounding boxes as the Source/Child Source. Do not letterbox, pillarbox, or compress the composition inside the canvas.
 `
     : "";
 
