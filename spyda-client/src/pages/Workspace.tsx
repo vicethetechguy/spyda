@@ -685,6 +685,20 @@ export default function Workspace() {
           fieldName: image.fieldName,
         })),
         sections: breakdown.design?.sections || [],
+        layoutLock: {
+          instruction: 'Preserve every atom inside its original source region. Only change content for selected atoms; keep all atom positions, scale, hierarchy, and relative spacing locked.',
+          atoms: (breakdown.design?.editableComponents || [])
+            .filter(atom => !atom.deleted)
+            .map(atom => ({
+              id: atom.id,
+              name: atom.name,
+              type: atom.type,
+              content: atom.content,
+              sectionId: atom.sectionId,
+              boundingBox: atom.boundingBox,
+              layerIndex: atom.layerIndex,
+            })),
+        },
         editRound: {
           maxChanges: 3,
           selectedAtomIds: selectedAtoms.map(atom => atom.id),

@@ -551,7 +551,18 @@ export function buildGenerationPrompt(recipe: any) {
   const referenceImageInstructions = attachedReferenceImages.length
     ? `
 REFERENCE IMAGE REQUIREMENTS:
-${attachedReferenceImages.map((image: any, index: number) => `- Input image ${index + 1 + imageInputOffset}: "${image.name}" belongs to section "${image.sectionName}" (${image.sectionId}). It is mandatory. Preserve the uploaded asset's identity as closely as possible and place it in the generated flyer according to that section's placement/role.`).join("\n")}
+${attachedReferenceImages.map((image: any, index: number) => `- Input image ${index + 1 + imageInputOffset}: "${image.name}" belongs to section "${image.sectionName}" (${image.sectionId}). It is mandatory. Preserve the uploaded asset's identity as closely as possible and place it in the generated flyer according to that section's placement/role. Do not recolor, redraw, stylize, decorate, add marks to, add text to, crop away, or invent extra details on this uploaded asset unless constants.essentials explicitly asks for that exact change.`).join("\n")}
+`
+    : "";
+  const layoutLockAtoms = Array.isArray(recipe?.layoutLock?.atoms) ? recipe.layoutLock.atoms : [];
+  const layoutLockInstructions = layoutLockAtoms.length
+    ? `SOURCE REGION LOCK:
+- Treat recipe.layoutLock.atoms as a locked Photoshop layer map extracted from the Source flyer.
+- Every atom, selected or unselected, must remain inside its original boundingBox/region with the same relative position, scale, spacing, layer order, and visual weight.
+- The output must not recompose the flyer. Do not expand the headline area, crop the logo area, enlarge the subject, push footer/contact details off-canvas, move QR/contact regions, or stretch the background.
+- If replacement text is longer or shorter than the original, fit it into the original text box by adjusting line breaks, font size, tracking, and line-height. Never make the text block larger than its original region.
+- If replacing an image, logo, product, or subject, fit the replacement into the original image region. Preserve the original crop, scale relationship, and surrounding whitespace.
+- Use Source/Child Source comparison as the final judge: after editing, the logo region, headline region, subheadline region, main subject/product region, side-card regions, footer/contact region, QR region, and background structure should occupy the same areas as before.
 `
     : "";
   const sourceReferenceInstructions = hasSourceReference
@@ -578,6 +589,7 @@ ${attachedReferenceImages.map((image: any, index: number) => `- Input image ${in
     ? `ESSENTIALS IMAGE REQUIREMENT:
 - One attached image is the user's Essentials reference: "${recipe.essentialsImage.name || "Essentials reference image"}".
 - Treat it as a hard visual requirement together with constants.essentials. Use it for the specific logo, product, screenshot, subject, mood, or detail the user wants included.
+- Preserve this Essentials image's identity exactly unless the Essential text explicitly asks to recolor, restyle, crop, or modify it.
 `
     : "";
   const brandConstants = recipe?.styleTokens || {};
@@ -592,6 +604,8 @@ ${attachedReferenceImages.map((image: any, index: number) => `- Input image ${in
 - Use the visual style exactly as direction: ${brandConstants?.visualStyle || "Same premium visual style as the uploaded reference"}.
 - Recolor the overall flyer feel through this palette, including background fields, gradient stops, CTA surfaces, highlights, shadows/glows, badges, overlays, text emphasis, and decorative marks.
 - If the Source or Child Source uses gradients, keep the same gradient direction, softness, blending, and premium feel, but replace the gradient colors with the selected brand constants.
+- Do not apply brand recoloring to uploaded logos, uploaded replacement images, photos, product screenshots, QR codes, app store badges, social icons, or contact icons unless constants.essentials explicitly says to recolor those exact assets.
+- Preserve logos and uploaded image assets as identity objects, not style surfaces. Do not add extra symbols, borders, letters, decorations, or invented brand marks to them.
 - Do not invent a different palette. Do not replace the selected HEX colors with approximate colors.
 - Keep layout, hierarchy, and unchanged content close to the Source/Child Source, but apply this brand styling globally.
 `;
@@ -613,6 +627,7 @@ This is an in-place Child Source update, not a full redesign. The safest output 
 ${sourceReferenceInstructions}
 ${childSourceInstructions}
 ${essentialsImageInstruction}
+${layoutLockInstructions}
 ${outputSizeInstruction}
 ${brandConstantsInstructions}
 Use only the selected editableComponents for content changes this round. Do not change unrelated text, logos, products, subjects, positions, or layout.
