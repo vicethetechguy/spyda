@@ -582,6 +582,7 @@ ${attachedReferenceImages.map((image: any, index: number) => `- Input image ${in
     : "";
   const brandConstants = recipe?.styleTokens || {};
   const brandConstantsInstructions = `MANDATORY BRAND CONSTANTS:
+- These constants are global and must be applied to the entire flyer. They are not part of the 3-change edit limit.
 - Use the exact heading font direction: ${brandConstants?.typography?.headingFont || "Space Grotesk"}.
 - Use the exact body font direction: ${brandConstants?.typography?.bodyFont || "Montserrat"}.
 - Use the exact 60/30/10 color system:
@@ -589,8 +590,10 @@ ${attachedReferenceImages.map((image: any, index: number) => `- Input image ${in
   - Secondary / 30%: ${brandConstants?.palette?.secondary || "#22C55E"}
   - Accent / 10%: ${brandConstants?.palette?.accent || "#F8FAFC"}
 - Use the visual style exactly as direction: ${brandConstants?.visualStyle || "Same premium visual style as the uploaded reference"}.
+- Recolor the overall flyer feel through this palette, including background fields, gradient stops, CTA surfaces, highlights, shadows/glows, badges, overlays, text emphasis, and decorative marks.
+- If the Source or Child Source uses gradients, keep the same gradient direction, softness, blending, and premium feel, but replace the gradient colors with the selected brand constants.
 - Do not invent a different palette. Do not replace the selected HEX colors with approximate colors.
-- Keep all generated text, CTA surfaces, accents, overlays, and new graphic details aligned to these constants unless the immutable Source requires a stronger match.
+- Keep layout, hierarchy, and unchanged content close to the Source/Child Source, but apply this brand styling globally.
 `;
   const outputSizeInstruction = recipe?.imageSize
     ? `OUTPUT SIZE REQUIREMENT:
@@ -612,7 +615,8 @@ ${childSourceInstructions}
 ${essentialsImageInstruction}
 ${outputSizeInstruction}
 ${brandConstantsInstructions}
-Use only the selected editableComponents for this round. Do not modify unrelated atoms.
+Use only the selected editableComponents for content changes this round. Do not change unrelated text, logos, products, subjects, positions, or layout.
+However, always apply the Mandatory Brand Constants globally across the full flyer; brand color, font, and gradient restyling does not count as one of the 3 content changes.
 If the user customized an atom, prioritize that replacement over the original.
 If constants.essentials contains instructions, treat them as hard requirements. Essentials override style preferences when they conflict, but preserve the mandatory brand constants unless the Essential prompt explicitly replaces one.
 Do not omit user-specified logos, uploaded assets, offers, contact details, disclaimers, CTA text, product names, colors, or exact footer details.
