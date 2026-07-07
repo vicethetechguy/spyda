@@ -506,8 +506,9 @@ function sanitizeRecipeForPrompt(recipe: any) {
     ...recipe,
     sourceReferenceImage: recipe?.sourceReferenceImage?.dataUrl
       ? {
-          name: recipe.sourceReferenceImage.name || "Uploaded reference flyer",
-          role: "source-layout-reference",
+          name: recipe.sourceReferenceImage.name || "Active parent source",
+          role: recipe.sourceReferenceImage.role || "source-layout-reference",
+          isLatestGeneratedParent: Boolean(recipe.sourceReferenceImage.isLatestGeneratedParent),
           dataUrl: `[attached separately as image input ${sourceReferenceInput}]`,
         }
       : undefined,
@@ -558,17 +559,19 @@ ${attachedReferenceImages.map((image: any, index: number) => `- Input image ${in
   const layoutLockInstructions = layoutLockAtoms.length
     ? `SOURCE REGION LOCK:
 - Treat recipe.layoutLock.atoms as a locked Photoshop layer map extracted from the Source flyer.
-- Every atom, selected or unselected, must remain inside its original boundingBox/region with the same relative position, scale, spacing, layer order, and visual weight.
+- Every atom, selected or unselected, must remain inside its original boundingBox/region with the same relative position, width, height, scale, spacing, layer order, and visual weight.
 - The output must not recompose the flyer. Do not expand the headline area, crop the logo area, enlarge the subject, push footer/contact details off-canvas, move QR/contact regions, or stretch the background.
-- If replacement text is longer or shorter than the original, fit it into the original text box by adjusting line breaks, font size, tracking, and line-height. Never make the text block larger than its original region.
-- If replacing an image, logo, product, or subject, fit the replacement into the original image region. Preserve the original crop, scale relationship, and surrounding whitespace.
+- If replacement text is longer or shorter than the original, fit it into the exact original text box size by adjusting line breaks, font size, tracking, and line-height. Never make the text block wider, taller, or visually heavier than the parent text region.
+- If replacing an image, logo, product, or subject, fit the replacement into the exact original image/logo region. The new asset must use the same apparent width and height as the removed asset, preserve the original crop, scale relationship, and surrounding whitespace, and must not spill outside the flyer.
+- Logos must remain logo-sized. Do not enlarge replacement logos to fill a card, badge, header, or decorative zone; match the parent logo's visible size and placement.
+- Photos/products/subjects must inherit the parent atom's visible size. Do not expand a replacement subject just because the uploaded replacement image has more detail.
 - Use Source/Child Source comparison as the final judge: after editing, the logo region, headline region, subheadline region, main subject/product region, side-card regions, footer/contact region, QR region, and background structure should occupy the same areas as before.
 `
     : "";
   const sourceReferenceInstructions = hasSourceReference
     ? `SOURCE REFERENCE LAYOUT REQUIREMENTS:
-- Input image ${sourceReferenceInput} is the uploaded Source flyer.
-- Treat input image ${sourceReferenceInput} as immutable truth. It never changes and is used only for comparison.
+- Input image ${sourceReferenceInput} is the active parent Source flyer for this round${recipe?.sourceReferenceImage?.isLatestGeneratedParent ? " (the latest generated flyer from the previous round)" : " (the original uploaded flyer)"}.
+- Treat input image ${sourceReferenceInput} as the current layout truth for this round. It is used for comparison and must become the parent baseline for the next edit.
 - Every output must stay visually close to input image ${sourceReferenceInput}: same layout grid, hierarchy, spacing rhythm, typography scale relationship, background structure, visual weight, and overall design direction.
 `
     : "";

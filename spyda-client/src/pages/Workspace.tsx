@@ -635,11 +635,15 @@ export default function Workspace() {
 
     try {
       // Build recipe from atoms + brand card
-      const sourceReferenceBlob = await imageFileToBlob(uploadedFile, 768, 1152, 0.72)
-      const childSourceBlob = await dataUrlToBlob(generatedImage || uploadedPreview || '')
+      const activeSourcePreview = generatedImage || uploadedPreview || ''
+      const sourceReferenceBlob = generatedImage
+        ? await dataUrlToBlob(generatedImage)
+        : await imageFileToBlob(uploadedFile, 768, 1152, 0.72)
+      const childSourceBlob = await dataUrlToBlob(activeSourcePreview)
       const sourceDimensions = await getImageDimensionsFromFile(uploadedFile)
       const sourceImageSize = await getImageSizeChoice(uploadedFile)
       const chosenOutputSize = brandEdits.outputSize === 'match-reference' ? sourceImageSize : brandEdits.outputSize
+      const activeSourceName = generatedImage ? 'Latest generated parent design' : (uploadedFile.name || 'Uploaded reference flyer')
       const referenceImages = selectedAtoms
         .map(s => {
           const edit = atomEdits[s.id]
@@ -663,12 +667,13 @@ export default function Workspace() {
         sourceDimensions,
         outputSizeLabel: OUTPUT_SIZE_OPTIONS.find(option => option.value === brandEdits.outputSize)?.label || 'Match uploaded reference',
         sourceReferenceImage: {
-          name: uploadedFile.name || 'Uploaded reference flyer',
-          role: 'source-layout-reference',
+          name: activeSourceName,
+          role: generatedImage ? 'active-parent-source' : 'source-layout-reference',
+          isLatestGeneratedParent: Boolean(generatedImage),
           fieldName: 'sourceReferenceImage',
         },
         childSourceImage: {
-          name: 'Current child source',
+          name: generatedImage ? 'Current child source from latest generated parent' : 'Current child source from uploaded reference',
           role: 'current-working-design',
           fieldName: 'childSourceImage',
         },
@@ -740,7 +745,7 @@ export default function Workspace() {
       setGenerationStage('Sending recipe to GPT-Image 2')
       const form = new FormData()
       form.append('recipe', JSON.stringify(recipe))
-      form.append('sourceReferenceImage', sourceReferenceBlob, uploadedFile.name || 'reference-flyer.jpg')
+      form.append('sourceReferenceImage', sourceReferenceBlob, generatedImage ? 'latest-generated-parent.png' : (uploadedFile.name || 'reference-flyer.jpg'))
       form.append('childSourceImage', childSourceBlob, 'child-source.png')
       if (essentialsImage) {
         const essentialsBlob = await dataUrlToBlob(essentialsImage.dataUrl)
@@ -1064,22 +1069,24 @@ function CanvasView({
   const totalChangeCount = selectedAtomCount + essentialCount
   const remainingChangeCount = Math.max(0, 3 - totalChangeCount)
   const canApplyRound = totalChangeCount === 3
+  const activeSourcePreview = generatedImage || uploadedPreview
+  const activeSourceName = generatedImage ? 'Latest generated parent' : uploadedFile.name
 
   return (
     <div className="min-h-full flex flex-col lg:flex-row lg:h-full">
       {/* Left: Source + Child Source */}
       <div className="lg:w-[45%] shrink-0 border-r border-white/[0.06] flex flex-col">
-        {/* Immutable Source Image */}
+        {/* Active Source Image */}
         <div className="p-6 border-b border-white/[0.06]">
           <div className="flex items-center justify-between mb-4">
             <div className="flex items-center gap-2">
               <span className="text-[11px] font-bold tracking-[0.12em] uppercase text-primary">Source</span>
-              <span className="text-[11px] text-muted-foreground/50">{uploadedFile.name}</span>
+              <span className="text-[11px] text-muted-foreground/50">{activeSourceName}</span>
             </div>
             <button onClick={onReset} className="text-xs text-muted-foreground hover:text-foreground transition-colors">Change</button>
           </div>
           <div className="relative flex h-[340px] items-center justify-center rounded-xl overflow-hidden border border-white/[0.06] bg-white/[0.02]">
-            <img src={uploadedPreview!} alt="Original source flyer" className="h-full w-full object-contain" />
+            <img src={activeSourcePreview!} alt="Active parent source flyer" className="h-full w-full object-contain" />
             {isAnalyzing && (
               <div className="absolute inset-0 bg-background/80 backdrop-blur-sm flex flex-col items-center justify-center">
                 <Loader2 className="w-8 h-8 text-primary animate-spin mb-3" />
