@@ -51,14 +51,47 @@ export function mapQuality(quality: string = "", model: string = "") {
 
 export function buildMockBreakdown() {
   return {
-    sections: [
-      { id: "hero", name: "Hero Section", type: "text", current: { text: "Main headline" }, replacementNeeded: ["New headline"] },
-      { id: "image", name: "Image Layer", type: "image", current: { image: "Primary subject" }, replacementNeeded: ["Replacement subject image"] },
-    ],
-    constants: {
-      headingFont: "Space Grotesk", bodyFont: "Montserrat",
-      colors: { primary: "#0F172A", secondary: "#22C55E", accent: "#F8FAFC" },
-      visualStyle: "Premium layout",
+    design: {
+      metadata: { aspectRatio: "1:1", orientation: "square", colorSpace: "RGB" },
+      sections: [
+        { id: "hero-section", name: "Hero", bounds: "top and center area" },
+        { id: "image-section", name: "Image", bounds: "main visual area" },
+      ],
+      styleTokens: {
+        palette: { primary: "#0F172A", secondary: "#22C55E", accent: "#F8FAFC" },
+        typography: { headingFont: "Space Grotesk", bodyFont: "Montserrat" },
+        spacing: "standard",
+        shadows: "soft",
+        gradients: "none",
+        effects: "clean premium layout",
+        borderRadius: "rounded",
+        lighting: "soft",
+        visualStyle: "Premium layout",
+      },
+      editableComponents: [
+        {
+          id: "hero",
+          type: "text",
+          editable: true,
+          name: "Hero Section",
+          content: "Main headline",
+          style: "Primary headline text",
+          layerIndex: 1,
+          boundingBox: "top center",
+          sectionId: "hero-section",
+        },
+        {
+          id: "image",
+          type: "image",
+          editable: true,
+          name: "Image Layer",
+          content: "Primary subject",
+          style: "Main subject image",
+          layerIndex: 2,
+          boundingBox: "center",
+          sectionId: "image-section",
+        },
+      ],
     },
     notes: "Mock analysis returned because API key is missing.",
   };
@@ -156,6 +189,85 @@ function getBreakdownTextCorpus(breakdown: any) {
   return JSON.stringify(breakdown || {}).toLowerCase();
 }
 
+function slugifyId(value: string, fallback: string) {
+  const slug = String(value || "")
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, "-")
+    .replace(/^-+|-+$/g, "")
+    .slice(0, 48);
+  return slug || fallback;
+}
+
+function getComponentContent(component: any) {
+  return String(
+    component?.content ||
+    component?.current?.text ||
+    component?.current?.image ||
+    component?.current?.description ||
+    component?.image ||
+    component?.text ||
+    ""
+  );
+}
+
+function toEditableComponent(component: any, index: number) {
+  const id = slugifyId(component?.id || component?.name || `component-${index + 1}`, `component-${index + 1}`);
+  const content = getComponentContent(component);
+
+  return {
+    id,
+    type: component?.type || "text",
+    editable: component?.editable ?? true,
+    name: component?.name || component?.id || `Component ${index + 1}`,
+    content,
+    style: typeof component?.style === "string"
+      ? component.style
+      : component?.current?.description || component?.description || "",
+    layerIndex: Number.isFinite(Number(component?.layerIndex)) ? Number(component.layerIndex) : index,
+    boundingBox: component?.boundingBox || component?.current?.boundingBox || component?.bounds || "approx placement",
+    sectionId: component?.sectionId || "main-section",
+    deleted: component?.deleted,
+    current: component?.current || (content ? { text: component?.type === "text" ? content : undefined, image: component?.type !== "text" ? content : undefined } : undefined),
+    replacementNeeded: component?.replacementNeeded || ["Keep as-is or replace this component."],
+  };
+}
+
+function normalizeBreakdownArchitecture(breakdown: any) {
+  const existingDesign = breakdown?.design || {};
+  const legacyConstants = breakdown?.constants || {};
+  const legacySections = Array.isArray(breakdown?.sections) ? breakdown.sections : [];
+  const components = Array.isArray(existingDesign.editableComponents)
+    ? existingDesign.editableComponents
+    : legacySections;
+
+  const styleTokens = existingDesign.styleTokens || {
+    palette: legacyConstants.colors || {
+      primary: "#0F172A",
+      secondary: "#22C55E",
+      accent: "#F8FAFC",
+    },
+    typography: {
+      headingFont: legacyConstants.headingFont || "Space Grotesk",
+      bodyFont: legacyConstants.bodyFont || "Montserrat",
+    },
+    visualStyle: legacyConstants.visualStyle || "Same as uploaded design",
+  };
+
+  const sections = Array.isArray(existingDesign.sections) && existingDesign.sections.length
+    ? existingDesign.sections
+    : [{ id: "main-section", name: "Main Design", bounds: "full canvas" }];
+
+  return {
+    ...breakdown,
+    design: {
+      metadata: existingDesign.metadata || { aspectRatio: "unknown", orientation: "unknown", colorSpace: "RGB" },
+      sections,
+      styleTokens,
+      editableComponents: components.map(toEditableComponent),
+    },
+  };
+}
+
 function groupOcrWordsIntoLines(ocr?: OcrResult) {
   if (!ocr?.enabled || !ocr.words.length) return [];
 
@@ -197,7 +309,10 @@ function groupOcrWordsIntoLines(ocr?: OcrResult) {
 function enrichBreakdownWithOcrTextAtoms(breakdown: any, ocr?: OcrResult) {
   if (!breakdown || typeof breakdown !== "object") return breakdown;
 
-  const sections = Array.isArray(breakdown.sections) ? breakdown.sections : [];
+  const normalizedBreakdown = normalizeBreakdownArchitecture(breakdown);
+  const components = Array.isArray(normalizedBreakdown.design?.editableComponents)
+    ? normalizedBreakdown.design.editableComponents
+    : [];
   const textCorpus = getBreakdownTextCorpus(breakdown);
   const ocrLines = groupOcrWordsIntoLines(ocr);
   const missingTextAtoms = [];
@@ -208,8 +323,14 @@ function enrichBreakdownWithOcrTextAtoms(breakdown: any, ocr?: OcrResult) {
 
     missingTextAtoms.push({
       id: `ocr-text-${index + 1}`,
-      name: `OCR Text ${index + 1}`,
       type: "text",
+      editable: true,
+      name: `OCR Text ${index + 1}`,
+      content: line.text,
+      style: "OCR-detected text that the vision model missed.",
+      layerIndex: components.length + missingTextAtoms.length,
+      boundingBox: `x:${Math.round(line.x)}, y:${Math.round(line.y)}, width:${Math.round(line.width)}, height:${Math.round(line.height)}`,
+      sectionId: "ocr-detected-section",
       current: {
         text: line.text,
         description: `OCR-detected text at x:${Math.round(line.x)}, y:${Math.round(line.y)}, width:${Math.round(line.width)}, height:${Math.round(line.height)}. The vision model missed this atom, so Spyda added it automatically.`,
@@ -219,8 +340,17 @@ function enrichBreakdownWithOcrTextAtoms(breakdown: any, ocr?: OcrResult) {
   }
 
   return {
-    ...breakdown,
-    sections: [...sections, ...missingTextAtoms],
+    ...normalizedBreakdown,
+    design: {
+      ...normalizedBreakdown.design,
+      sections: [
+        ...(normalizedBreakdown.design.sections || []),
+        ...(missingTextAtoms.length && !(normalizedBreakdown.design.sections || []).some((section: any) => section.id === "ocr-detected-section")
+          ? [{ id: "ocr-detected-section", name: "OCR Detected Text", bounds: "OCR inferred positions" }]
+          : []),
+      ],
+      editableComponents: [...components, ...missingTextAtoms],
+    },
     notes: [breakdown.notes, missingTextAtoms.length ? `Spyda added ${missingTextAtoms.length} OCR text atom(s) that the vision model missed.` : ""]
       .filter(Boolean)
       .join(" "),
@@ -402,14 +532,14 @@ export async function analyzeDesign(base64Image: string, provider = "openai") {
   if (normalizeAiProvider(provider) === "groq") {
     const result = await analyzeDesignWithGroq(base64Image, prompt);
     const verifiedBreakdown = await verifyBreakdownWithOpenAI(base64Image, result.breakdown, ocr).catch(() => result.breakdown);
-    return { ...result, mode: "groq+openai-verified", breakdown: enrichBreakdownWithOcrTextAtoms(verifiedBreakdown, ocr), ocr };
+    return { ...result, mode: "groq+openai-verified", breakdown: enrichBreakdownWithOcrTextAtoms(normalizeBreakdownArchitecture(verifiedBreakdown), ocr), ocr };
   }
 
   const openaiKey = process.env.OPENAI_API_KEY || "";
-  if (!openaiKey) return { ok: true, mode: "mock", breakdown: buildMockBreakdown() };
+  if (!openaiKey) return { ok: true, mode: "mock", breakdown: normalizeBreakdownArchitecture(buildMockBreakdown()) };
 
   const breakdown = await analyzeDesignWithOpenAI(base64Image, prompt);
-  return { ok: true, mode: "openai", breakdown: enrichBreakdownWithOcrTextAtoms(breakdown, ocr), ocr };
+  return { ok: true, mode: "openai", breakdown: enrichBreakdownWithOcrTextAtoms(normalizeBreakdownArchitecture(breakdown), ocr), ocr };
 }
 
 function sanitizeRecipeForPrompt(recipe: any) {
