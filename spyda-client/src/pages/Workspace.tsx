@@ -45,30 +45,44 @@ const AI_MODELS: AiModel[] = [
    Types
    ═══════════════════════════════════════════════ */
 
-type AtomSection = {
+type EditableComponent = {
   id: string
   name: string
   type: string
-  current: {
-    text?: string
-    image?: string
-    description?: string
-  }
-  replacementNeeded: string[]
+  editable: boolean
+  content: string
+  style: string
+  layerIndex: number
+  boundingBox: string
+  sectionId: string
   deleted?: boolean
+  current?: any // Keep for backward compatibility with old mocks if needed
+  replacementNeeded?: string[] // Keep for backward compatibility
 }
 
-type BreakdownConstants = {
+type StyleTokens = {
+  palette?: { primary?: string; secondary?: string; accent?: string }
+  typography?: { headingFont?: string; bodyFont?: string }
+  spacing?: string
+  shadows?: string
+  gradients?: string
+  effects?: string
+  borderRadius?: string
+  lighting?: string
+  // Legacy aliases
+  colors?: { primary?: string; secondary?: string; accent?: string }
   headingFont?: string
   bodyFont?: string
-  colors?: { primary?: string; secondary?: string; accent?: string }
   visualStyle?: string
 }
 
 type BreakdownResult = {
-  sections: AtomSection[]
-  constants: BreakdownConstants
-  notes?: string
+  design: {
+    metadata?: { aspectRatio?: string; orientation?: string; colorSpace?: string }
+    sections?: Array<{ id: string; name: string; bounds: string }>
+    styleTokens: StyleTokens
+    editableComponents: EditableComponent[]
+  }
 }
 
 type ApiAnalyzeResponse = {
@@ -331,14 +345,14 @@ export default function Workspace() {
 
   // Populate brand edits from breakdown
   useEffect(() => {
-    if (breakdown?.constants) {
-      const c = breakdown.constants
+    if (breakdown?.design?.styleTokens) {
+      const c = breakdown.design.styleTokens
       setBrandEdits(prev => ({
-        headingFont: c.headingFont || prev.headingFont,
-        bodyFont: c.bodyFont || prev.bodyFont,
-        primaryColor: normalizeHexColor(c.colors?.primary || '', prev.primaryColor),
-        secondaryColor: normalizeHexColor(c.colors?.secondary || '', prev.secondaryColor),
-        accentColor: normalizeHexColor(c.colors?.accent || '', prev.accentColor),
+        headingFont: c.typography?.headingFont || c.headingFont || prev.headingFont,
+        bodyFont: c.typography?.bodyFont || c.bodyFont || prev.bodyFont,
+        primaryColor: normalizeHexColor(c.palette?.primary || c.colors?.primary || '', prev.primaryColor),
+        secondaryColor: normalizeHexColor(c.palette?.secondary || c.colors?.secondary || '', prev.secondaryColor),
+        accentColor: normalizeHexColor(c.palette?.accent || c.colors?.accent || '', prev.accentColor),
         visualStyle: c.visualStyle || prev.visualStyle,
         essentials: prev.essentials,
         outputSize: prev.outputSize,
@@ -393,7 +407,7 @@ export default function Workspace() {
   }, [aiModel])
 
   /* ── Generate handler ── */
-  const handleAtomImageUpload = useCallback(async (section: AtomSection, file: File) => {
+  const handleAtomImageUpload = useCallback(async (section: EditableComponent, file: File) => {
     const assetDataUrl = await imageFileToDataUrl(file, 512, 512, 0.72)
     const assetName = file.name
     setAtomEdits(prev => ({
@@ -417,9 +431,12 @@ export default function Workspace() {
       if (!prev) return prev
       return {
         ...prev,
-        sections: prev.sections.map(section =>
-          section.id === sectionId ? { ...section, deleted: true } : section
-        ),
+        design: {
+          ...prev.design,
+          editableComponents: (prev.design.editableComponents || []).map(section =>
+            section.id === sectionId ? { ...section, deleted: true } : section
+          ),
+        }
       }
     })
     setAtomEdits(prev => {
@@ -439,7 +456,7 @@ export default function Workspace() {
       const sourceReferenceBlob = await imageFileToBlob(uploadedFile, 768, 1152, 0.72)
       const sourceImageSize = await getImageSizeChoice(uploadedFile)
       const chosenOutputSize = brandEdits.outputSize === 'match-reference' ? sourceImageSize : brandEdits.outputSize
-      const referenceImages = breakdown.sections
+      const referenceImages = (breakdown.design?.editableComponents || [])
         .map(s => {
           const edit = atomEdits[s.id]
           if (s.deleted || edit?.mode !== 'customize' || !edit.assetDataUrl) return null
@@ -477,7 +494,8 @@ export default function Workspace() {
           name: image.name,
           fieldName: image.fieldName,
         })),
-        sections: breakdown.sections
+        sections: breakdown.design?.sections || [],
+        editableComponents: (breakdown.design?.editableComponents || [])
           .filter(s => !s.deleted)
           .map(s => {
             const edit = atomEdits[s.id]
@@ -493,15 +511,17 @@ export default function Workspace() {
                 : undefined,
             }
           }),
-        constants: {
-          headingFont: brandEdits.headingFont,
-          bodyFont: brandEdits.bodyFont,
-          colors: {
+        styleTokens: {
+          palette: {
             primary: brandEdits.primaryColor,
             secondary: brandEdits.secondaryColor,
             accent: brandEdits.accentColor,
           },
-          visualStyle: brandEdits.visualStyle || breakdown.constants.visualStyle || 'Same as uploaded design',
+          typography: {
+            headingFont: brandEdits.headingFont,
+            bodyFont: brandEdits.bodyFont,
+          },
+          visualStyle: brandEdits.visualStyle || breakdown.design?.styleTokens?.visualStyle || 'Same as uploaded design',
           essentials: brandEdits.essentials,
         },
       }
@@ -722,7 +742,7 @@ function CanvasView({
     outputSize: string
   }
   onUpload: (file: File) => void
-  onAtomImageUpload: (section: AtomSection, file: File) => void
+  onAtomImageUpload: (section: EditableComponent, file: File) => void
   onEssentialsImageUpload: (file: File) => void
   onRemoveEssentialsImage: () => void
   onDeleteAtom: (sectionId: string) => void
@@ -777,7 +797,7 @@ function CanvasView({
   }
 
   // ── Phase 2+: Analyzing / Editing / Generating ──
-  const visibleSections = breakdown?.sections.filter(s => !s.deleted) || []
+  const visibleSections = breakdown?.design?.editableComponents?.filter(s => !s.deleted) || []
 
   return (
     <div className="min-h-full flex flex-col lg:flex-row lg:h-full">
@@ -1065,18 +1085,18 @@ function CanvasView({
 function AtomCard({
   section, index, edit, onEdit, onImageUpload, onDelete
 }: {
-  section: AtomSection
+  section: EditableComponent
   index: number
   edit?: AtomEdit
   onEdit: (id: string, mode: 'same' | 'customize', value: string) => void
-  onImageUpload: (section: AtomSection, file: File) => void
+  onImageUpload: (section: EditableComponent, file: File) => void
   onDelete: (sectionId: string) => void
 }) {
   const imageInputRef = useRef<HTMLInputElement>(null)
   const [menuOpen, setMenuOpen] = useState(false)
   const mode = edit?.mode || 'same'
   const isImage = section.type === 'image' || /image|photo|subject|product|logo/i.test(`${section.id} ${section.name}`)
-  const replacementHint = section.replacementNeeded?.[0] || `Replacement for ${section.name}`
+  const replacementHint = section.replacementNeeded?.[0] || section.content || `Replacement for ${section.name}`
 
   const typeColors: Record<string, string> = {
     text: 'bg-blue-500/10 text-blue-400 border-blue-500/20',

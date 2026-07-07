@@ -242,30 +242,46 @@ export function normalizeAiProvider(provider: string = "") {
 }
 
 export function getBreakdownPrompt(ocr?: OcrResult) {
-  return `You are Spyda, a visual design breakdown engine. Analyze the uploaded flyer/design.
+  return `You are Spyda, a visual design breakdown engine. Analyze the uploaded flyer/design following the Spyda Flyer Reconstruction Architecture.
 Identify every visible component that forms the design. Capture exact visible text. Be exhaustive.
 Return 16 to 35 editable atoms when the design is complex. Do not collapse multiple visible items into one vague atom.
 Break down: headline, subheadline, each text block, each CTA, each logo, each icon, each badge, each product/app screenshot, each person/subject, each sticker, each background shape, each line/wave/blob/pattern, each footer/social/contact detail, and each decorative overlay.
 Classify words as "text" or "action", logos as "brand", photos/products/app screens as "image", shapes/patterns/background marks as "decor", and color/font/style rules as "style".
-Put global constants such as colors (hex), fonts, visual style inside the constants object.
+
 Use the OCR data below as the source of truth for all readable text. If OCR text appears in the flyer, preserve it exactly in the matching atom and use the OCR coordinates to infer where it belongs.
 ${formatOcrForPrompt(ocr)}
 
-Return ONLY valid JSON with no markdown formatting:
+Return ONLY valid JSON with no markdown formatting matching this exact architecture:
 {
-  "sections": [
-    {
-      "id": "hero-headline", "name": "Hero Headline", "type": "text|image|style|color|action|brand|decor",
-      "current": { "text": "exact visible text", "image": "what the visible image is", "description": "visual description, approximate placement, scale, color, and relationship to other atoms" },
-      "replacementNeeded": ["e.g. New headline text, replacement logo, or keep exact atom"]
-    }
-  ],
-  "constants": {
-    "headingFont": "suggested font", "bodyFont": "suggested font",
-    "colors": { "primary": "dominant HEX", "secondary": "support HEX", "accent": "highlight HEX" },
-    "visualStyle": "style description"
-  },
-  "notes": "short notes"
+  "design": {
+    "metadata": { "aspectRatio": "e.g. 16:9", "orientation": "portrait", "colorSpace": "RGB" },
+    "sections": [
+      { "id": "hero-section", "name": "Hero", "bounds": "approximate layout box" }
+    ],
+    "styleTokens": {
+      "palette": { "primary": "dominant HEX", "secondary": "support HEX", "accent": "highlight HEX" },
+      "typography": { "headingFont": "suggested font", "bodyFont": "suggested font" },
+      "spacing": "dense/loose/standard",
+      "shadows": "soft/hard/none",
+      "gradients": "linear/radial/none",
+      "effects": "glow/blur/texture",
+      "borderRadius": "sharp/rounded",
+      "lighting": "flat/dramatic/soft"
+    },
+    "editableComponents": [
+      {
+        "id": "unique-id",
+        "type": "text|image|style|color|action|brand|decor",
+        "editable": true,
+        "name": "Component Name",
+        "content": "exact visible text or image description",
+        "style": "visual description, color, size",
+        "layerIndex": 0,
+        "boundingBox": "approx placement",
+        "sectionId": "hero-section"
+      }
+    ]
+  }
 }`;
 }
 
@@ -331,24 +347,37 @@ ${formatOcrForPrompt(ocr)}
 Existing breakdown:
 ${JSON.stringify(firstBreakdown, null, 2)}
 
-Return ONLY valid JSON in this shape:
+Return ONLY valid JSON in this exact architecture:
 {
-  "sections": [
-    {
-      "id": "unique-id",
-      "name": "Specific atom name",
-      "type": "text|image|style|color|action|brand|decor",
-      "current": { "text": "exact text if text", "image": "image/logo/subject description if visual", "description": "placement, color, size, visual relationship" },
-      "replacementNeeded": ["what user can replace or keep"]
-    }
-  ],
-  "constants": {
-    "headingFont": "suggested font",
-    "bodyFont": "suggested font",
-    "colors": { "primary": "dominant HEX", "secondary": "support HEX", "accent": "highlight HEX" },
-    "visualStyle": "style description"
-  },
-  "notes": "audit notes"
+  "design": {
+    "metadata": { "aspectRatio": "e.g. 16:9", "orientation": "portrait", "colorSpace": "RGB" },
+    "sections": [
+      { "id": "hero-section", "name": "Hero", "bounds": "approximate layout box" }
+    ],
+    "styleTokens": {
+      "palette": { "primary": "dominant HEX", "secondary": "support HEX", "accent": "highlight HEX" },
+      "typography": { "headingFont": "suggested font", "bodyFont": "suggested font" },
+      "spacing": "dense/loose/standard",
+      "shadows": "soft/hard/none",
+      "gradients": "linear/radial/none",
+      "effects": "glow/blur/texture",
+      "borderRadius": "sharp/rounded",
+      "lighting": "flat/dramatic/soft"
+    },
+    "editableComponents": [
+      {
+        "id": "unique-id",
+        "type": "text|image|style|color|action|brand|decor",
+        "editable": true,
+        "name": "Component Name",
+        "content": "exact visible text or image description",
+        "style": "visual description, color, size",
+        "layerIndex": 0,
+        "boundingBox": "approx placement",
+        "sectionId": "hero-section"
+      }
+    ]
+  }
 }`;
 
   return analyzeDesignWithOpenAI(base64Image, verifierPrompt);
@@ -453,7 +482,8 @@ ${attachedReferenceImages.map((image: any, index: number) => `- Input image ${in
     : "";
 
   return `Create a finished premium graphic design based on this Spyda recipe.
-This is reference-guided design imitation, not a fresh redesign.
+This is Phase 12 (AI Reconstruction) of the Spyda Flyer Reconstruction Architecture.
+Apply Content Normalization to user inputs, preserve original layer hierarchy, bounds, and layout, and apply the extracted styleTokens (gradients, shadows, effects) to produce a highly accurate, aesthetic replica.
 Keep text clean, legible, and professionally composed.
 ${sourceReferenceInstructions}
 ${essentialsImageInstruction}
