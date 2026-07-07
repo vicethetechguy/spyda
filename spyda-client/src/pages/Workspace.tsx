@@ -137,6 +137,13 @@ type SavedSpydaProject = {
   qa?: GenerationQaReport | null
 }
 
+type EditableLayerBox = {
+  left: number
+  top: number
+  width: number
+  height: number
+}
+
 /* ═══════════════════════════════════════════════
    Main Workspace
    ═══════════════════════════════════════════════ */
@@ -329,6 +336,50 @@ function saveProjectSnapshot(project: SavedSpydaProject) {
   } catch (error) {
     console.warn('Spyda could not save this project snapshot locally.', error)
   }
+}
+
+function clampPercent(value: number, min = 0, max = 100) {
+  return Math.min(max, Math.max(min, value))
+}
+
+function readNamedBoxValue(source: string, key: string) {
+  const match = source.match(new RegExp(`(?:${key})\\s*:?\\s*(-?\\d+(?:\\.\\d+)?)`, 'i'))
+  return match ? Number(match[1]) : null
+}
+
+function getLayerBox(component: EditableComponent, index: number): EditableLayerBox {
+  const source = `${component.boundingBox || ''} ${component.current?.boundingBox || ''}`
+  const x = readNamedBoxValue(source, 'x')
+  const y = readNamedBoxValue(source, 'y')
+  const width = readNamedBoxValue(source, 'width|w')
+  const height = readNamedBoxValue(source, 'height|h')
+
+  if ([x, y, width, height].every(value => typeof value === 'number' && Number.isFinite(value))) {
+    const scale = Math.max(x || 0, y || 0, width || 0, height || 0) <= 1 ? 1 : 1024
+    return {
+      left: clampPercent(((x || 0) / scale) * 100, 0, 92),
+      top: clampPercent(((y || 0) / scale) * 100, 0, 92),
+      width: clampPercent(((width || 180) / scale) * 100, 8, 70),
+      height: clampPercent(((height || 64) / scale) * 100, 5, 42),
+    }
+  }
+
+  const text = `${component.name} ${component.content} ${component.boundingBox}`.toLowerCase()
+  const isTop = /top|header|logo|headline|hero/.test(text)
+  const isBottom = /bottom|footer|contact|social|download|cta/.test(text)
+  const isRight = /right|phone|subject|person|product|image/.test(text)
+  const row = index % 7
+
+  return {
+    left: isRight ? 54 : 8 + ((index * 17) % 34),
+    top: isTop ? 8 + row * 3 : isBottom ? 70 + (row % 3) * 6 : 24 + row * 8,
+    width: /image|photo|subject|product|brand|logo/.test(component.type) ? 30 : 38,
+    height: /image|photo|subject|product|brand|logo/.test(component.type) ? 22 : 10,
+  }
+}
+
+function isVisualAtom(component: EditableComponent) {
+  return /text|image|photo|subject|product|logo|brand|action|decor|shape|icon/i.test(`${component.type} ${component.name}`)
 }
 
 export default function Workspace() {
@@ -952,7 +1003,12 @@ function CanvasView({
             <button onClick={onReset} className="text-xs text-muted-foreground hover:text-foreground transition-colors">Change</button>
           </div>
           <div className="relative rounded-xl overflow-hidden border border-white/[0.06] bg-white/[0.02]">
-            <img src={uploadedPreview!} alt="Reference" className="w-full object-contain max-h-[300px]" />
+            <EditableFlyerCanvas
+              uploadedPreview={uploadedPreview}
+              sections={visibleSections}
+              atomEdits={atomEdits}
+              brandEdits={brandEdits}
+            />
             {isAnalyzing && (
               <div className="absolute inset-0 bg-background/80 backdrop-blur-sm flex flex-col items-center justify-center">
                 <Loader2 className="w-8 h-8 text-primary animate-spin mb-3" />
@@ -1239,6 +1295,151 @@ function CanvasView({
 /* ═══════════════════════════════════════════════
    Atom Card Component
    ═══════════════════════════════════════════════ */
+
+function EditableFlyerCanvas({
+  uploadedPreview,
+  sections,
+  atomEdits,
+  brandEdits,
+}: {
+  uploadedPreview: string | null
+  sections: EditableComponent[]
+  atomEdits: Record<string, AtomEdit>
+  brandEdits: {
+    headingFont: string
+    bodyFont: string
+    primaryColor: string
+    secondaryColor: string
+    accentColor: string
+    visualStyle: string
+    essentials: string
+    outputSize: string
+  }
+}) {
+  const canvasRef = useRef<HTMLDivElement>(null)
+  const [selectedId, setSelectedId] = useState<string | null>(null)
+  const [overrides, setOverrides] = useState<Record<string, EditableLayerBox>>({})
+  const [dragState, setDragState] = useState<{
+    id: string
+    startX: number
+    startY: number
+    startBox: EditableLayerBox
+  } | null>(null)
+
+  const visibleLayers = sections.filter(isVisualAtom)
+
+  useEffect(() => {
+    if (!dragState) return
+
+    const handleMove = (event: PointerEvent) => {
+      const rect = canvasRef.current?.getBoundingClientRect()
+      if (!rect) return
+
+      const dx = ((event.clientX - dragState.startX) / Math.max(1, rect.width)) * 100
+      const dy = ((event.clientY - dragState.startY) / Math.max(1, rect.height)) * 100
+
+      setOverrides(prev => ({
+        ...prev,
+        [dragState.id]: {
+          ...dragState.startBox,
+          left: clampPercent(dragState.startBox.left + dx, 0, 100 - dragState.startBox.width),
+          top: clampPercent(dragState.startBox.top + dy, 0, 100 - dragState.startBox.height),
+        },
+      }))
+    }
+
+    const stopDrag = () => setDragState(null)
+    window.addEventListener('pointermove', handleMove)
+    window.addEventListener('pointerup', stopDrag, { once: true })
+    return () => {
+      window.removeEventListener('pointermove', handleMove)
+      window.removeEventListener('pointerup', stopDrag)
+    }
+  }, [dragState])
+
+  if (!uploadedPreview) {
+    return (
+      <div className="flex min-h-[260px] items-center justify-center">
+        <Loader2 className="h-6 w-6 animate-spin text-primary" />
+      </div>
+    )
+  }
+
+  return (
+    <div className="relative bg-[#080a09] p-3">
+      <div className="mb-3 flex items-center justify-between gap-3">
+        <div>
+          <span className="text-[10px] font-bold uppercase tracking-[0.14em] text-primary">Editable source</span>
+          <p className="mt-0.5 text-[11px] text-muted-foreground">Drag atom boxes. Card edits appear live on the flyer.</p>
+        </div>
+        {!!visibleLayers.length && (
+          <span className="rounded-full border border-primary/20 bg-primary/10 px-2.5 py-1 text-[10px] font-bold text-primary">
+            {visibleLayers.length} layers
+          </span>
+        )}
+      </div>
+
+      <div ref={canvasRef} className="relative mx-auto w-fit max-w-full overflow-hidden rounded-lg border border-white/[0.08] bg-black shadow-2xl shadow-black/30">
+        <img src={uploadedPreview} alt="Editable reference flyer" className="block max-h-[420px] max-w-full object-contain select-none" draggable={false} />
+
+        {visibleLayers.map((section, index) => {
+          const edit = atomEdits[section.id]
+          const box = overrides[section.id] || getLayerBox(section, index)
+          const isSelected = selectedId === section.id
+          const isCustomized = edit?.mode === 'customize'
+          const isImage = section.type === 'image' || /image|photo|subject|product|logo|brand/i.test(`${section.type} ${section.name}`)
+          const displayText = isCustomized && edit?.value ? edit.value : section.content || section.current?.text || section.name
+
+          return (
+            <button
+              key={section.id}
+              type="button"
+              onPointerDown={(event) => {
+                setSelectedId(section.id)
+                setDragState({
+                  id: section.id,
+                  startX: event.clientX,
+                  startY: event.clientY,
+                  startBox: box,
+                })
+              }}
+              className={`group absolute overflow-hidden rounded-lg border text-left transition-all ${
+                isSelected
+                  ? 'border-primary bg-primary/10 shadow-[0_0_0_2px_rgba(157,250,176,0.18)]'
+                  : 'border-primary/30 bg-primary/[0.035] hover:border-primary/60'
+              }`}
+              style={{
+                left: `${box.left}%`,
+                top: `${box.top}%`,
+                width: `${box.width}%`,
+                height: `${box.height}%`,
+                zIndex: 20 + (section.layerIndex || index),
+                cursor: dragState?.id === section.id ? 'grabbing' : 'grab',
+              }}
+            >
+              {isCustomized ? (
+                isImage && edit?.assetDataUrl ? (
+                  <img src={edit.assetDataUrl} alt={section.name} className="h-full w-full object-cover" draggable={false} />
+                ) : (
+                  <span
+                    className="flex h-full w-full items-center rounded-md bg-black/45 px-2 py-1 text-[clamp(9px,1.4vw,15px)] font-bold leading-tight text-white backdrop-blur-[1px]"
+                    style={{ color: brandEdits.accentColor || '#ffffff', fontFamily: brandEdits.headingFont }}
+                  >
+                    {displayText}
+                  </span>
+                )
+              ) : (
+                <span className="absolute left-1 top-1 max-w-[calc(100%-8px)] truncate rounded bg-black/55 px-1.5 py-0.5 text-[9px] font-bold uppercase tracking-[0.08em] text-primary opacity-0 backdrop-blur transition-opacity group-hover:opacity-100">
+                  {section.name}
+                </span>
+              )}
+            </button>
+          )
+        })}
+      </div>
+    </div>
+  )
+}
 
 function AtomCard({
   section, index, edit, onEdit, onImageUpload, onDelete
