@@ -118,7 +118,7 @@ function formatHexDraft(value: string) {
   return `#${hex.toUpperCase()}`
 }
 
-function imageFileToDataUrl(file: File, maxWidth = 1024, maxHeight = 1024, quality = 0.86): Promise<string> {
+function imageFileToDataUrl(file: File, maxWidth = 1024, maxHeight = 1024, quality = 0.86, mimeType = 'image/jpeg'): Promise<string> {
   return new Promise((resolve, reject) => {
     const reader = new FileReader()
     reader.readAsDataURL(file)
@@ -143,8 +143,7 @@ function imageFileToDataUrl(file: File, maxWidth = 1024, maxHeight = 1024, quali
         const ctx = canvas.getContext('2d')
         ctx?.drawImage(img, 0, 0, canvas.width, canvas.height)
 
-        const mime = file.type === 'image/png' ? 'image/png' : 'image/jpeg'
-        resolve(canvas.toDataURL(mime, quality))
+        resolve(canvas.toDataURL(mimeType, quality))
       }
       img.onerror = (error: any) => reject(error)
     }
@@ -169,6 +168,10 @@ function getImageSizeChoice(file: File): Promise<string> {
     }
     reader.onerror = (error: any) => reject(error)
   })
+}
+
+function estimateJsonSizeMb(value: unknown) {
+  return new Blob([JSON.stringify(value)]).size / (1024 * 1024)
 }
 
 async function readApiJson<T>(response: Response): Promise<T> {
@@ -319,7 +322,7 @@ export default function Workspace() {
 
   /* ── Generate handler ── */
   const handleAtomImageUpload = useCallback(async (section: AtomSection, file: File) => {
-    const assetDataUrl = await imageFileToDataUrl(file, 768, 768, 0.82)
+    const assetDataUrl = await imageFileToDataUrl(file, 512, 512, 0.72)
     const assetName = file.name
     setAtomEdits(prev => ({
       ...prev,
@@ -356,7 +359,7 @@ export default function Workspace() {
 
     try {
       // Build recipe from atoms + brand card
-      const sourceReferenceImage = await imageFileToDataUrl(uploadedFile, 1024, 1536, 0.84)
+      const sourceReferenceImage = await imageFileToDataUrl(uploadedFile, 768, 1152, 0.72)
       const sourceImageSize = await getImageSizeChoice(uploadedFile)
       const referenceImages = breakdown.sections
         .map(s => {
@@ -371,6 +374,7 @@ export default function Workspace() {
           }
         })
         .filter(Boolean)
+        .slice(0, 3)
 
       const recipe: Record<string, any> = {
         aiProvider: aiModel.provider,
@@ -410,10 +414,17 @@ export default function Workspace() {
         },
       }
 
+      const requestPayload = { recipe }
+      const payloadSizeMb = estimateJsonSizeMb(requestPayload)
+
+      if (payloadSizeMb > 3.8) {
+        throw new Error('The generation request is too large. Remove a few uploaded replacement assets or use smaller files, then try again.')
+      }
+
       const res = await fetch('/api/generate', { 
         method: 'POST', 
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ recipe }) 
+        body: JSON.stringify(requestPayload) 
       })
       const data = await readApiJson<ApiGenerateResponse>(res)
 
@@ -429,7 +440,12 @@ export default function Workspace() {
         setGenerateError(data?.error || 'Generation failed.')
       }
     } catch (err: any) {
-      setGenerateError(err.message || 'Failed to connect to server.')
+      const message = String(err?.message || '')
+      setGenerateError(
+        message === 'Failed to fetch'
+          ? 'The generation request could not reach the server. Try again with fewer uploaded replacement images or a smaller reference flyer.'
+          : message || 'Generation request could not reach the server. Try again with fewer uploaded replacement images.'
+      )
     } finally {
       setIsGenerating(false)
     }
