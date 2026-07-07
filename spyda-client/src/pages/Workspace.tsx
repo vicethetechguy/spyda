@@ -98,6 +98,19 @@ type AtomEdit = {
   assetDataUrl?: string
 }
 
+type GenerationReferenceImage = {
+  sectionId: string
+  sectionName: string
+  sectionType: string
+  name: string
+  fieldName: string
+  dataUrl: string
+}
+
+function isGenerationReferenceImage(value: GenerationReferenceImage | null): value is GenerationReferenceImage {
+  return value !== null
+}
+
 const HEX_COLOR_PATTERN = /^#?[0-9a-fA-F]{6}$/
 
 function normalizeHexColor(value: string, fallback: string) {
@@ -151,6 +164,46 @@ function imageFileToDataUrl(file: File, maxWidth = 1024, maxHeight = 1024, quali
   })
 }
 
+function imageFileToBlob(file: File, maxWidth = 1024, maxHeight = 1024, quality = 0.86, mimeType = 'image/jpeg'): Promise<Blob> {
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader()
+    reader.readAsDataURL(file)
+    reader.onload = (event) => {
+      const img = new window.Image()
+      img.src = event.target?.result as string
+      img.onload = () => {
+        const canvas = document.createElement('canvas')
+        let width = img.width
+        let height = img.height
+
+        if (width > height && width > maxWidth) {
+          height *= maxWidth / width
+          width = maxWidth
+        } else if (height > maxHeight) {
+          width *= maxHeight / height
+          height = maxHeight
+        }
+
+        canvas.width = Math.round(width)
+        canvas.height = Math.round(height)
+        const ctx = canvas.getContext('2d')
+        ctx?.drawImage(img, 0, 0, canvas.width, canvas.height)
+        canvas.toBlob(blob => {
+          if (blob) resolve(blob)
+          else reject(new Error('Could not prepare image for generation.'))
+        }, mimeType, quality)
+      }
+      img.onerror = (error: any) => reject(error)
+    }
+    reader.onerror = (error: any) => reject(error)
+  })
+}
+
+async function dataUrlToBlob(dataUrl: string) {
+  const response = await fetch(dataUrl)
+  return response.blob()
+}
+
 function getImageSizeChoice(file: File): Promise<string> {
   return new Promise((resolve, reject) => {
     const reader = new FileReader()
@@ -168,10 +221,6 @@ function getImageSizeChoice(file: File): Promise<string> {
     }
     reader.onerror = (error: any) => reject(error)
   })
-}
-
-function estimateJsonSizeMb(value: unknown) {
-  return new Blob([JSON.stringify(value)]).size / (1024 * 1024)
 }
 
 async function readApiJson<T>(response: Response): Promise<T> {
@@ -359,7 +408,7 @@ export default function Workspace() {
 
     try {
       // Build recipe from atoms + brand card
-      const sourceReferenceImage = await imageFileToDataUrl(uploadedFile, 768, 1152, 0.72)
+      const sourceReferenceBlob = await imageFileToBlob(uploadedFile, 768, 1152, 0.72)
       const sourceImageSize = await getImageSizeChoice(uploadedFile)
       const referenceImages = breakdown.sections
         .map(s => {
@@ -370,11 +419,12 @@ export default function Workspace() {
             sectionName: s.name,
             sectionType: s.type,
             name: edit.assetName || `${s.name} reference image`,
+            fieldName: `referenceImage-${s.id}`,
             dataUrl: edit.assetDataUrl,
           }
         })
-        .filter(Boolean)
-        .slice(0, 3)
+        .filter(isGenerationReferenceImage)
+        .slice(0, 5)
 
       const recipe: Record<string, any> = {
         aiProvider: aiModel.provider,
@@ -382,9 +432,15 @@ export default function Workspace() {
         sourceReferenceImage: {
           name: uploadedFile.name || 'Uploaded reference flyer',
           role: 'source-layout-reference',
-          dataUrl: sourceReferenceImage,
+          fieldName: 'sourceReferenceImage',
         },
-        referenceImages,
+        referenceImages: referenceImages.map(image => ({
+          sectionId: image.sectionId,
+          sectionName: image.sectionName,
+          sectionType: image.sectionType,
+          name: image.name,
+          fieldName: image.fieldName,
+        })),
         sections: breakdown.sections
           .filter(s => !s.deleted)
           .map(s => {
@@ -414,17 +470,18 @@ export default function Workspace() {
         },
       }
 
-      const requestPayload = { recipe }
-      const payloadSizeMb = estimateJsonSizeMb(requestPayload)
+      const form = new FormData()
+      form.append('recipe', JSON.stringify(recipe))
+      form.append('sourceReferenceImage', sourceReferenceBlob, uploadedFile.name || 'reference-flyer.jpg')
 
-      if (payloadSizeMb > 3.8) {
-        throw new Error('The generation request is too large. Remove a few uploaded replacement assets or use smaller files, then try again.')
+      for (const image of referenceImages) {
+        const blob = await dataUrlToBlob(image.dataUrl)
+        form.append(image.fieldName, blob, image.name || `${image.sectionId}.jpg`)
       }
 
       const res = await fetch('/api/generate', { 
         method: 'POST', 
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(requestPayload) 
+        body: form,
       })
       const data = await readApiJson<ApiGenerateResponse>(res)
 
