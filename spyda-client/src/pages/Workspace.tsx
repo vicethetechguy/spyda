@@ -102,14 +102,6 @@ type ApiGenerateResponse = {
   error?: string
 }
 
-type ApiRemoveAtomResponse = {
-  ok: boolean
-  image?: string
-  model?: string
-  mode?: string
-  error?: string
-}
-
 type GenerationQaReport = {
   ok?: boolean
   skipped?: boolean
@@ -143,13 +135,6 @@ type SavedSpydaProject = {
     outputSize: string
   }
   qa?: GenerationQaReport | null
-}
-
-type EditableLayerBox = {
-  left: number
-  top: number
-  width: number
-  height: number
 }
 
 /* ═══════════════════════════════════════════════
@@ -288,59 +273,6 @@ async function dataUrlToBlob(dataUrl: string) {
   return response.blob()
 }
 
-function loadImageElement(src: string): Promise<HTMLImageElement> {
-  return new Promise((resolve, reject) => {
-    const img = new window.Image()
-    img.onload = () => resolve(img)
-    img.onerror = reject
-    img.src = src
-  })
-}
-
-function canvasToBlob(canvas: HTMLCanvasElement, type = 'image/png', quality?: number): Promise<Blob> {
-  return new Promise((resolve, reject) => {
-    canvas.toBlob(blob => {
-      if (blob) resolve(blob)
-      else reject(new Error('Could not prepare editable mask.'))
-    }, type, quality)
-  })
-}
-
-async function createAtomMask(imageSrc: string, box: EditableLayerBox) {
-  const image = await loadImageElement(imageSrc)
-  const width = image.naturalWidth || image.width
-  const height = image.naturalHeight || image.height
-  const canvas = document.createElement('canvas')
-  canvas.width = width
-  canvas.height = height
-  const ctx = canvas.getContext('2d')
-  if (!ctx) throw new Error('Could not create mask.')
-
-  ctx.fillStyle = 'rgba(0,0,0,1)'
-  ctx.fillRect(0, 0, width, height)
-
-  const padding = Math.max(width, height) * 0.015
-  const x = (box.left / 100) * width
-  const y = (box.top / 100) * height
-  const w = (box.width / 100) * width
-  const h = (box.height / 100) * height
-
-  ctx.globalCompositeOperation = 'destination-out'
-  ctx.fillStyle = 'rgba(0,0,0,1)'
-  ctx.fillRect(
-    Math.max(0, x - padding),
-    Math.max(0, y - padding),
-    Math.min(width, w + padding * 2),
-    Math.min(height, h + padding * 2),
-  )
-
-  return {
-    blob: await canvasToBlob(canvas, 'image/png'),
-    width,
-    height,
-  }
-}
-
 function getImageSizeChoice(file: File): Promise<string> {
   return new Promise((resolve, reject) => {
     const reader = new FileReader()
@@ -399,50 +331,6 @@ function saveProjectSnapshot(project: SavedSpydaProject) {
   }
 }
 
-function clampPercent(value: number, min = 0, max = 100) {
-  return Math.min(max, Math.max(min, value))
-}
-
-function readNamedBoxValue(source: string, key: string) {
-  const match = source.match(new RegExp(`(?:${key})\\s*:?\\s*(-?\\d+(?:\\.\\d+)?)`, 'i'))
-  return match ? Number(match[1]) : null
-}
-
-function getLayerBox(component: EditableComponent, index: number): EditableLayerBox {
-  const source = `${component.boundingBox || ''} ${component.current?.boundingBox || ''}`
-  const x = readNamedBoxValue(source, 'x')
-  const y = readNamedBoxValue(source, 'y')
-  const width = readNamedBoxValue(source, 'width|w')
-  const height = readNamedBoxValue(source, 'height|h')
-
-  if ([x, y, width, height].every(value => typeof value === 'number' && Number.isFinite(value))) {
-    const scale = Math.max(x || 0, y || 0, width || 0, height || 0) <= 1 ? 1 : 1024
-    return {
-      left: clampPercent(((x || 0) / scale) * 100, 0, 92),
-      top: clampPercent(((y || 0) / scale) * 100, 0, 92),
-      width: clampPercent(((width || 180) / scale) * 100, 8, 70),
-      height: clampPercent(((height || 64) / scale) * 100, 5, 42),
-    }
-  }
-
-  const text = `${component.name} ${component.content} ${component.boundingBox}`.toLowerCase()
-  const isTop = /top|header|logo|headline|hero/.test(text)
-  const isBottom = /bottom|footer|contact|social|download|cta/.test(text)
-  const isRight = /right|phone|subject|person|product|image/.test(text)
-  const row = index % 7
-
-  return {
-    left: isRight ? 54 : 8 + ((index * 17) % 34),
-    top: isTop ? 8 + row * 3 : isBottom ? 70 + (row % 3) * 6 : 24 + row * 8,
-    width: /image|photo|subject|product|brand|logo/.test(component.type) ? 30 : 38,
-    height: /image|photo|subject|product|brand|logo/.test(component.type) ? 22 : 10,
-  }
-}
-
-function isVisualAtom(component: EditableComponent) {
-  return /text|image|photo|subject|product|logo|brand|action|decor|shape|icon/i.test(`${component.type} ${component.name}`)
-}
-
 export default function Workspace() {
   const [sidebarOpen, setSidebarOpen] = useState(true)
   const [activeId, setActiveId] = useState('canvas')
@@ -491,7 +379,7 @@ export default function Workspace() {
   const [generationQa, setGenerationQa] = useState<GenerationQaReport | null>(null)
   const [analysisStage, setAnalysisStage] = useState('')
   const [generationStage, setGenerationStage] = useState('')
-  const [removingAtomId, setRemovingAtomId] = useState<string | null>(null)
+  const [essentialPrompts, setEssentialPrompts] = useState(['', '', ''])
   const [analyzeError, setAnalyzeError] = useState<string | null>(null)
   const [generateError, setGenerateError] = useState<string | null>(null)
 
@@ -581,6 +469,7 @@ export default function Workspace() {
     setAnalysisStage('Preparing reference image')
     setGenerationStage('')
     setAtomEdits({})
+    setEssentialPrompts(['', '', ''])
 
     // Auto-analyze
     setIsAnalyzing(true)
@@ -674,77 +563,33 @@ export default function Workspace() {
     })
   }, [])
 
-  const handleRemoveAtomFromBase = useCallback(async (section: EditableComponent, index: number) => {
-    if (!uploadedPreview) return
-    setRemovingAtomId(section.id)
-    setGenerateError(null)
-
-    try {
-      const box = getLayerBox(section, index)
-      const imageBlob = await dataUrlToBlob(uploadedPreview)
-      const mask = await createAtomMask(uploadedPreview, box)
-      const imageSize = mask.width / Math.max(1, mask.height) > 1.12
-        ? 'Landscape 1536 x 1024'
-        : mask.width / Math.max(1, mask.height) < 0.9
-          ? 'Portrait 1024 x 1536'
-          : 'Square 1024 x 1024'
-
-      const form = new FormData()
-      form.append('image', imageBlob, 'spyda-base.png')
-      form.append('mask', mask.blob, 'spyda-mask.png')
-      form.append('imageSize', imageSize)
-      form.append('component', JSON.stringify({
-        id: section.id,
-        name: section.name,
-        type: section.type,
-        content: section.content,
-        style: section.style,
-        boundingBox: section.boundingBox,
-      }))
-
-      const res = await fetch('/api/remove-atom', {
-        method: 'POST',
-        body: form,
-      })
-      const data = await readApiJson<ApiRemoveAtomResponse>(res)
-
-      if (data?.ok && data.image) {
-        const imageSrc = data.image.startsWith('http') ? data.image : `data:image/png;base64,${data.image}`
-        setUploadedPreview(imageSrc)
-        setAtomEdits(prev => ({
-          ...prev,
-          [section.id]: {
-            ...prev[section.id],
-            mode: 'customize',
-            value: prev[section.id]?.value || section.content || '',
-          },
-        }))
-      } else {
-        setGenerateError(data?.error || 'Spyda could not clean this atom from the base flyer.')
-      }
-    } catch (err: any) {
-      setGenerateError(err?.message || 'Spyda could not clean this atom from the base flyer.')
-    } finally {
-      setRemovingAtomId(null)
-    }
-  }, [uploadedPreview])
-
   const handleGenerate = useCallback(async () => {
     if (!uploadedFile || !breakdown) return
+    const selectedAtoms = (breakdown.design?.editableComponents || [])
+      .filter(s => !s.deleted && atomEdits[s.id]?.mode === 'customize')
+    const filledEssentials = essentialPrompts.map(prompt => prompt.trim()).filter(Boolean)
+    const totalChanges = selectedAtoms.length + filledEssentials.length
+
+    if (totalChanges !== 3) {
+      setGenerateError('Choose exactly 3 changes before applying this round.')
+      return
+    }
+
     setIsGenerating(true)
     setGenerationQa(null)
-    setGenerationStage('Preparing reference images')
+    setGenerationStage('Preparing source and child references')
     setGenerateError(null)
 
     try {
       // Build recipe from atoms + brand card
       const sourceReferenceBlob = await imageFileToBlob(uploadedFile, 768, 1152, 0.72)
+      const childSourceBlob = await dataUrlToBlob(generatedImage || uploadedPreview || '')
       const sourceImageSize = await getImageSizeChoice(uploadedFile)
       const chosenOutputSize = brandEdits.outputSize === 'match-reference' ? sourceImageSize : brandEdits.outputSize
-      const referenceImages = (breakdown.design?.editableComponents || [])
+      const referenceImages = selectedAtoms
         .map(s => {
           const edit = atomEdits[s.id]
-          if (s.deleted || edit?.mode !== 'customize' || !edit.assetDataUrl) return null
+          if (!edit?.assetDataUrl) return null
           return {
             sectionId: s.id,
             sectionName: s.name,
@@ -767,6 +612,11 @@ export default function Workspace() {
           role: 'source-layout-reference',
           fieldName: 'sourceReferenceImage',
         },
+        childSourceImage: {
+          name: 'Current child source',
+          role: 'current-working-design',
+          fieldName: 'childSourceImage',
+        },
         essentialsImage: essentialsImage ? {
           name: essentialsImage.name,
           fieldName: 'essentialsImage',
@@ -780,8 +630,15 @@ export default function Workspace() {
           fieldName: image.fieldName,
         })),
         sections: breakdown.design?.sections || [],
-        editableComponents: (breakdown.design?.editableComponents || [])
-          .filter(s => !s.deleted)
+        editRound: {
+          maxChanges: 3,
+          selectedAtomIds: selectedAtoms.map(atom => atom.id),
+          essentials: filledEssentials,
+          previouslyEditedAtomIds: (breakdown.design?.editableComponents || [])
+            .filter(atom => atom.deleted)
+            .map(atom => atom.id),
+        },
+        editableComponents: selectedAtoms
           .map(s => {
             const edit = atomEdits[s.id]
             return {
@@ -807,7 +664,7 @@ export default function Workspace() {
             bodyFont: brandEdits.bodyFont,
           },
           visualStyle: brandEdits.visualStyle || breakdown.design?.styleTokens?.visualStyle || 'Same as uploaded design',
-          essentials: brandEdits.essentials,
+          essentials: filledEssentials.join('\n'),
         },
       }
 
@@ -815,6 +672,7 @@ export default function Workspace() {
       const form = new FormData()
       form.append('recipe', JSON.stringify(recipe))
       form.append('sourceReferenceImage', sourceReferenceBlob, uploadedFile.name || 'reference-flyer.jpg')
+      form.append('childSourceImage', childSourceBlob, 'child-source.png')
       if (essentialsImage) {
         const essentialsBlob = await dataUrlToBlob(essentialsImage.dataUrl)
         form.append('essentialsImage', essentialsBlob, essentialsImage.name || 'essentials-reference.jpg')
@@ -846,6 +704,25 @@ export default function Workspace() {
           brandEdits,
           qa: data.qa || null,
         })
+        setBreakdown(prev => {
+          if (!prev) return prev
+          const selectedIds = new Set(selectedAtoms.map(atom => atom.id))
+          return {
+            ...prev,
+            design: {
+              ...prev.design,
+              editableComponents: (prev.design.editableComponents || []).map(atom =>
+                selectedIds.has(atom.id) ? { ...atom, deleted: true } : atom
+              ),
+            },
+          }
+        })
+        setAtomEdits(prev => {
+          const next = { ...prev }
+          for (const atom of selectedAtoms) delete next[atom.id]
+          return next
+        })
+        setEssentialPrompts(['', '', ''])
       } else if (data?.ok && !data?.image) {
         setGenerateError(data?.message || 'Generation returned no image (mock mode — set OPENAI_API_KEY).')
       } else {
@@ -862,7 +739,7 @@ export default function Workspace() {
       setGenerationStage('')
       setIsGenerating(false)
     }
-  }, [uploadedFile, breakdown, atomEdits, brandEdits, essentialsImage, aiModel, currentProjectId, uploadedPreview, persistCurrentProject])
+  }, [uploadedFile, breakdown, atomEdits, brandEdits, essentialsImage, aiModel, currentProjectId, uploadedPreview, generatedImage, essentialPrompts, persistCurrentProject])
 
   /* ── Reset handler ── */
   const handleReset = useCallback(() => {
@@ -875,7 +752,7 @@ export default function Workspace() {
     setGenerationQa(null)
     setAnalysisStage('')
     setGenerationStage('')
-    setRemovingAtomId(null)
+    setEssentialPrompts(['', '', ''])
     setAnalyzeError(null)
     setGenerateError(null)
     setAtomEdits({})
@@ -992,16 +869,16 @@ export default function Workspace() {
               atomEdits={atomEdits}
               brandEdits={brandEdits}
               essentialsImage={essentialsImage}
-              removingAtomId={removingAtomId}
+              essentialPrompts={essentialPrompts}
               onUpload={handleDesignUpload}
               onAtomImageUpload={handleAtomImageUpload}
               onEssentialsImageUpload={handleEssentialsImageUpload}
               onRemoveEssentialsImage={() => setEssentialsImage(null)}
-              onRemoveAtomFromBase={handleRemoveAtomFromBase}
               onDeleteAtom={handleDeleteAtom}
               onGenerate={handleGenerate}
               onReset={handleReset}
               onAtomEdit={(id, mode, value) => setAtomEdits(prev => ({ ...prev, [id]: { ...prev[id], mode, value } }))}
+              onEssentialPromptChange={(index, value) => setEssentialPrompts(prev => prev.map((prompt, promptIndex) => promptIndex === index ? value : prompt))}
               onBrandEdit={(field, value) => setBrandEdits(prev => ({ ...prev, [field]: value }))}
             />
           )}
@@ -1025,9 +902,9 @@ function CanvasView({
   generationQa, analysisStage, generationStage,
   analyzeError, generateError, atomEdits, brandEdits,
   essentialsImage,
-  removingAtomId,
+  essentialPrompts,
   onUpload, onAtomImageUpload, onEssentialsImageUpload, onRemoveEssentialsImage, onDeleteAtom, onGenerate, onReset,
-  onAtomEdit, onBrandEdit, onRemoveAtomFromBase
+  onAtomEdit, onBrandEdit, onEssentialPromptChange
 }: {
   uploadedFile: File | null
   uploadedPreview: string | null
@@ -1042,7 +919,7 @@ function CanvasView({
   generateError: string | null
   atomEdits: Record<string, AtomEdit>
   essentialsImage: { name: string; dataUrl: string } | null
-  removingAtomId: string | null
+  essentialPrompts: string[]
   brandEdits: {
     headingFont: string
     bodyFont: string
@@ -1057,15 +934,16 @@ function CanvasView({
   onAtomImageUpload: (section: EditableComponent, file: File) => void
   onEssentialsImageUpload: (file: File) => void
   onRemoveEssentialsImage: () => void
-  onRemoveAtomFromBase: (section: EditableComponent, index: number) => void
   onDeleteAtom: (sectionId: string) => void
   onGenerate: () => void
   onReset: () => void
   onAtomEdit: (id: string, mode: 'same' | 'customize', value: string) => void
   onBrandEdit: (field: string, value: string) => void
+  onEssentialPromptChange: (index: number, value: string) => void
 }) {
   const fileInputRef = useRef<HTMLInputElement>(null)
   const essentialsInputRef = useRef<HTMLInputElement>(null)
+  const essentialPromptRefs = useRef<Array<HTMLInputElement | null>>([])
   const [isDragging, setIsDragging] = useState(false)
 
   const handleDrop = useCallback((e: React.DragEvent) => {
@@ -1111,29 +989,27 @@ function CanvasView({
 
   // ── Phase 2+: Analyzing / Editing / Generating ──
   const visibleSections = breakdown?.design?.editableComponents?.filter(s => !s.deleted) || []
+  const selectedAtomCount = visibleSections.filter(section => atomEdits[section.id]?.mode === 'customize').length
+  const essentialCount = essentialPrompts.filter(prompt => prompt.trim()).length
+  const totalChangeCount = selectedAtomCount + essentialCount
+  const remainingChangeCount = Math.max(0, 3 - totalChangeCount)
+  const canApplyRound = totalChangeCount === 3
 
   return (
     <div className="min-h-full flex flex-col lg:flex-row lg:h-full">
-      {/* Left: Reference + Generated */}
+      {/* Left: Source + Child Source */}
       <div className="lg:w-[45%] shrink-0 border-r border-white/[0.06] flex flex-col">
-        {/* Reference Image */}
+        {/* Immutable Source Image */}
         <div className="p-6 border-b border-white/[0.06]">
           <div className="flex items-center justify-between mb-4">
             <div className="flex items-center gap-2">
-              <span className="text-[11px] font-bold tracking-[0.12em] uppercase text-primary">Reference</span>
+              <span className="text-[11px] font-bold tracking-[0.12em] uppercase text-primary">Source</span>
               <span className="text-[11px] text-muted-foreground/50">{uploadedFile.name}</span>
             </div>
             <button onClick={onReset} className="text-xs text-muted-foreground hover:text-foreground transition-colors">Change</button>
           </div>
           <div className="relative rounded-xl overflow-hidden border border-white/[0.06] bg-white/[0.02]">
-            <EditableFlyerCanvas
-              uploadedPreview={uploadedPreview}
-              sections={visibleSections}
-              atomEdits={atomEdits}
-              brandEdits={brandEdits}
-              onAtomEdit={onAtomEdit}
-              onAtomImageUpload={onAtomImageUpload}
-            />
+            <img src={uploadedPreview!} alt="Original source flyer" className="w-full object-contain max-h-[300px]" />
             {isAnalyzing && (
               <div className="absolute inset-0 bg-background/80 backdrop-blur-sm flex flex-col items-center justify-center">
                 <Loader2 className="w-8 h-8 text-primary animate-spin mb-3" />
@@ -1149,19 +1025,31 @@ function CanvasView({
           )}
         </div>
 
-        {/* Generated Output */}
+        {/* Child Source */}
         <div className="flex-1 p-6 flex flex-col">
-          <span className="text-[11px] font-bold tracking-[0.12em] uppercase text-primary mb-4">Generated Output</span>
-          {generatedImage ? (
+          <div className="mb-4 flex items-center justify-between gap-3">
+            <span className="text-[11px] font-bold tracking-[0.12em] uppercase text-primary">Child Source</span>
+            <span className="rounded-full border border-white/[0.08] bg-white/[0.03] px-2.5 py-1 text-[10px] font-bold text-muted-foreground">
+              {totalChangeCount}/3 changes ready
+            </span>
+          </div>
+          {generatedImage || uploadedPreview ? (
             <div className="relative rounded-xl overflow-hidden border border-primary/20 bg-white/[0.02] flex-1 flex items-center justify-center">
-              <img src={generatedImage} alt="Generated" className="w-full object-contain max-h-[400px]" />
-              <a
+              <img src={generatedImage || uploadedPreview || ''} alt="Child source design" className="w-full object-contain max-h-[400px]" />
+              {generatedImage && <a
                 href={generatedImage}
                 download={`spyda-output-${Date.now()}.png`}
                 className="absolute bottom-4 right-4 inline-flex h-10 items-center gap-2 rounded-lg bg-gradient-to-r from-[#22c55e] to-[#16a34a] px-4 text-xs font-bold text-primary-foreground shadow-lg shadow-primary/20 hover:brightness-110 transition-all"
               >
                 <Download className="w-4 h-4" /> Download 4K
-              </a>
+              </a>}
+              {isGenerating && (
+                <div className="absolute inset-0 flex flex-col items-center justify-center bg-background/80 backdrop-blur-sm">
+                  <Loader2 className="w-8 h-8 text-primary animate-spin mb-3" />
+                  <span className="text-sm font-medium text-primary">Updating child source...</span>
+                  <span className="text-xs text-muted-foreground mt-1">{generationStage || 'Applying 3 focused changes'}</span>
+                </div>
+              )}
             </div>
           ) : (
             <div className="rounded-xl border border-dashed border-white/[0.08] bg-white/[0.01] flex-1 flex flex-col items-center justify-center min-h-[200px]">
@@ -1228,12 +1116,26 @@ function CanvasView({
               </div>
               <button
                 onClick={onGenerate}
-                disabled={isGenerating}
+                disabled={isGenerating || !canApplyRound}
                 className="inline-flex h-10 items-center gap-2 rounded-lg bg-gradient-to-r from-[#22c55e] to-[#16a34a] px-6 text-sm font-bold text-primary-foreground shadow-lg shadow-primary/20 hover:brightness-110 transition-all disabled:opacity-50 disabled:pointer-events-none"
               >
                 {isGenerating ? <Loader2 className="w-4 h-4 animate-spin" /> : <Zap className="w-4 h-4" />}
-                {isGenerating ? 'Generating...' : 'Generate Flyer'}
+                {isGenerating ? 'Applying...' : `Apply ${totalChangeCount}/3`}
               </button>
+            </div>
+
+            <div className="rounded-xl border border-white/[0.06] bg-white/[0.025] p-4">
+              <div className="flex flex-wrap items-center justify-between gap-3">
+                <div>
+                  <p className="text-xs font-bold uppercase tracking-[0.12em] text-primary">3-change round</p>
+                  <p className="mt-1 text-xs text-muted-foreground">
+                    {selectedAtomCount} atom change{selectedAtomCount !== 1 ? 's' : ''} + {essentialCount} Essential prompt{essentialCount !== 1 ? 's' : ''}. {remainingChangeCount} slot{remainingChangeCount !== 1 ? 's' : ''} left.
+                  </p>
+                </div>
+                <span className={`rounded-full px-3 py-1 text-xs font-bold ${canApplyRound ? 'bg-primary/15 text-primary' : 'bg-white/[0.05] text-muted-foreground'}`}>
+                  {totalChangeCount}/3 ready
+                </span>
+              </div>
             </div>
 
             {/* Atom Cards */}
@@ -1245,8 +1147,7 @@ function CanvasView({
                 edit={atomEdits[section.id]}
                 onEdit={onAtomEdit}
                 onImageUpload={onAtomImageUpload}
-                onRemoveFromBase={onRemoveAtomFromBase}
-                isRemovingBase={removingAtomId === section.id}
+                selectionLocked={atomEdits[section.id]?.mode !== 'customize' && totalChangeCount >= 3}
                 onDelete={onDeleteAtom}
               />
             ))}
@@ -1321,14 +1222,27 @@ function CanvasView({
               </div>
               <div className="mt-4">
                 <label className="text-xs text-muted-foreground mb-1 block">Essentials</label>
-                <textarea
-                  value={brandEdits.essentials}
-                  onChange={e => onBrandEdit('essentials', e.target.value)}
-                  placeholder="Add anything Spyda missed or must include: logo placement, footer text, offer details, disclaimer, exact image direction, CTA, icons, layout rules..."
-                  className="w-full h-24 px-3 py-2 rounded-lg bg-white/[0.04] border border-white/[0.06] text-sm text-foreground placeholder:text-muted-foreground/40 outline-none focus:border-primary/40 transition-colors resize-none"
-                />
+                <div className="space-y-2">
+                  {['Enter First Prompt', 'Enter Second Prompt', 'Enter Third Prompt'].map((placeholder, index) => (
+                    <input
+                      key={placeholder}
+                      ref={node => { essentialPromptRefs.current[index] = node }}
+                      value={essentialPrompts[index] || ''}
+                      onChange={e => onEssentialPromptChange(index, e.target.value)}
+                      onKeyDown={e => {
+                        if (e.key === 'Enter') {
+                          e.preventDefault()
+                          essentialPromptRefs.current[Math.min(index + 1, 2)]?.focus()
+                        }
+                      }}
+                      disabled={!essentialPrompts[index] && totalChangeCount >= 3}
+                      placeholder={placeholder}
+                      className="w-full h-10 px-3 rounded-lg bg-white/[0.04] border border-white/[0.06] text-sm text-foreground placeholder:text-muted-foreground/40 outline-none focus:border-primary/40 transition-colors disabled:opacity-40"
+                    />
+                  ))}
+                </div>
                 <p className="mt-2 text-[11px] leading-relaxed text-muted-foreground/60">
-                  These notes are treated as hard requirements when generating the new flyer.
+                  Each filled Essential prompt counts as one of the 3 changes in this round.
                 </p>
                 <div className="mt-3 rounded-xl border border-white/[0.06] bg-white/[0.025] p-3">
                   <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
@@ -1397,11 +1311,11 @@ function CanvasView({
             <div className="pt-4 pb-8">
               <button
                 onClick={onGenerate}
-                disabled={isGenerating}
+                disabled={isGenerating || !canApplyRound}
                 className="w-full inline-flex h-14 items-center justify-center gap-3 rounded-xl bg-gradient-to-r from-[#22c55e] to-[#16a34a] text-sm font-bold text-primary-foreground shadow-[0_18px_44px_rgba(157,250,176,0.22)] transition-all hover:shadow-[0_22px_54px_rgba(157,250,176,0.32)] hover:-translate-y-0.5 disabled:opacity-50 disabled:pointer-events-none"
               >
                 {isGenerating ? <Loader2 className="w-5 h-5 animate-spin" /> : <Sparkles className="w-5 h-5" />}
-                {isGenerating ? 'Generating New Flyer...' : 'Generate New Flyer'}
+                {isGenerating ? 'Applying 3 Changes...' : `Apply Round (${totalChangeCount}/3)`}
               </button>
             </div>
           </div>
@@ -1423,196 +1337,15 @@ function CanvasView({
    Atom Card Component
    ═══════════════════════════════════════════════ */
 
-function EditableFlyerCanvas({
-  uploadedPreview,
-  sections,
-  atomEdits,
-  brandEdits,
-  onAtomEdit,
-  onAtomImageUpload,
-}: {
-  uploadedPreview: string | null
-  sections: EditableComponent[]
-  atomEdits: Record<string, AtomEdit>
-  brandEdits: {
-    headingFont: string
-    bodyFont: string
-    primaryColor: string
-    secondaryColor: string
-    accentColor: string
-    visualStyle: string
-    essentials: string
-    outputSize: string
-  }
-  onAtomEdit: (id: string, mode: 'same' | 'customize', value: string) => void
-  onAtomImageUpload: (section: EditableComponent, file: File) => void
-}) {
-  const canvasRef = useRef<HTMLDivElement>(null)
-  const [selectedId, setSelectedId] = useState<string | null>(null)
-  const [overrides, setOverrides] = useState<Record<string, EditableLayerBox>>({})
-  const [dragState, setDragState] = useState<{
-    id: string
-    startX: number
-    startY: number
-    startBox: EditableLayerBox
-  } | null>(null)
-
-  const visibleLayers = sections.filter(isVisualAtom)
-
-  useEffect(() => {
-    if (!dragState) return
-
-    const handleMove = (event: PointerEvent) => {
-      const rect = canvasRef.current?.getBoundingClientRect()
-      if (!rect) return
-
-      const dx = ((event.clientX - dragState.startX) / Math.max(1, rect.width)) * 100
-      const dy = ((event.clientY - dragState.startY) / Math.max(1, rect.height)) * 100
-
-      setOverrides(prev => ({
-        ...prev,
-        [dragState.id]: {
-          ...dragState.startBox,
-          left: clampPercent(dragState.startBox.left + dx, 0, 100 - dragState.startBox.width),
-          top: clampPercent(dragState.startBox.top + dy, 0, 100 - dragState.startBox.height),
-        },
-      }))
-    }
-
-    const stopDrag = () => setDragState(null)
-    window.addEventListener('pointermove', handleMove)
-    window.addEventListener('pointerup', stopDrag, { once: true })
-    return () => {
-      window.removeEventListener('pointermove', handleMove)
-      window.removeEventListener('pointerup', stopDrag)
-    }
-  }, [dragState])
-
-  if (!uploadedPreview) {
-    return (
-      <div className="flex min-h-[260px] items-center justify-center">
-        <Loader2 className="h-6 w-6 animate-spin text-primary" />
-      </div>
-    )
-  }
-
-  return (
-    <div className="relative bg-[#080a09] p-3">
-      <div className="mb-3 flex items-center justify-between gap-3">
-        <div>
-          <span className="text-[10px] font-bold uppercase tracking-[0.14em] text-primary">Editable source</span>
-          <p className="mt-0.5 text-[11px] text-muted-foreground">Drag atom boxes. Card edits appear live on the flyer.</p>
-        </div>
-        {!!visibleLayers.length && (
-          <span className="rounded-full border border-primary/20 bg-primary/10 px-2.5 py-1 text-[10px] font-bold text-primary">
-            {visibleLayers.length} layers
-          </span>
-        )}
-      </div>
-
-      <div ref={canvasRef} className="relative mx-auto w-fit max-w-full overflow-hidden rounded-lg border border-white/[0.08] bg-black shadow-2xl shadow-black/30">
-        <img src={uploadedPreview} alt="Editable reference flyer" className="block max-h-[420px] max-w-full object-contain select-none" draggable={false} />
-
-        {visibleLayers.map((section, index) => {
-          const edit = atomEdits[section.id]
-          const box = overrides[section.id] || getLayerBox(section, index)
-          const isSelected = selectedId === section.id
-          const isCustomized = edit?.mode === 'customize'
-          const isImage = section.type === 'image' || /image|photo|subject|product|logo|brand/i.test(`${section.type} ${section.name}`)
-          const displayText = isCustomized && edit?.value ? edit.value : section.content || section.current?.text || section.name
-
-          return (
-            <div
-              key={section.id}
-              onPointerDown={(event) => {
-                if ((event.target as HTMLElement).closest('[data-layer-control]')) return
-                setSelectedId(section.id)
-                setDragState({
-                  id: section.id,
-                  startX: event.clientX,
-                  startY: event.clientY,
-                  startBox: box,
-                })
-              }}
-              role="button"
-              tabIndex={0}
-              aria-label={`Edit ${section.name}`}
-              className={`group absolute overflow-hidden rounded-lg border text-left transition-all ${
-                isSelected
-                  ? 'border-primary bg-primary/10 shadow-[0_0_0_2px_rgba(157,250,176,0.18)]'
-                  : 'border-primary/30 bg-primary/[0.035] hover:border-primary/60'
-              }`}
-              style={{
-                left: `${box.left}%`,
-                top: `${box.top}%`,
-                width: `${box.width}%`,
-                height: `${box.height}%`,
-                zIndex: 20 + (section.layerIndex || index),
-                cursor: dragState?.id === section.id ? 'grabbing' : 'grab',
-              }}
-            >
-              {isImage && isCustomized && edit?.assetDataUrl && (
-                <img src={edit.assetDataUrl} alt={section.name} className="h-full w-full object-cover" draggable={false} />
-              )}
-
-              {!isImage && (isCustomized || isSelected) && (
-                <textarea
-                  data-layer-control
-                  autoFocus={isSelected}
-                  value={displayText}
-                  onChange={event => onAtomEdit(section.id, 'customize', event.target.value)}
-                  onFocus={() => {
-                    setSelectedId(section.id)
-                    if (!isCustomized) onAtomEdit(section.id, 'customize', displayText)
-                  }}
-                  className="h-full w-full resize-none rounded-md border-0 bg-black/50 px-2 py-1 text-[clamp(9px,1.4vw,15px)] font-bold leading-tight text-white outline-none backdrop-blur-[1px] focus:ring-2 focus:ring-primary/60"
-                  style={{ color: brandEdits.accentColor || '#ffffff', fontFamily: brandEdits.headingFont }}
-                />
-              )}
-
-              {isImage && isSelected && (
-                <div data-layer-control className="absolute inset-0 flex flex-col items-center justify-center gap-2 bg-black/55 p-2 text-center backdrop-blur-sm">
-                  <span className="line-clamp-2 text-[10px] font-bold uppercase tracking-[0.1em] text-primary">{section.name}</span>
-                  <label className="inline-flex cursor-pointer items-center gap-1.5 rounded-full bg-primary px-3 py-1.5 text-[10px] font-bold text-primary-foreground shadow-lg">
-                    <Upload className="h-3 w-3" />
-                    {edit?.assetDataUrl ? 'Replace' : 'Upload'}
-                    <input
-                      type="file"
-                      accept="image/*"
-                      className="hidden"
-                      onChange={event => {
-                        const file = event.target.files?.[0]
-                        if (file) onAtomImageUpload(section, file)
-                        event.currentTarget.value = ''
-                      }}
-                    />
-                  </label>
-                </div>
-              )}
-
-              {!isSelected && !isCustomized && (
-                <span className="absolute left-1 top-1 max-w-[calc(100%-8px)] truncate rounded bg-black/55 px-1.5 py-0.5 text-[9px] font-bold uppercase tracking-[0.08em] text-primary opacity-0 backdrop-blur transition-opacity group-hover:opacity-100">
-                  {section.name}
-                </span>
-              )}
-            </div>
-          )
-        })}
-      </div>
-    </div>
-  )
-}
-
 function AtomCard({
-  section, index, edit, onEdit, onImageUpload, onRemoveFromBase, isRemovingBase, onDelete
+  section, index, edit, onEdit, onImageUpload, selectionLocked, onDelete
 }: {
   section: EditableComponent
   index: number
   edit?: AtomEdit
   onEdit: (id: string, mode: 'same' | 'customize', value: string) => void
   onImageUpload: (section: EditableComponent, file: File) => void
-  onRemoveFromBase: (section: EditableComponent, index: number) => void
-  isRemovingBase: boolean
+  selectionLocked: boolean
   onDelete: (sectionId: string) => void
 }) {
   const imageInputRef = useRef<HTMLInputElement>(null)
@@ -1685,18 +1418,10 @@ function AtomCard({
         </button>
         <button
           onClick={() => onEdit(section.id, 'customize', edit?.value || '')}
-          className={`inline-flex h-7 items-center gap-1.5 rounded-md px-3 text-[11px] font-semibold transition-colors ${mode === 'customize' ? 'bg-primary/15 text-primary border border-primary/30' : 'bg-white/[0.03] text-muted-foreground border border-white/[0.06] hover:bg-white/[0.06]'}`}
+          disabled={selectionLocked}
+          className={`inline-flex h-7 items-center gap-1.5 rounded-md px-3 text-[11px] font-semibold transition-colors disabled:opacity-40 disabled:pointer-events-none ${mode === 'customize' ? 'bg-primary/15 text-primary border border-primary/30' : 'bg-white/[0.03] text-muted-foreground border border-white/[0.06] hover:bg-white/[0.06]'}`}
         >
           Customize
-        </button>
-        <button
-          type="button"
-          onClick={() => onRemoveFromBase(section, index)}
-          disabled={isRemovingBase}
-          className="inline-flex h-7 items-center gap-1.5 rounded-md border border-white/[0.08] bg-white/[0.035] px-3 text-[11px] font-semibold text-muted-foreground transition-colors hover:bg-white/[0.07] hover:text-foreground disabled:opacity-50"
-        >
-          {isRemovingBase ? <Loader2 className="h-3 w-3 animate-spin" /> : <Wand2 className="h-3 w-3" />}
-          Clean from base
         </button>
       </div>
 
@@ -2249,3 +1974,4 @@ function PlaceholderView({ title }: { title: string }) {
     </div>
   )
 }
+

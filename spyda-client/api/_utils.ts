@@ -509,6 +509,13 @@ function sanitizeRecipeForPrompt(recipe: any) {
           dataUrl: "[attached separately as image input 1]",
         }
       : undefined,
+    childSourceImage: recipe?.childSourceImage?.dataUrl
+      ? {
+          name: recipe.childSourceImage.name || "Current child source",
+          role: "current-working-design",
+          dataUrl: "[attached separately as child source image input]",
+        }
+      : undefined,
     essentialsImage: recipe?.essentialsImage?.dataUrl
       ? {
           name: recipe.essentialsImage.name || "Essentials reference image",
@@ -534,8 +541,9 @@ function sanitizeRecipeForPrompt(recipe: any) {
 export function buildGenerationPrompt(recipe: any) {
   const attachedReferenceImages = getReferenceImages(recipe);
   const hasSourceReference = Boolean(recipe?.sourceReferenceImage?.dataUrl);
+  const hasChildSource = Boolean(recipe?.childSourceImage?.dataUrl);
   const hasEssentialsImage = Boolean(recipe?.essentialsImage?.dataUrl);
-  const imageInputOffset = (hasSourceReference ? 1 : 0) + (hasEssentialsImage ? 1 : 0);
+  const imageInputOffset = (hasSourceReference ? 1 : 0) + (hasChildSource ? 1 : 0) + (hasEssentialsImage ? 1 : 0);
   const referenceImageInstructions = attachedReferenceImages.length
     ? `
 REFERENCE IMAGE REQUIREMENTS:
@@ -545,10 +553,17 @@ ${attachedReferenceImages.map((image: any, index: number) => `- Input image ${in
   const sourceReferenceInstructions = hasSourceReference
     ? `SOURCE REFERENCE LAYOUT REQUIREMENTS:
 - Input image 1 is the uploaded reference flyer.
-- The generated flyer must follow input image 1's composition as closely as possible: same layout grid, same visual hierarchy, same element positions, same spacing rhythm, same cropping logic, same typography scale relationship, same background structure, same visual weight, and same overall design direction.
-- Do not invent a different layout, camera angle, poster structure, or visual system.
-- Only change the atoms the user customized, the brand constants, and the Essentials requirements.
-- Deleted atoms must stay removed. Non-deleted unchanged atoms should keep the same role and position from the reference.
+- Treat input image 1 as immutable truth. It never changes and is used only for comparison.
+- Every output must stay visually close to input image 1: same layout grid, hierarchy, spacing rhythm, typography scale relationship, background structure, visual weight, and overall design direction.
+`
+    : "";
+  const childSourceInstructions = hasChildSource
+    ? `CHILD SOURCE UPDATE REQUIREMENTS:
+- Input image ${hasSourceReference ? 2 : 1} is the current Child Source, the working version that should receive this round's edits.
+- Update the Child Source only with the current editRound changes. Do not restart from scratch.
+- Preserve all previously applied edits already visible in the Child Source.
+- Do not reapply or reinterpret atoms listed in editRound.previouslyEditedAtomIds.
+- Apply exactly the current round's selected atoms and Essential prompts, up to 3 focused changes, with premium realistic integration.
 `
     : "";
   const essentialsImageInstruction = hasEssentialsImage
@@ -570,9 +585,10 @@ This is Phase 12 (AI Reconstruction) of the Spyda Flyer Reconstruction Architect
 Apply Content Normalization to user inputs, preserve original layer hierarchy, bounds, and layout, and apply the extracted styleTokens (gradients, shadows, effects) to produce a highly accurate, aesthetic replica.
 Keep text clean, legible, and professionally composed.
 ${sourceReferenceInstructions}
+${childSourceInstructions}
 ${essentialsImageInstruction}
 ${outputSizeInstruction}
-Use every non-deleted section in the recipe. Do not ignore required text atoms, brand atoms, image atoms, CTAs, footer details, icons, or decorative elements.
+Use only the selected editableComponents for this round. Do not modify unrelated atoms.
 If the user customized an atom, prioritize that replacement over the original.
 If constants.essentials contains instructions, treat them as hard requirements. Essentials override style preferences when they conflict.
 Do not omit user-specified logos, uploaded assets, offers, contact details, disclaimers, CTA text, product names, colors, or exact footer details.
@@ -611,6 +627,16 @@ function getImageEditInputs(recipe: any) {
       sectionType: "source",
       name: recipe.sourceReferenceImage.name || "Uploaded reference flyer",
       dataUrl: recipe.sourceReferenceImage.dataUrl,
+    });
+  }
+
+  if (recipe?.childSourceImage?.dataUrl) {
+    inputs.push({
+      sectionId: "child-source",
+      sectionName: "Current Child Source",
+      sectionType: "child-source",
+      name: recipe.childSourceImage.name || "Current child source",
+      dataUrl: recipe.childSourceImage.dataUrl,
     });
   }
 

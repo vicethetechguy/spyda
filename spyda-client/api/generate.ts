@@ -36,6 +36,11 @@ export default async function handler(req: Request) {
         recipe.sourceReferenceImage.dataUrl = await fileToDataUrl(sourceFile);
       }
 
+      const childFile = formData.get('childSourceImage') as File | null;
+      if (childFile && childFile.size > 0 && recipe.childSourceImage) {
+        recipe.childSourceImage.dataUrl = await fileToDataUrl(childFile);
+      }
+
       const essentialsFile = formData.get('essentialsImage') as File | null;
       if (essentialsFile && essentialsFile.size > 0 && recipe.essentialsImage) {
         recipe.essentialsImage.dataUrl = await fileToDataUrl(essentialsFile);
