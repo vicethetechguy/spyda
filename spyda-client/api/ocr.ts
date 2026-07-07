@@ -1,4 +1,4 @@
-import { runOcr } from './_utils.js';
+import { runOcr } from './_ocr_service.js';
 
 export default async function handler(req: any, res: any) {
   if (req.method !== 'POST') {
