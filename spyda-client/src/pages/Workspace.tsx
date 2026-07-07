@@ -1303,11 +1303,11 @@ function AtomCard({
         </div>
       </div>
 
-      {section.current.description && (
-        <p className="text-xs text-muted-foreground mb-3 leading-relaxed">{section.current.description}</p>
+      {(section.style || section.current?.description) && (
+        <p className="text-xs text-muted-foreground mb-3 leading-relaxed">{section.style || section.current?.description}</p>
       )}
-      {section.current.text && (
-        <p className="text-xs text-muted-foreground/70 mb-3 italic">"{section.current.text}"</p>
+      {(section.content || section.current?.text) && (
+        <p className="text-xs text-muted-foreground/70 mb-3 italic">"{section.content || section.current?.text}"</p>
       )}
 
       {/* Same / Customize toggle */}
