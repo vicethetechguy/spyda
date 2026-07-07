@@ -273,6 +273,45 @@ async function dataUrlToBlob(dataUrl: string) {
   return response.blob()
 }
 
+function getImageDimensionsFromFile(file: File): Promise<{ width: number; height: number }> {
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader()
+    reader.readAsDataURL(file)
+    reader.onload = (event) => {
+      const img = new window.Image()
+      img.src = event.target?.result as string
+      img.onload = () => resolve({ width: img.naturalWidth || img.width, height: img.naturalHeight || img.height })
+      img.onerror = (error: any) => reject(error)
+    }
+    reader.onerror = (error: any) => reject(error)
+  })
+}
+
+function resizeImageToDimensions(imageSrc: string, width: number, height: number): Promise<string> {
+  return new Promise((resolve, reject) => {
+    const img = new window.Image()
+    img.crossOrigin = 'anonymous'
+    img.onload = () => {
+      const canvas = document.createElement('canvas')
+      canvas.width = width
+      canvas.height = height
+      const ctx = canvas.getContext('2d')
+      if (!ctx) {
+        reject(new Error('Could not resize child source.'))
+        return
+      }
+
+      const scale = Math.max(width / img.width, height / img.height)
+      const drawWidth = img.width * scale
+      const drawHeight = img.height * scale
+      ctx.drawImage(img, (width - drawWidth) / 2, (height - drawHeight) / 2, drawWidth, drawHeight)
+      resolve(canvas.toDataURL('image/png'))
+    }
+    img.onerror = (error: any) => reject(error)
+    img.src = imageSrc
+  })
+}
+
 function getImageSizeChoice(file: File): Promise<string> {
   return new Promise((resolve, reject) => {
     const reader = new FileReader()
@@ -584,6 +623,7 @@ export default function Workspace() {
       // Build recipe from atoms + brand card
       const sourceReferenceBlob = await imageFileToBlob(uploadedFile, 768, 1152, 0.72)
       const childSourceBlob = await dataUrlToBlob(generatedImage || uploadedPreview || '')
+      const sourceDimensions = await getImageDimensionsFromFile(uploadedFile)
       const sourceImageSize = await getImageSizeChoice(uploadedFile)
       const chosenOutputSize = brandEdits.outputSize === 'match-reference' ? sourceImageSize : brandEdits.outputSize
       const referenceImages = selectedAtoms
@@ -606,6 +646,7 @@ export default function Workspace() {
         aiProvider: aiModel.provider,
         imageSize: chosenOutputSize,
         sourceImageSize,
+        sourceDimensions,
         outputSizeLabel: OUTPUT_SIZE_OPTIONS.find(option => option.value === brandEdits.outputSize)?.label || 'Match uploaded reference',
         sourceReferenceImage: {
           name: uploadedFile.name || 'Uploaded reference flyer',
@@ -692,13 +733,14 @@ export default function Workspace() {
       if (data?.ok && data?.image) {
         setGenerationStage(data.qa ? 'Checking reference match' : 'Finalizing design')
         const imageSrc = data.image.startsWith('http') ? data.image : `data:image/png;base64,${data.image}`
-        setGeneratedImage(imageSrc)
+        const normalizedImageSrc = await resizeImageToDimensions(imageSrc, sourceDimensions.width, sourceDimensions.height)
+        setGeneratedImage(normalizedImageSrc)
         setGenerationQa(data.qa || null)
         persistCurrentProject({
           id: currentProjectId || undefined,
           name: uploadedFile.name || 'Spyda generated design',
           referencePreview: uploadedPreview,
-          generatedImage: imageSrc,
+          generatedImage: normalizedImageSrc,
           breakdown,
           atomEdits,
           brandEdits,

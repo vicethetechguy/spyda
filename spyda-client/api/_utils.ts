@@ -589,6 +589,7 @@ ${attachedReferenceImages.map((image: any, index: number) => `- Input image ${in
 - Target output: ${recipe.outputSizeLabel || recipe.imageSize} (${recipe.imageSize}).
 - Preserve the chosen aspect ratio and compose the flyer for that platform. If the model canvas is an approximation, keep all important content within the intended safe area and avoid changing the uploaded reference structure unnecessarily.
 - The uploaded reference's original aspect setting was: ${recipe.sourceImageSize || "not provided"}.
+- The uploaded reference's exact pixel dimensions were: ${recipe?.sourceDimensions?.width || "unknown"} x ${recipe?.sourceDimensions?.height || "unknown"}. Match that aspect ratio exactly.
 `
     : "";
 
