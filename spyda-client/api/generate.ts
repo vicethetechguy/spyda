@@ -31,8 +31,8 @@ async function readMultipartRecipe(req: any) {
   const form = formidable({
     multiples: true,
     maxFiles: 8,
-    maxFileSize: 4 * 1024 * 1024,
-    maxTotalFileSize: 14 * 1024 * 1024,
+    maxFileSize: 8 * 1024 * 1024,
+    maxTotalFileSize: 24 * 1024 * 1024,
   });
 
   const [fields, files] = await form.parse(req);
@@ -82,6 +82,13 @@ export default async function handler(req: any, res: any) {
     const result = await generateDesign({ recipe });
     return res.status(200).json({ ...result, qa: { ok: false, skipped: true } });
   } catch (error: any) {
-    return res.status(500).json({ ok: false, error: error?.message || 'Generation failed.' });
+    const message = String(error?.message || 'Generation failed.');
+    const isUploadLimit = /maxFileSize|maxTotalFileSize|maxFieldsSize|too large|entity too large/i.test(message);
+    return res.status(isUploadLimit ? 413 : 500).json({
+      ok: false,
+      error: isUploadLimit
+        ? 'The generation package was too large. Spyda has reduced image uploads, but try again with smaller replacement images if this repeats.'
+        : message,
+    });
   }
 }

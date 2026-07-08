@@ -273,6 +273,42 @@ async function dataUrlToBlob(dataUrl: string) {
   return response.blob()
 }
 
+function imageSourceToBlob(imageSrc: string, maxWidth = 1024, maxHeight = 1024, quality = 0.82, mimeType = 'image/jpeg'): Promise<Blob> {
+  return new Promise((resolve, reject) => {
+    const img = new window.Image()
+    img.crossOrigin = 'anonymous'
+    img.onload = () => {
+      const canvas = document.createElement('canvas')
+      let width = img.naturalWidth || img.width
+      let height = img.naturalHeight || img.height
+
+      if (width > maxWidth || height > maxHeight) {
+        const scale = Math.min(maxWidth / width, maxHeight / height)
+        width *= scale
+        height *= scale
+      }
+
+      canvas.width = Math.max(1, Math.round(width))
+      canvas.height = Math.max(1, Math.round(height))
+      const ctx = canvas.getContext('2d')
+      if (!ctx) {
+        reject(new Error('Could not prepare image for generation.'))
+        return
+      }
+
+      ctx.fillStyle = '#ffffff'
+      ctx.fillRect(0, 0, canvas.width, canvas.height)
+      ctx.drawImage(img, 0, 0, canvas.width, canvas.height)
+      canvas.toBlob(blob => {
+        if (blob) resolve(blob)
+        else reject(new Error('Could not prepare image for generation.'))
+      }, mimeType, quality)
+    }
+    img.onerror = (error: any) => reject(error)
+    img.src = imageSrc
+  })
+}
+
 function getImageDimensionsFromFile(file: File): Promise<{ width: number; height: number }> {
   return new Promise((resolve, reject) => {
     const reader = new FileReader()
@@ -637,9 +673,9 @@ export default function Workspace() {
       // Build recipe from atoms + brand card
       const activeSourcePreview = generatedImage || uploadedPreview || ''
       const sourceReferenceBlob = generatedImage
-        ? await dataUrlToBlob(generatedImage)
+        ? await imageSourceToBlob(generatedImage, 900, 1350, 0.76)
         : await imageFileToBlob(uploadedFile, 768, 1152, 0.72)
-      const childSourceBlob = await dataUrlToBlob(activeSourcePreview)
+      const childSourceBlob = await imageSourceToBlob(activeSourcePreview, 900, 1350, 0.76)
       const sourceDimensions = await getImageDimensionsFromFile(uploadedFile)
       const sourceImageSize = await getImageSizeChoice(uploadedFile)
       const chosenOutputSize = brandEdits.outputSize === 'match-reference' ? sourceImageSize : brandEdits.outputSize
@@ -745,15 +781,15 @@ export default function Workspace() {
       setGenerationStage('Sending recipe to GPT-Image 2')
       const form = new FormData()
       form.append('recipe', JSON.stringify(recipe))
-      form.append('sourceReferenceImage', sourceReferenceBlob, generatedImage ? 'latest-generated-parent.png' : (uploadedFile.name || 'reference-flyer.jpg'))
-      form.append('childSourceImage', childSourceBlob, 'child-source.png')
+      form.append('sourceReferenceImage', sourceReferenceBlob, generatedImage ? 'latest-generated-parent.jpg' : (uploadedFile.name || 'reference-flyer.jpg'))
+      form.append('childSourceImage', childSourceBlob, 'child-source.jpg')
       if (essentialsImage) {
-        const essentialsBlob = await dataUrlToBlob(essentialsImage.dataUrl)
+        const essentialsBlob = await imageSourceToBlob(essentialsImage.dataUrl, 768, 768, 0.78)
         form.append('essentialsImage', essentialsBlob, essentialsImage.name || 'essentials-reference.jpg')
       }
 
       for (const image of referenceImages) {
-        const blob = await dataUrlToBlob(image.dataUrl)
+        const blob = await imageSourceToBlob(image.dataUrl, 768, 768, 0.78)
         form.append(image.fieldName, blob, image.name || `${image.sectionId}.jpg`)
       }
 
@@ -807,8 +843,8 @@ export default function Workspace() {
       const message = String(err?.message || '')
       setGenerateError(
         message === 'Failed to fetch'
-          ? 'The generation request could not reach the server. Try again with fewer uploaded replacement images or a smaller reference flyer.'
-          : message || 'Generation request could not reach the server. Try again with fewer uploaded replacement images.'
+          ? 'The generation request could not reach the server. Spyda now compresses generation images automatically; refresh and try again. If it repeats, use fewer large replacement images in that round.'
+          : message || 'Generation request could not reach the server. Refresh and try again with smaller replacement images.'
       )
     } finally {
       setGenerationStage('')
