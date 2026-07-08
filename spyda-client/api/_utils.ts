@@ -324,13 +324,37 @@ function validateDesignBreakdown(breakdown: any) {
   };
 }
 
+function getLikelyJsonObject(text: string) {
+  const cleaned = String(text || "")
+    .trim()
+    .replace(/^```(?:json)?/i, "")
+    .replace(/```$/i, "")
+    .trim();
+
+  const start = cleaned.indexOf("{");
+  const end = cleaned.lastIndexOf("}");
+  if (start === -1 || end === -1 || end <= start) return cleaned;
+  return cleaned.slice(start, end + 1);
+}
+
+function repairAiJson(text: string) {
+  return getLikelyJsonObject(text)
+    .replace(/[\u201C\u201D]/g, '"')
+    .replace(/[\u2018\u2019]/g, "'")
+    .replace(/,\s*([}\]])/g, "$1");
+}
+
 export function extractJson(text: string) {
+  const jsonText = getLikelyJsonObject(text);
   try {
-    return JSON.parse(text);
-  } catch {
-    const match = text.match(/\{[\s\S]*\}/);
-    if (!match) throw new Error("The model response did not include JSON.");
-    return JSON.parse(match[0]);
+    return JSON.parse(jsonText);
+  } catch (firstError: any) {
+    try {
+      return JSON.parse(repairAiJson(jsonText));
+    } catch (secondError: any) {
+      if (!jsonText.includes("{")) throw new Error("The model response did not include JSON.");
+      throw new Error(`The model returned invalid JSON: ${secondError?.message || firstError?.message || "Could not parse response."}`);
+    }
   }
 }
 

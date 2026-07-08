@@ -39,7 +39,12 @@ async function readMultipartRecipe(req: any) {
   const recipeText = firstValue(fields.recipe);
   if (!recipeText) throw new Error('Missing recipe data.');
 
-  const recipe = JSON.parse(String(recipeText));
+  let recipe;
+  try {
+    recipe = JSON.parse(String(recipeText));
+  } catch (error: any) {
+    throw new Error(`Spyda could not read the generation recipe JSON: ${error?.message || 'Invalid JSON.'}`);
+  }
   const sourceFile = firstFile(files.sourceReferenceImage);
   if (sourceFile && recipe.sourceReferenceImage) {
     recipe.sourceReferenceImage.dataUrl = await fileToDataUrl(sourceFile);
