@@ -1022,7 +1022,7 @@ export default function Workspace() {
         </div>
 
         {/* Page Content */}
-        <div className="flex-1 overflow-hidden flex flex-col">
+        <div className={`flex-1 flex flex-col ${activeId === 'canvas' ? 'overflow-hidden' : 'overflow-y-auto'}`}>
           {activeId === 'canvas' && (
             <StudioView
               uploadedFile={uploadedFile}
