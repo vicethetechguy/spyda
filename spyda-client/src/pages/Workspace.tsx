@@ -105,6 +105,8 @@ type ApiGenerateResponse = {
 type GenerationQaReport = {
   ok?: boolean
   skipped?: boolean
+  passed?: boolean
+  retried?: boolean
   score?: number
   layoutMatch?: string
   textMatch?: string
@@ -155,6 +157,9 @@ type GenerationReferenceImage = {
   name: string
   fieldName: string
   dataUrl: string
+  originalBoundingBox: string
+  originalContent: string
+  originalStyle: string
 }
 
 function isGenerationReferenceImage(value: GenerationReferenceImage | null): value is GenerationReferenceImage {
@@ -691,6 +696,9 @@ export default function Workspace() {
             name: edit.assetName || `${s.name} reference image`,
             fieldName: `referenceImage-${s.id}`,
             dataUrl: edit.assetDataUrl,
+            originalBoundingBox: s.boundingBox || 'same region as the original atom',
+            originalContent: s.content || '',
+            originalStyle: s.style || '',
           }
         })
         .filter(isGenerationReferenceImage)
@@ -724,6 +732,10 @@ export default function Workspace() {
           sectionType: image.sectionType,
           name: image.name,
           fieldName: image.fieldName,
+          originalBoundingBox: image.originalBoundingBox,
+          originalContent: image.originalContent,
+          originalStyle: image.originalStyle,
+          sizeRule: 'Render this replacement at the exact visible size, scale, crop, and position of the original atom it replaces. Never enlarge it beyond the original footprint.',
         })),
         sections: breakdown.design?.sections || [],
         layoutLock: {
@@ -760,6 +772,9 @@ export default function Workspace() {
                 : 'Same as original',
               replacementAsset: edit?.mode === 'customize' && edit.assetDataUrl
                 ? { name: edit.assetName, referenceKey: s.id }
+                : undefined,
+              sizeLock: edit?.mode === 'customize'
+                ? `The replacement must occupy the exact same region as the original (${s.boundingBox || 'original atom region'}) with the same visible width, height, scale, and alignment. Do not resize, enlarge, or shrink it relative to the original atom.`
                 : undefined,
             }
           }),
@@ -1181,11 +1196,14 @@ function CanvasView({
             </div>
           )}
           {generationQa && !generationQa.skipped && (
-            <div className="mt-3 rounded-xl border border-primary/20 bg-primary/[0.04] px-4 py-3 text-sm">
+            <div className={`mt-3 rounded-xl border px-4 py-3 text-sm ${generationQa.passed === false ? 'border-amber-500/40 bg-amber-500/[0.06]' : 'border-primary/20 bg-primary/[0.04]'}`}>
               <div className="flex items-center justify-between gap-3">
-                <span className="text-[11px] font-bold tracking-[0.12em] uppercase text-primary">Reference Match QA</span>
+                <span className={`text-[11px] font-bold tracking-[0.12em] uppercase ${generationQa.passed === false ? 'text-amber-600' : 'text-primary'}`}>
+                  {generationQa.passed === false ? 'QA Gate: Issues Found' : 'QA Gate: Passed'}
+                  {generationQa.retried ? ' • Auto-retried' : ''}
+                </span>
                 {typeof generationQa.score === 'number' && (
-                  <span className="rounded-full bg-primary/10 px-2.5 py-1 text-xs font-bold text-primary">{generationQa.score}/100</span>
+                  <span className={`rounded-full px-2.5 py-1 text-xs font-bold ${generationQa.passed === false ? 'bg-amber-500/10 text-amber-600' : 'bg-primary/10 text-primary'}`}>{generationQa.score}/100</span>
                 )}
               </div>
               <div className="mt-2 grid gap-1 text-xs text-muted-foreground sm:grid-cols-2">
@@ -1196,6 +1214,9 @@ function CanvasView({
               </div>
               {!!generationQa.issues?.length && (
                 <p className="mt-2 text-xs text-muted-foreground">{generationQa.issues.slice(0, 2).join(' ')}</p>
+              )}
+              {generationQa.passed === false && (
+                <p className="mt-2 text-xs text-amber-600">This result did not fully match the parent design. Review it before spending another round — or add a correction via Essentials and regenerate.</p>
               )}
             </div>
           )}

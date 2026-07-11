@@ -557,6 +557,10 @@ function sanitizeRecipeForPrompt(recipe: any) {
           sectionName: image.sectionName,
           sectionType: image.sectionType,
           name: image.name,
+          originalBoundingBox: image.originalBoundingBox,
+          originalContent: image.originalContent,
+          originalStyle: image.originalStyle,
+          sizeRule: image.sizeRule || "Match the replaced atom's exact visible size, scale, crop, and position. Never enlarge beyond the original footprint.",
           dataUrl: attachedReferenceIds.has(image.sectionId)
             ? "[attached separately as image input]"
             : "[not attached to keep the generation request fast; use this as text-only direction]",
@@ -576,9 +580,24 @@ export function buildGenerationPrompt(recipe: any) {
   const referenceImageInstructions = attachedReferenceImages.length
     ? `
 REFERENCE IMAGE REQUIREMENTS:
-${attachedReferenceImages.map((image: any, index: number) => `- Input image ${index + 1 + imageInputOffset}: "${image.name}" belongs to section "${image.sectionName}" (${image.sectionId}). It is mandatory. Preserve the uploaded asset's identity as closely as possible and place it in the generated flyer according to that section's placement/role. Do not recolor, redraw, stylize, decorate, add marks to, add text to, crop away, or invent extra details on this uploaded asset unless constants.essentials explicitly asks for that exact change.`).join("\n")}
+${attachedReferenceImages.map((image: any, index: number) => `- Input image ${index + 1 + imageInputOffset}: "${image.name}" belongs to section "${image.sectionName}" (${image.sectionId}). It is mandatory. Preserve the uploaded asset's identity as closely as possible and place it in the generated flyer according to that section's placement/role. Do not recolor, redraw, stylize, decorate, add marks to, add text to, crop away, or invent extra details on this uploaded asset unless constants.essentials explicitly asks for that exact change.
+  SIZE LOCK for input image ${index + 1 + imageInputOffset}: it replaces the original atom "${image.originalContent || image.sectionName}" located at ${image.originalBoundingBox || "the original atom's region"}. Render it at exactly the same visible width, height, scale, crop, and position as that original atom — measure the original atom's footprint in the Source/Child Source and fit this replacement inside that same footprint. The uploaded file's own resolution or dimensions are irrelevant: if it is larger, scale it DOWN to the original footprint. Never enlarge it, never let it overflow the flyer edges, never let it push or overlap neighboring atoms.`).join("\n")}
 `
     : "";
+  const qaCorrectionViolations = Array.isArray(recipe?.qaCorrections?.violations) ? recipe.qaCorrections.violations : [];
+  const qaCorrectionInstructions = qaCorrectionViolations.length
+    ? `QA CORRECTIONS (MANDATORY — THE PREVIOUS ATTEMPT FAILED THESE CHECKS):
+- ${recipe.qaCorrections.instruction || "Fix every listed violation while keeping everything else identical to the previous recipe."}
+${qaCorrectionViolations.map((violation: string) => `- FIX: ${violation}`).join("\n")}
+`
+    : "";
+  const replacementSizeInstructions = `REPLACEMENT SIZE MATCHING (CRITICAL — HIGHEST PRIORITY RULE):
+- Every replacement (text, logo, image, product, subject) inherits the EXACT size of the element it replaces. The original atom's visible footprint in the Source/Child Source is the sizing truth — never the uploaded replacement file's own dimensions.
+- Replacement text: render at the same font size, weight scale, and text-block width/height as the original text it replaces. If the new text is longer, reduce font size or add line breaks to stay inside the original text box; never grow the box.
+- Replacement logos: a logo replacing another logo occupies the identical bounding region — same visible width, same visible height, same position, same clear space around it. A high-resolution upload must be scaled down to the original logo's footprint. The logo must never be larger than the original, never bleed off the flyer edge, and never overlap other elements.
+- Replacement images/photos/products: fit inside the original image region with the same crop and scale relationship. Do not zoom in, do not expand the region.
+- Nothing replaced may fall outside the flyer canvas or intrude into neighboring atom regions. If a replacement cannot fit at the original size, scale it down — never up.
+`;
   const layoutLockAtoms = Array.isArray(recipe?.layoutLock?.atoms) ? recipe.layoutLock.atoms : [];
   const layoutLockInstructions = layoutLockAtoms.length
     ? `SOURCE REGION LOCK:
@@ -651,6 +670,8 @@ This is Phase 12 (AI Reconstruction) of the Spyda Flyer Reconstruction Architect
 Apply Content Normalization to user inputs, preserve original layer hierarchy, bounds, and layout, and apply the extracted styleTokens (gradients, shadows, effects) to produce a highly accurate, aesthetic replica.
 Keep text clean, legible, and professionally composed.
 This is an in-place Child Source update, not a full redesign. The safest output is one that looks like the Child Source with only the requested 3 changes applied.
+${qaCorrectionInstructions}
+${replacementSizeInstructions}
 ${sourceReferenceInstructions}
 ${childSourceInstructions}
 ${essentialsImageInstruction}

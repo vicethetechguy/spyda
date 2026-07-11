@@ -1,6 +1,11 @@
 import { generateDesign } from './_utils.js';
+import { runGenerationQa } from './qa.js';
 import formidable from 'formidable';
 import { readFile } from 'node:fs/promises';
+
+declare const process: {
+  env: Record<string, string | undefined>;
+};
 
 export const config = {
   maxDuration: 300,
@@ -84,8 +89,41 @@ export default async function handler(req: any, res: any) {
       return res.status(400).json({ ok: false, error: 'Missing recipe data.' });
     }
 
-    const result = await generateDesign({ recipe });
-    return res.status(200).json({ ...result, qa: { ok: false, skipped: true } });
+    let result = await generateDesign({ recipe });
+    let qa = await runGenerationQa({ recipe, generatedImage: result.image });
+
+    // QA gate: one automatic corrective retry when the output fails layout/size checks.
+    const autoRetryEnabled = process.env.SPYDA_QA_AUTO_RETRY !== 'false';
+    if (autoRetryEnabled && qa.ok && qa.passed === false && result.image) {
+      const corrections = [...(qa.suggestions || []), ...(qa.issues || [])].slice(0, 5);
+      if (corrections.length) {
+        const retryRecipe = {
+          ...recipe,
+          qaCorrections: {
+            instruction: 'The previous attempt failed Spyda\'s layout QA gate. Regenerate with the same recipe, fixing every listed violation. Replacement atoms must match the original atom\'s exact visible size, position, and footprint.',
+            violations: corrections,
+          },
+        };
+        try {
+          const retryResult = await generateDesign({ recipe: retryRecipe });
+          if (retryResult.image) {
+            const retryQa = await runGenerationQa({ recipe, generatedImage: retryResult.image });
+            const firstScore = qa.score ?? 0;
+            const retryScore = retryQa.ok ? (retryQa.score ?? 0) : -1;
+            if (retryQa.ok && (retryQa.passed || retryScore > firstScore)) {
+              result = retryResult;
+              qa = { ...retryQa, retried: true };
+            } else {
+              qa = { ...qa, retried: true };
+            }
+          }
+        } catch {
+          // Keep the first result if the corrective retry fails outright.
+        }
+      }
+    }
+
+    return res.status(200).json({ ...result, qa });
   } catch (error: any) {
     const message = String(error?.message || 'Generation failed.');
     const isUploadLimit = /maxFileSize|maxTotalFileSize|maxFieldsSize|too large|entity too large/i.test(message);
