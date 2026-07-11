@@ -1022,7 +1022,7 @@ export default function Workspace() {
         </div>
 
         {/* Page Content */}
-        <div className="flex-1 overflow-y-auto">
+        <div className="flex-1 overflow-y-auto flex flex-col">
           {activeId === 'canvas' && (
             <StudioView
               uploadedFile={uploadedFile}
@@ -1449,7 +1449,7 @@ function StudioView({
   if (!uploadedFile) {
     return (
       <div
-        className={`h-full flex flex-col items-center justify-center p-8 relative transition-colors ${isDragging ? 'bg-primary/[0.04]' : ''}`}
+        className={`flex-1 flex flex-col items-center justify-center p-8 relative transition-colors ${isDragging ? 'bg-primary/[0.04]' : ''}`}
         onDragOver={(e) => { e.preventDefault(); setIsDragging(true) }}
         onDragLeave={() => setIsDragging(false)}
         onDrop={handleDrop}
@@ -1493,7 +1493,7 @@ function StudioView({
     && !essentialsImage
 
   return (
-    <div className="min-h-full flex flex-col lg:flex-row lg:h-full">
+    <div className="flex-1 min-h-full flex flex-col lg:flex-row lg:h-full">
       {/* Left: Source + Child Source */}
       <div className="lg:w-[45%] shrink-0 border-r border-white/[0.06] flex flex-col">
         {/* Active Source Image */}
