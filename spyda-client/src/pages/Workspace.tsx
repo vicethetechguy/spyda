@@ -1022,7 +1022,7 @@ export default function Workspace() {
         </div>
 
         {/* Page Content */}
-        <div className="flex-1 overflow-y-auto flex flex-col">
+        <div className="flex-1 overflow-hidden flex flex-col">
           {activeId === 'canvas' && (
             <StudioView
               uploadedFile={uploadedFile}
@@ -1493,9 +1493,9 @@ function StudioView({
     && !essentialsImage
 
   return (
-    <div className="min-h-full w-full shrink-0 flex flex-col lg:flex-row lg:items-stretch">
+    <div className="flex-1 min-h-0 h-full w-full flex flex-col lg:flex-row lg:items-stretch">
       {/* Left: Source + Child Source */}
-      <div className="lg:w-[45%] shrink-0 border-r border-white/[0.06] flex flex-col">
+      <div className="lg:w-[45%] shrink-0 border-r border-white/[0.06] flex flex-col overflow-y-auto">
         {/* Active Source Image */}
         <div className="p-6 border-b border-white/[0.06]">
           <div className="flex items-center justify-between mb-4">
@@ -1576,7 +1576,7 @@ function StudioView({
       </div>
 
       {/* Right: Atom Cards + Brand Card + Generate */}
-      <div className="flex-1 flex flex-col">
+      <div className="flex-1 flex flex-col overflow-y-auto">
         {isAnalyzing ? (
           <div className="flex-1 flex items-center justify-center">
             <div className="text-center">
