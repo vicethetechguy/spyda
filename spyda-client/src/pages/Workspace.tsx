@@ -22,7 +22,9 @@ import {
   ChevronUp,
   ChevronRight,
   MoreHorizontal,
-  Trash2
+  Trash2,
+  ShieldCheck,
+  ArrowLeft
 } from 'lucide-react'
 
 /* ═══════════════════════════════════════════════
@@ -520,6 +522,7 @@ export default function Workspace() {
 
   const pageTitles: Record<string, string> = {
     canvas: 'Canvas',
+    'qa-gate': 'QA Gate',
     gallery: 'Gallery',
     history: 'History',
     projects: 'Projects',
@@ -921,6 +924,18 @@ export default function Workspace() {
               <span className="text-muted-foreground">My Workspace</span>
               <span className="text-muted-foreground/30">/</span>
               <span className="font-semibold text-foreground">{activeTitle}</span>
+              {activeId === 'canvas' && (
+                <button
+                  onClick={() => setActiveId('qa-gate')}
+                  title="Open QA Gate"
+                  className="relative ml-1 p-1.5 rounded-lg text-muted-foreground hover:bg-white/[0.05] hover:text-foreground transition-colors"
+                >
+                  <ShieldCheck className={`w-[18px] h-[18px] ${generationQa && !generationQa.skipped ? (generationQa.passed === false ? 'text-amber-500' : 'text-primary') : ''}`} strokeWidth={1.5} />
+                  {generationQa && !generationQa.skipped && generationQa.passed === false && (
+                    <span className="absolute top-1 right-1 w-1.5 h-1.5 rounded-full bg-amber-500" />
+                  )}
+                </button>
+              )}
             </div>
           </div>
           <div className="flex items-center gap-3">
@@ -1008,12 +1023,181 @@ export default function Workspace() {
               onBrandEdit={(field, value) => setBrandEdits(prev => ({ ...prev, [field]: value }))}
             />
           )}
+          {activeId === 'qa-gate' && (
+            <QaGateView
+              qa={generationQa}
+              generatedImage={generatedImage}
+              uploadedPreview={uploadedPreview}
+              onBack={() => setActiveId('canvas')}
+              onApplyEssentials={(essentials) => {
+                setEssentialPrompts([essentials[0] || '', essentials[1] || '', essentials[2] || ''])
+                setActiveId('canvas')
+              }}
+            />
+          )}
           {activeId === 'gallery' && <GalleryView />}
           {activeId === 'wallet' && <WalletView />}
           {activeId === 'settings' && <SettingsView profilePic={profilePic} setProfilePic={setProfilePic} />}
-          {!['canvas', 'gallery', 'wallet', 'settings'].includes(activeId) && <PlaceholderView title={activeTitle} />}
+          {!['canvas', 'qa-gate', 'gallery', 'wallet', 'settings'].includes(activeId) && <PlaceholderView title={activeTitle} />}
         </div>
       </div>
+    </div>
+  )
+}
+
+/* ═══════════════════════════════════════════════
+   QA Gate View
+   ═══════════════════════════════════════════════ */
+
+function deriveQaEssentials(qa: GenerationQaReport | null): string[] {
+  if (!qa || qa.skipped) return []
+
+  const essentials: string[] = []
+  const push = (value: string | undefined) => {
+    const cleaned = (value || '').trim()
+    if (!cleaned) return
+    if (essentials.some(existing => existing.toLowerCase() === cleaned.toLowerCase())) return
+    if (essentials.length < 3) essentials.push(cleaned)
+  }
+
+  for (const suggestion of qa.suggestions || []) push(suggestion)
+  for (const issue of qa.issues || []) push(`Fix this from the last generation: ${issue}`)
+
+  const fillers = [
+    qa.sizeMatch && 'Render every replacement logo, image, and text at the exact visible size, position, and footprint of the original atom it replaces — scale oversized uploads down, never up.',
+    qa.layoutMatch && 'Keep the layout identical to the parent design: same regions, margins, and hierarchy; nothing cropped at the top or bottom edge.',
+    qa.assetMatch && 'Do not recolor, redraw, or decorate any uploaded logo, photo, QR code, or badge; preserve each asset exactly as provided.',
+    'Match the parent design exactly except for the requested changes.',
+  ].filter(Boolean) as string[]
+  for (const filler of fillers) push(filler)
+
+  return essentials
+}
+
+function QaGateView({ qa, generatedImage, uploadedPreview, onBack, onApplyEssentials }: {
+  qa: GenerationQaReport | null
+  generatedImage: string | null
+  uploadedPreview: string | null
+  onBack: () => void
+  onApplyEssentials: (essentials: string[]) => void
+}) {
+  const suggestedEssentials = deriveQaEssentials(qa)
+  const hasReport = Boolean(qa && !qa.skipped)
+  const failed = hasReport && qa?.passed === false
+
+  return (
+    <div className="max-w-4xl mx-auto p-4 lg:p-8 animate-fade-in">
+      <button onClick={onBack} className="inline-flex items-center gap-2 text-sm text-muted-foreground hover:text-foreground transition-colors mb-6">
+        <ArrowLeft className="w-4 h-4" /> Back to Canvas
+      </button>
+
+      {!hasReport ? (
+        <div className="flex flex-col items-center justify-center rounded-2xl border border-white/[0.06] bg-white/[0.02] py-20 text-center px-6">
+          <ShieldCheck className="w-10 h-10 text-muted-foreground/30 mb-4" strokeWidth={1.25} />
+          <h2 className="text-lg font-semibold">No QA report yet</h2>
+          <p className="mt-2 max-w-md text-sm text-muted-foreground">
+            Generate a design on the Canvas and Spyda will automatically compare it against the parent design — layout, text, assets, and replacement sizing — then report the results here.
+          </p>
+          {qa?.error && <p className="mt-3 text-xs text-amber-500">Last QA attempt failed: {qa.error}</p>}
+        </div>
+      ) : (
+        <div className="space-y-6">
+          {/* Verdict */}
+          <div className={`rounded-2xl border px-5 py-4 ${failed ? 'border-amber-500/40 bg-amber-500/[0.06]' : 'border-primary/20 bg-primary/[0.04]'}`}>
+            <div className="flex items-center justify-between gap-3">
+              <div className="flex items-center gap-2.5">
+                <ShieldCheck className={`w-5 h-5 ${failed ? 'text-amber-500' : 'text-primary'}`} strokeWidth={1.75} />
+                <span className={`text-sm font-bold ${failed ? 'text-amber-600' : 'text-primary'}`}>
+                  {failed ? 'Issues Found' : 'Passed'}
+                  {qa?.retried ? ' • Auto-retried' : ''}
+                </span>
+              </div>
+              {typeof qa?.score === 'number' && (
+                <span className={`rounded-full px-3 py-1 text-sm font-bold ${failed ? 'bg-amber-500/10 text-amber-600' : 'bg-primary/10 text-primary'}`}>{qa.score}/100</span>
+              )}
+            </div>
+            {failed && (
+              <p className="mt-2 text-xs text-amber-600">
+                The generated design did not fully match the parent design. Apply the suggested Essentials below, then regenerate.
+              </p>
+            )}
+          </div>
+
+          {/* Side-by-side comparison */}
+          {(uploadedPreview || generatedImage) && (
+            <div className="grid grid-cols-2 gap-4">
+              {uploadedPreview && (
+                <div>
+                  <p className="text-[11px] font-bold tracking-[0.12em] uppercase text-muted-foreground mb-2">Parent Source</p>
+                  <img src={uploadedPreview} alt="Parent source" className="w-full rounded-xl border border-white/[0.06]" />
+                </div>
+              )}
+              {generatedImage && (
+                <div>
+                  <p className="text-[11px] font-bold tracking-[0.12em] uppercase text-muted-foreground mb-2">Generated Design</p>
+                  <img src={generatedImage} alt="Generated design" className="w-full rounded-xl border border-white/[0.06]" />
+                </div>
+              )}
+            </div>
+          )}
+
+          {/* Category notes */}
+          <div className="grid gap-3 sm:grid-cols-2">
+            {[
+              { label: 'Layout', value: qa?.layoutMatch },
+              { label: 'Text', value: qa?.textMatch },
+              { label: 'Assets', value: qa?.assetMatch },
+              { label: 'Replacement Size', value: qa?.sizeMatch },
+            ].filter(item => item.value).map(item => (
+              <div key={item.label} className="rounded-xl border border-white/[0.06] bg-white/[0.02] px-4 py-3">
+                <p className="text-[11px] font-bold tracking-[0.12em] uppercase text-muted-foreground">{item.label}</p>
+                <p className="mt-1 text-sm text-foreground/85">{item.value}</p>
+              </div>
+            ))}
+          </div>
+
+          {/* Issues */}
+          {!!qa?.issues?.length && (
+            <div className="rounded-xl border border-white/[0.06] bg-white/[0.02] px-4 py-3">
+              <p className="text-[11px] font-bold tracking-[0.12em] uppercase text-muted-foreground mb-2">Detected Issues</p>
+              <ul className="space-y-1.5">
+                {qa.issues.map((issue, index) => (
+                  <li key={index} className="flex items-start gap-2 text-sm text-foreground/85">
+                    <X className="w-3.5 h-3.5 mt-0.5 shrink-0 text-amber-500" /> {issue}
+                  </li>
+                ))}
+              </ul>
+            </div>
+          )}
+
+          {/* Suggested corrective essentials */}
+          {!!suggestedEssentials.length && (
+            <div className="rounded-2xl border border-primary/20 bg-primary/[0.04] px-5 py-4">
+              <div className="flex items-center justify-between gap-3 mb-3">
+                <div>
+                  <p className="text-[11px] font-bold tracking-[0.12em] uppercase text-primary">Suggested Corrective Essentials</p>
+                  <p className="mt-1 text-xs text-muted-foreground">Spyda turned the QA findings into 3 Essentials. Apply them and regenerate so the AI model corrects these exact problems.</p>
+                </div>
+              </div>
+              <ol className="space-y-2">
+                {suggestedEssentials.map((essential, index) => (
+                  <li key={index} className="flex items-start gap-2.5 rounded-lg border border-white/[0.06] bg-white/[0.02] px-3 py-2.5 text-sm text-foreground/85">
+                    <span className="mt-0.5 flex h-5 w-5 shrink-0 items-center justify-center rounded-full bg-primary/10 text-[11px] font-bold text-primary">{index + 1}</span>
+                    {essential}
+                  </li>
+                ))}
+              </ol>
+              <button
+                onClick={() => onApplyEssentials(suggestedEssentials)}
+                className="mt-4 inline-flex h-9 items-center gap-2 rounded-lg bg-primary px-4 text-sm font-semibold text-primary-foreground hover:bg-primary/90 transition-colors"
+              >
+                <Wand2 className="w-4 h-4" /> Apply as Essentials &amp; return to Canvas
+              </button>
+              <p className="mt-2 text-[11px] text-muted-foreground">This fills the 3 Essential prompt slots on the Canvas (replacing anything typed there) and counts as your 3 changes for the next round.</p>
+            </div>
+          )}
+        </div>
+      )}
     </div>
   )
 }
@@ -1192,31 +1376,6 @@ function CanvasView({
                   <Sparkles className="w-8 h-8 text-muted-foreground/20 mb-3" />
                   <span className="text-sm text-muted-foreground">Generated design will appear here</span>
                 </>
-              )}
-            </div>
-          )}
-          {generationQa && !generationQa.skipped && (
-            <div className={`mt-3 rounded-xl border px-4 py-3 text-sm ${generationQa.passed === false ? 'border-amber-500/40 bg-amber-500/[0.06]' : 'border-primary/20 bg-primary/[0.04]'}`}>
-              <div className="flex items-center justify-between gap-3">
-                <span className={`text-[11px] font-bold tracking-[0.12em] uppercase ${generationQa.passed === false ? 'text-amber-600' : 'text-primary'}`}>
-                  {generationQa.passed === false ? 'QA Gate: Issues Found' : 'QA Gate: Passed'}
-                  {generationQa.retried ? ' • Auto-retried' : ''}
-                </span>
-                {typeof generationQa.score === 'number' && (
-                  <span className={`rounded-full px-2.5 py-1 text-xs font-bold ${generationQa.passed === false ? 'bg-amber-500/10 text-amber-600' : 'bg-primary/10 text-primary'}`}>{generationQa.score}/100</span>
-                )}
-              </div>
-              <div className="mt-2 grid gap-1 text-xs text-muted-foreground sm:grid-cols-2">
-                {generationQa.layoutMatch && <span>Layout: {generationQa.layoutMatch}</span>}
-                {generationQa.textMatch && <span>Text: {generationQa.textMatch}</span>}
-                {generationQa.assetMatch && <span>Assets: {generationQa.assetMatch}</span>}
-                {generationQa.sizeMatch && <span>Size: {generationQa.sizeMatch}</span>}
-              </div>
-              {!!generationQa.issues?.length && (
-                <p className="mt-2 text-xs text-muted-foreground">{generationQa.issues.slice(0, 2).join(' ')}</p>
-              )}
-              {generationQa.passed === false && (
-                <p className="mt-2 text-xs text-amber-600">This result did not fully match the parent design. Review it before spending another round — or add a correction via Essentials and regenerate.</p>
               )}
             </div>
           )}
