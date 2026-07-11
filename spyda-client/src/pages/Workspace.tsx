@@ -1586,7 +1586,7 @@ function StudioView({
             </div>
           </div>
         ) : breakdown ? (
-          <div className="p-6 space-y-4">
+          <div className="p-6 space-y-4 flex-1 flex flex-col">
             {/* Header */}
             <div className="flex items-center justify-between mb-2">
               <div>
@@ -1793,7 +1793,7 @@ function StudioView({
             </div>
 
             {/* Bottom Generate */}
-            <div className="pt-4 pb-8 space-y-3">
+            <div className="pt-4 pb-8 space-y-3 mt-auto">
               <button
                 onClick={onGenerate}
                 disabled={isGenerating || !canApplyRound}
