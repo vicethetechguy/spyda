@@ -1493,7 +1493,7 @@ function StudioView({
     && !essentialsImage
 
   return (
-    <div className="flex-1 min-h-full flex flex-col lg:flex-row lg:h-full">
+    <div className="min-h-full w-full shrink-0 flex flex-col lg:flex-row lg:items-stretch">
       {/* Left: Source + Child Source */}
       <div className="lg:w-[45%] shrink-0 border-r border-white/[0.06] flex flex-col">
         {/* Active Source Image */}
@@ -1576,7 +1576,7 @@ function StudioView({
       </div>
 
       {/* Right: Atom Cards + Brand Card + Generate */}
-      <div className="flex-1 flex flex-col overflow-y-auto">
+      <div className="flex-1 flex flex-col">
         {isAnalyzing ? (
           <div className="flex-1 flex items-center justify-center">
             <div className="text-center">
