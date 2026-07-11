@@ -1,6 +1,7 @@
-import { useState, useRef, useCallback, useEffect } from 'react'
+import { useState, useRef, useCallback, useEffect, useMemo } from 'react'
 import { useAuth } from '../lib/AuthContext'
 import { supabase } from '../lib/supabase'
+import { parseAtomBox, clampBox, compositeReplacements, getImageSize, type AtomBox } from '../lib/design'
 import { usePaystackPayment } from 'react-paystack'
 import SidebarNav from '../components/ui/dashboard-sidebar'
 import {
@@ -55,7 +56,7 @@ type EditableComponent = {
   content: string
   style: string
   layerIndex: number
-  boundingBox: string
+  boundingBox: string | { x: number; y: number; width: number; height: number }
   sectionId: string
   deleted?: boolean
   current?: any // Keep for backward compatibility with old mocks if needed
@@ -150,6 +151,8 @@ type AtomEdit = {
   value: string
   assetName?: string
   assetDataUrl?: string
+  /** User-adjusted placement box (percent of the source image); overrides the detected atom box. */
+  box?: AtomBox
 }
 
 type GenerationReferenceImage = {
@@ -622,13 +625,15 @@ export default function Workspace() {
 
   /* ── Generate handler ── */
   const handleAtomImageUpload = useCallback(async (section: EditableComponent, file: File) => {
-    const assetDataUrl = await imageFileToDataUrl(file, 512, 512, 0.72)
+    // PNG keeps logo/asset transparency intact for exact-size compositing
+    const assetDataUrl = await imageFileToDataUrl(file, 1024, 1024, 0.92, 'image/png')
     const assetName = file.name
     setAtomEdits(prev => ({
       ...prev,
       [section.id]: {
+        ...prev[section.id],
         mode: 'customize',
-        value: prev[section.id]?.value || `Use uploaded reference image "${assetName}" for ${section.name}. Preserve this asset's identity, logo mark, subject, colors, and placement intent.`,
+        value: prev[section.id]?.value || '',
         assetName,
         assetDataUrl,
       },
@@ -660,169 +665,90 @@ export default function Workspace() {
     })
   }, [])
 
-  const handleGenerate = useCallback(async () => {
+  const handleGenerate = useCallback(async (options?: { instant?: boolean }) => {
     if (!uploadedFile || !breakdown) return
     const selectedAtoms = (breakdown.design?.editableComponents || [])
       .filter(s => !s.deleted && atomEdits[s.id]?.mode === 'customize')
     const filledEssentials = essentialPrompts.map(prompt => prompt.trim()).filter(Boolean)
     const totalChanges = selectedAtoms.length + filledEssentials.length
 
-    if (totalChanges !== 3) {
-      setGenerateError('Choose exactly 3 changes before applying this round.')
+    if (totalChanges < 1) {
+      setGenerateError('Pick at least 1 change before applying this round.')
+      return
+    }
+    if (totalChanges > 3) {
+      setGenerateError('Keep each round to 3 focused changes — fewer changes at a time is what keeps the output faithful to the parent design.')
       return
     }
 
     setIsGenerating(true)
     setGenerationQa(null)
-    setGenerationStage('Preparing source and child references')
+    setGenerationStage('Measuring atom placements')
     setGenerateError(null)
 
     try {
-      // Build recipe from atoms + brand card
       const activeSourcePreview = generatedImage || uploadedPreview || ''
-      const sourceReferenceBlob = generatedImage
-        ? await imageSourceToBlob(generatedImage, 900, 1350, 0.76)
-        : await imageFileToBlob(uploadedFile, 768, 1152, 0.72)
-      const childSourceBlob = await imageSourceToBlob(activeSourcePreview, 900, 1350, 0.76)
       const sourceDimensions = await getImageDimensionsFromFile(uploadedFile)
       const sourceImageSize = await getImageSizeChoice(uploadedFile)
       const chosenOutputSize = brandEdits.outputSize === 'match-reference' ? sourceImageSize : brandEdits.outputSize
-      const activeSourceName = generatedImage ? 'Latest generated parent design' : (uploadedFile.name || 'Uploaded reference flyer')
-      const referenceImages = selectedAtoms
-        .map(s => {
-          const edit = atomEdits[s.id]
-          if (!edit?.assetDataUrl) return null
-          return {
-            sectionId: s.id,
-            sectionName: s.name,
-            sectionType: s.type,
-            name: edit.assetName || `${s.name} reference image`,
-            fieldName: `referenceImage-${s.id}`,
-            dataUrl: edit.assetDataUrl,
-            originalBoundingBox: s.boundingBox || 'same region as the original atom',
-            originalContent: s.content || '',
-            originalStyle: s.style || '',
+      const previewSize = await getImageSize(activeSourcePreview)
+
+      // ── Partition the selected changes ──
+      // Replacement images with a numeric atom box get placed deterministically
+      // on a canvas (pixel math — sizing can never drift). Everything else
+      // becomes a short, focused instruction for the AI pass.
+      const placedSwaps: Array<{ section: EditableComponent; edit: AtomEdit; box: AtomBox }> = []
+      const unplacedAssets: Array<{ section: EditableComponent; edit: AtomEdit }> = []
+      const textEdits: Array<{ atomName: string; from: string; to: string }> = []
+      const otherEdits: Array<{ atomName: string; instruction: string }> = []
+
+      for (const section of selectedAtoms) {
+        const edit = atomEdits[section.id]
+        if (!edit) continue
+        if (edit.assetDataUrl) {
+          const box = edit.box || parseAtomBox(section.boundingBox, previewSize)
+          if (box) placedSwaps.push({ section, edit, box: clampBox(box) })
+          else unplacedAssets.push({ section, edit })
+        } else if (edit.value.trim()) {
+          if (section.type === 'text' || section.type === 'action') {
+            textEdits.push({ atomName: section.name, from: section.content, to: edit.value.trim() })
+          } else {
+            otherEdits.push({ atomName: section.name, instruction: edit.value.trim() })
           }
-        })
-        .filter(isGenerationReferenceImage)
-        .slice(0, 5)
-
-      const recipe: Record<string, any> = {
-        aiProvider: aiModel.provider,
-        imageSize: chosenOutputSize,
-        sourceImageSize,
-        sourceDimensions,
-        outputSizeLabel: OUTPUT_SIZE_OPTIONS.find(option => option.value === brandEdits.outputSize)?.label || 'Match uploaded reference',
-        sourceReferenceImage: {
-          name: activeSourceName,
-          role: generatedImage ? 'active-parent-source' : 'source-layout-reference',
-          isLatestGeneratedParent: Boolean(generatedImage),
-          fieldName: 'sourceReferenceImage',
-        },
-        childSourceImage: {
-          name: generatedImage ? 'Current child source from latest generated parent' : 'Current child source from uploaded reference',
-          role: 'current-working-design',
-          fieldName: 'childSourceImage',
-        },
-        essentialsImage: essentialsImage ? {
-          name: essentialsImage.name,
-          fieldName: 'essentialsImage',
-          role: 'user-provided essentials reference',
-        } : undefined,
-        referenceImages: referenceImages.map(image => ({
-          sectionId: image.sectionId,
-          sectionName: image.sectionName,
-          sectionType: image.sectionType,
-          name: image.name,
-          fieldName: image.fieldName,
-          originalBoundingBox: image.originalBoundingBox,
-          originalContent: image.originalContent,
-          originalStyle: image.originalStyle,
-          sizeRule: 'Render this replacement at the exact visible size, scale, crop, and position of the original atom it replaces. Never enlarge it beyond the original footprint.',
-        })),
-        sections: breakdown.design?.sections || [],
-        layoutLock: {
-          instruction: 'Preserve every atom inside its original source region. Only change content for selected atoms; keep all atom positions, scale, hierarchy, and relative spacing locked.',
-          atoms: (breakdown.design?.editableComponents || [])
-            .filter(atom => !atom.deleted)
-            .map(atom => ({
-              id: atom.id,
-              name: atom.name,
-              type: atom.type,
-              content: atom.content,
-              sectionId: atom.sectionId,
-              boundingBox: atom.boundingBox,
-              layerIndex: atom.layerIndex,
-            })),
-        },
-        editRound: {
-          maxChanges: 3,
-          selectedAtomIds: selectedAtoms.map(atom => atom.id),
-          essentials: filledEssentials,
-          previouslyEditedAtomIds: (breakdown.design?.editableComponents || [])
-            .filter(atom => atom.deleted)
-            .map(atom => atom.id),
-        },
-        editableComponents: selectedAtoms
-          .map(s => {
-            const edit = atomEdits[s.id]
-            return {
-              ...s,
-              replacement: edit?.mode === 'customize'
-                ? edit.assetDataUrl
-                  ? `${edit.value || `Use uploaded reference image ${edit.assetName || 'for this atom'}`}. This atom has a real uploaded reference image attached in recipe.referenceImages; it must appear in the generated flyer.`
-                  : edit.value
-                : 'Same as original',
-              replacementAsset: edit?.mode === 'customize' && edit.assetDataUrl
-                ? { name: edit.assetName, referenceKey: s.id }
-                : undefined,
-              sizeLock: edit?.mode === 'customize'
-                ? `The replacement must occupy the exact same region as the original (${s.boundingBox || 'original atom region'}) with the same visible width, height, scale, and alignment. Do not resize, enlarge, or shrink it relative to the original atom.`
-                : undefined,
-            }
-          }),
-        styleTokens: {
-          palette: {
-            primary: brandEdits.primaryColor,
-            secondary: brandEdits.secondaryColor,
-            accent: brandEdits.accentColor,
-          },
-          typography: {
-            headingFont: brandEdits.headingFont,
-            bodyFont: brandEdits.bodyFont,
-          },
-          visualStyle: brandEdits.visualStyle || breakdown.design?.styleTokens?.visualStyle || 'Same as uploaded design',
-          essentials: filledEssentials.join('\n'),
-        },
+        }
       }
 
-      setGenerationStage('Sending recipe to GPT-Image 2')
-      const form = new FormData()
-      form.append('recipe', JSON.stringify(recipe))
-      form.append('sourceReferenceImage', sourceReferenceBlob, generatedImage ? 'latest-generated-parent.jpg' : (uploadedFile.name || 'reference-flyer.jpg'))
-      form.append('childSourceImage', childSourceBlob, 'child-source.jpg')
-      if (essentialsImage) {
-        const essentialsBlob = await imageSourceToBlob(essentialsImage.dataUrl, 768, 768, 0.78)
-        form.append('essentialsImage', essentialsBlob, essentialsImage.name || 'essentials-reference.jpg')
+      // ── Brand overrides only when the user actually changed them ──
+      // Analyzed style tokens are the design's own DNA; forcing default brand
+      // constants onto every round is what used to recolor faithful outputs.
+      const tokens = breakdown.design?.styleTokens || {}
+      const analyzedBrand = {
+        headingFont: tokens.typography?.headingFont || tokens.headingFont || '',
+        bodyFont: tokens.typography?.bodyFont || tokens.bodyFont || '',
+        primaryColor: normalizeHexColor(tokens.palette?.primary || tokens.colors?.primary || '', ''),
+        secondaryColor: normalizeHexColor(tokens.palette?.secondary || tokens.colors?.secondary || '', ''),
+        accentColor: normalizeHexColor(tokens.palette?.accent || tokens.colors?.accent || '', ''),
+        visualStyle: tokens.visualStyle || '',
       }
+      const brandOverrides: Record<string, string> = {}
+      if (brandEdits.headingFont && brandEdits.headingFont !== analyzedBrand.headingFont) brandOverrides.headingFont = brandEdits.headingFont
+      if (brandEdits.bodyFont && brandEdits.bodyFont !== analyzedBrand.bodyFont) brandOverrides.bodyFont = brandEdits.bodyFont
+      if (brandEdits.primaryColor && brandEdits.primaryColor.toUpperCase() !== analyzedBrand.primaryColor.toUpperCase()) brandOverrides.primaryColor = brandEdits.primaryColor
+      if (brandEdits.secondaryColor && brandEdits.secondaryColor.toUpperCase() !== analyzedBrand.secondaryColor.toUpperCase()) brandOverrides.secondaryColor = brandEdits.secondaryColor
+      if (brandEdits.accentColor && brandEdits.accentColor.toUpperCase() !== analyzedBrand.accentColor.toUpperCase()) brandOverrides.accentColor = brandEdits.accentColor
+      if (brandEdits.visualStyle.trim() && brandEdits.visualStyle.trim() !== analyzedBrand.visualStyle.trim()) brandOverrides.visualStyle = brandEdits.visualStyle.trim()
+      const hasBrandOverrides = Object.keys(brandOverrides).length > 0
 
-      for (const image of referenceImages) {
-        const blob = await imageSourceToBlob(image.dataUrl, 768, 768, 0.78)
-        form.append(image.fieldName, blob, image.name || `${image.sectionId}.jpg`)
-      }
+      // ── Deterministic placement: bake replacements into the parent ──
+      setGenerationStage(placedSwaps.length ? 'Placing replacements at exact size' : 'Preparing design')
+      const compositeDataUrl = placedSwaps.length
+        ? await compositeReplacements(activeSourcePreview, placedSwaps.map(swap => ({ box: swap.box, src: swap.edit.assetDataUrl! })))
+        : activeSourcePreview
 
-      const res = await fetch('/api/generate', { 
-        method: 'POST', 
-        body: form,
-      })
-      const data = await readApiJson<ApiGenerateResponse>(res)
-
-      if (data?.ok && data?.image) {
-        setGenerationStage(data.qa ? 'Checking reference match' : 'Finalizing design')
-        const imageSrc = data.image.startsWith('http') ? data.image : `data:image/png;base64,${data.image}`
+      const finalizeRound = async (imageSrc: string, qa: GenerationQaReport | null) => {
         const normalizedImageSrc = await resizeImageToDimensions(imageSrc, sourceDimensions.width, sourceDimensions.height)
         setGeneratedImage(normalizedImageSrc)
-        setGenerationQa(data.qa || null)
+        setGenerationQa(qa)
         persistCurrentProject({
           id: currentProjectId || undefined,
           name: uploadedFile.name || 'Spyda generated design',
@@ -831,7 +757,7 @@ export default function Workspace() {
           breakdown,
           atomEdits,
           brandEdits,
-          qa: data.qa || null,
+          qa,
         })
         setBreakdown(prev => {
           if (!prev) return prev
@@ -852,6 +778,109 @@ export default function Workspace() {
           return next
         })
         setEssentialPrompts(['', '', ''])
+      }
+
+      const needsAi = Boolean(textEdits.length || otherEdits.length || filledEssentials.length || hasBrandOverrides || unplacedAssets.length || essentialsImage)
+
+      // ── Instant paste: pure image swaps need no AI at all ──
+      if (options?.instant) {
+        if (needsAi) {
+          setGenerateError('Instant paste only works when every selected change is a replacement image with a placement box. Text, brand, and Essentials changes need the AI pass.')
+          return
+        }
+        if (!placedSwaps.length) {
+          setGenerateError('Nothing to paste — upload a replacement image for a selected atom first.')
+          return
+        }
+        setGenerationStage('Pasting replacements — no AI, no credit')
+        await finalizeRound(compositeDataUrl, {
+          ok: true,
+          skipped: false,
+          passed: true,
+          score: 100,
+          layoutMatch: 'Unchanged — parent pixels untouched',
+          sizeMatch: 'Exact — placed deterministically by Spyda without an AI pass',
+          issues: [],
+          suggestions: [],
+        })
+        return
+      }
+
+      // ── AI pass: blend pasted assets + apply text/brand/essential changes ──
+      const referenceImages = unplacedAssets.slice(0, 5).map(({ section, edit }) => ({
+        sectionId: section.id,
+        sectionName: section.name,
+        sectionType: section.type,
+        name: edit.assetName || `${section.name} replacement`,
+        fieldName: `referenceImage-${section.id}`,
+        dataUrl: edit.assetDataUrl || '',
+        originalBoundingBox: typeof section.boundingBox === 'string' ? section.boundingBox : JSON.stringify(section.boundingBox),
+        originalContent: section.content || '',
+        originalStyle: section.style || '',
+      })).filter(isGenerationReferenceImage)
+
+      const recipe: Record<string, any> = {
+        compositeMode: true,
+        aiProvider: aiModel.provider,
+        imageSize: chosenOutputSize,
+        sourceImageSize,
+        sourceDimensions,
+        outputSizeLabel: OUTPUT_SIZE_OPTIONS.find(option => option.value === brandEdits.outputSize)?.label || 'Match uploaded reference',
+        childSourceImage: {
+          name: placedSwaps.length ? 'Working design with replacements already placed at exact size' : 'Current working design',
+          role: 'current-working-design',
+          fieldName: 'childSourceImage',
+        },
+        essentialsImage: essentialsImage ? {
+          name: essentialsImage.name,
+          fieldName: 'essentialsImage',
+          role: 'user-provided essentials reference',
+        } : undefined,
+        pastedAssets: placedSwaps.map(swap => ({
+          name: swap.edit.assetName || 'Replacement asset',
+          atomName: swap.section.name,
+          box: swap.box,
+        })),
+        textEdits,
+        otherEdits,
+        brandOverrides: hasBrandOverrides ? brandOverrides : null,
+        essentials: filledEssentials,
+        referenceImages: referenceImages.map(image => ({
+          sectionId: image.sectionId,
+          sectionName: image.sectionName,
+          sectionType: image.sectionType,
+          name: image.name,
+          fieldName: image.fieldName,
+          originalBoundingBox: image.originalBoundingBox,
+          originalContent: image.originalContent,
+          originalStyle: image.originalStyle,
+        })),
+      }
+
+      setGenerationStage('Sending design to GPT-Image')
+      const form = new FormData()
+      form.append('recipe', JSON.stringify(recipe))
+      const childSourceBlob = await imageSourceToBlob(compositeDataUrl, 1024, 1536, 0.85)
+      form.append('childSourceImage', childSourceBlob, 'working-design.jpg')
+      if (essentialsImage) {
+        const essentialsBlob = await imageSourceToBlob(essentialsImage.dataUrl, 768, 768, 0.78)
+        form.append('essentialsImage', essentialsBlob, essentialsImage.name || 'essentials-reference.jpg')
+      }
+      for (const image of referenceImages) {
+        const blob = await imageSourceToBlob(image.dataUrl, 768, 768, 0.78)
+        form.append(image.fieldName, blob, image.name || `${image.sectionId}.jpg`)
+      }
+
+      const res = await fetch('/api/generate', {
+        method: 'POST',
+        body: form,
+      })
+      const data = await readApiJson<ApiGenerateResponse>(res)
+
+      if (data?.ok && data?.image) {
+        setGenerationStage(data.qa ? 'Checking reference match' : 'Finalizing design')
+        const imageSrc = data.image.startsWith('http') ? data.image : `data:image/png;base64,${data.image}`
+        await finalizeRound(imageSrc, data.qa || null)
       } else if (data?.ok && !data?.image) {
         setGenerateError(data?.message || 'Generation returned no image (mock mode — set OPENAI_API_KEY).')
       } else {
@@ -861,7 +890,7 @@ export default function Workspace() {
       const message = String(err?.message || '')
       setGenerateError(
         message === 'Failed to fetch'
-          ? 'The generation request could not reach the server. Spyda now compresses generation images automatically; refresh and try again. If it repeats, use fewer large replacement images in that round.'
+          ? 'The generation request could not reach the server. Refresh and try again. If it repeats, use fewer large replacement images in that round.'
           : message || 'Generation request could not reach the server. Refresh and try again with smaller replacement images.'
       )
     } finally {
@@ -995,7 +1024,7 @@ export default function Workspace() {
         {/* Page Content */}
         <div className="flex-1 overflow-y-auto">
           {activeId === 'canvas' && (
-            <CanvasView
+            <StudioView
               uploadedFile={uploadedFile}
               uploadedPreview={uploadedPreview}
               breakdown={breakdown}
@@ -1016,9 +1045,11 @@ export default function Workspace() {
               onEssentialsImageUpload={handleEssentialsImageUpload}
               onRemoveEssentialsImage={() => setEssentialsImage(null)}
               onDeleteAtom={handleDeleteAtom}
-              onGenerate={handleGenerate}
+              onGenerate={() => handleGenerate()}
+              onInstantPaste={() => handleGenerate({ instant: true })}
               onReset={handleReset}
               onAtomEdit={(id, mode, value) => setAtomEdits(prev => ({ ...prev, [id]: { ...prev[id], mode, value } }))}
+              onAtomBoxChange={(id, box) => setAtomEdits(prev => ({ ...prev, [id]: { ...(prev[id] || { mode: 'customize', value: '' }), box } }))}
               onEssentialPromptChange={(index, value) => setEssentialPrompts(prev => prev.map((prompt, promptIndex) => promptIndex === index ? value : prompt))}
               onBrandEdit={(field, value) => setBrandEdits(prev => ({ ...prev, [field]: value }))}
             />
@@ -1203,18 +1234,162 @@ function QaGateView({ qa, generatedImage, uploadedPreview, onBack, onApplyEssent
 }
 
 /* ═══════════════════════════════════════════════
-   Canvas View — Full Functional Implementation
+   Placement Canvas — deterministic replacement placement
+   Shows detected atom regions over the parent design and
+   live-previews replacement assets at their exact final
+   footprint. Drag to move, corner handle to resize — what
+   you see here is pixel-for-pixel what gets baked in.
    ═══════════════════════════════════════════════ */
 
-function CanvasView({
+function PlacementCanvas({
+  src, atoms, atomEdits, isAnalyzing, analysisStage, onBoxChange,
+}: {
+  src: string
+  atoms: EditableComponent[]
+  atomEdits: Record<string, AtomEdit>
+  isAnalyzing: boolean
+  analysisStage: string
+  onBoxChange: (id: string, box: AtomBox) => void
+}) {
+  const wrapperRef = useRef<HTMLDivElement>(null)
+  const [naturalSize, setNaturalSize] = useState<{ width: number; height: number } | null>(null)
+  const [showAtomMap, setShowAtomMap] = useState(false)
+  const dragRef = useRef<{
+    id: string
+    mode: 'move' | 'resize'
+    startX: number
+    startY: number
+    box: AtomBox
+    rectW: number
+    rectH: number
+  } | null>(null)
+
+  const mappedAtoms = useMemo(() => (
+    atoms
+      .filter(atom => !atom.deleted)
+      .map(atom => ({ atom, box: atomEdits[atom.id]?.box || parseAtomBox(atom.boundingBox, naturalSize) }))
+      .filter((entry): entry is { atom: EditableComponent; box: AtomBox } => entry.box !== null)
+  ), [atoms, atomEdits, naturalSize])
+
+  const placedReplacements = mappedAtoms.filter(({ atom }) => {
+    const edit = atomEdits[atom.id]
+    return edit?.mode === 'customize' && edit.assetDataUrl
+  })
+
+  const startDrag = (event: React.PointerEvent, id: string, mode: 'move' | 'resize', box: AtomBox) => {
+    const rect = wrapperRef.current?.getBoundingClientRect()
+    if (!rect) return
+    event.preventDefault()
+    event.stopPropagation()
+    ;(event.target as HTMLElement).setPointerCapture(event.pointerId)
+    dragRef.current = { id, mode, startX: event.clientX, startY: event.clientY, box, rectW: rect.width, rectH: rect.height }
+  }
+
+  const moveDrag = (event: React.PointerEvent) => {
+    const drag = dragRef.current
+    if (!drag) return
+    const dx = ((event.clientX - drag.startX) / drag.rectW) * 100
+    const dy = ((event.clientY - drag.startY) / drag.rectH) * 100
+    onBoxChange(drag.id, clampBox(drag.mode === 'move'
+      ? { ...drag.box, x: drag.box.x + dx, y: drag.box.y + dy }
+      : { ...drag.box, width: drag.box.width + dx, height: drag.box.height + dy }))
+  }
+
+  const endDrag = () => { dragRef.current = null }
+
+  return (
+    <div className="relative flex h-[340px] items-center justify-center rounded-xl overflow-hidden border border-white/[0.06] bg-white/[0.02]">
+      <div ref={wrapperRef} className="relative">
+        <img
+          src={src}
+          alt="Active parent source flyer"
+          className="block max-h-[336px] max-w-full object-contain"
+          onLoad={event => setNaturalSize({
+            width: event.currentTarget.naturalWidth || event.currentTarget.width,
+            height: event.currentTarget.naturalHeight || event.currentTarget.height,
+          })}
+        />
+
+        {/* Detected atom map */}
+        {showAtomMap && mappedAtoms.map(({ atom, box }) => (
+          <div
+            key={`map-${atom.id}`}
+            className="group absolute rounded-[3px] border border-cyan-300/40 bg-cyan-300/[0.04] hover:border-cyan-300/80 hover:bg-cyan-300/10 transition-colors"
+            style={{ left: `${box.x}%`, top: `${box.y}%`, width: `${box.width}%`, height: `${box.height}%` }}
+          >
+            <span className="pointer-events-none absolute -top-5 left-0 hidden whitespace-nowrap rounded bg-black/80 px-1.5 py-0.5 text-[9px] font-semibold text-cyan-200 group-hover:block">
+              {atom.name}
+            </span>
+          </div>
+        ))}
+
+        {/* Live replacement placement — draggable + resizable */}
+        {placedReplacements.map(({ atom, box }) => (
+          <div
+            key={`placed-${atom.id}`}
+            className="absolute cursor-move rounded-[3px] border-2 border-primary/80 bg-black/10 shadow-[0_0_0_1px_rgba(0,0,0,0.4)]"
+            style={{ left: `${box.x}%`, top: `${box.y}%`, width: `${box.width}%`, height: `${box.height}%`, touchAction: 'none' }}
+            onPointerDown={event => startDrag(event, atom.id, 'move', box)}
+            onPointerMove={moveDrag}
+            onPointerUp={endDrag}
+            onPointerCancel={endDrag}
+          >
+            <img
+              src={atomEdits[atom.id]?.assetDataUrl}
+              alt={`${atom.name} replacement preview`}
+              className="pointer-events-none h-full w-full object-contain"
+              draggable={false}
+            />
+            <span className="pointer-events-none absolute -top-5 left-0 whitespace-nowrap rounded bg-primary px-1.5 py-0.5 text-[9px] font-bold text-primary-foreground">
+              {atom.name} — exact size
+            </span>
+            <span
+              className="absolute -bottom-1.5 -right-1.5 h-3.5 w-3.5 cursor-nwse-resize rounded-sm border border-black/40 bg-primary"
+              style={{ touchAction: 'none' }}
+              onPointerDown={event => startDrag(event, atom.id, 'resize', box)}
+              onPointerMove={moveDrag}
+              onPointerUp={endDrag}
+              onPointerCancel={endDrag}
+            />
+          </div>
+        ))}
+      </div>
+
+      {/* Atom map toggle */}
+      {!isAnalyzing && mappedAtoms.length > 0 && (
+        <button
+          type="button"
+          onClick={() => setShowAtomMap(prev => !prev)}
+          className={`absolute top-3 right-3 inline-flex h-7 items-center gap-1.5 rounded-full border px-3 text-[10px] font-bold uppercase tracking-wider transition-colors ${showAtomMap ? 'border-cyan-300/40 bg-cyan-300/10 text-cyan-200' : 'border-white/[0.1] bg-black/50 text-muted-foreground hover:text-foreground'}`}
+        >
+          {showAtomMap ? 'Hide atom map' : 'Show atom map'}
+        </button>
+      )}
+
+      {isAnalyzing && (
+        <div className="absolute inset-0 bg-background/80 backdrop-blur-sm flex flex-col items-center justify-center">
+          <Loader2 className="w-8 h-8 text-primary animate-spin mb-3" />
+          <span className="text-sm font-medium text-primary">Spyda is dissecting...</span>
+          <span className="text-xs text-muted-foreground mt-1">{analysisStage || 'Analyzing layout, text, colors, structure'}</span>
+        </div>
+      )}
+    </div>
+  )
+}
+
+/* ═══════════════════════════════════════════════
+   Studio View — measure-don't-ask editing workflow
+   ═══════════════════════════════════════════════ */
+
+function StudioView({
   uploadedFile, uploadedPreview,
   breakdown, isAnalyzing, isGenerating, generatedImage,
   generationQa, analysisStage, generationStage,
   analyzeError, generateError, atomEdits, brandEdits,
   essentialsImage,
   essentialPrompts,
-  onUpload, onAtomImageUpload, onEssentialsImageUpload, onRemoveEssentialsImage, onDeleteAtom, onGenerate, onReset,
-  onAtomEdit, onBrandEdit, onEssentialPromptChange
+  onUpload, onAtomImageUpload, onEssentialsImageUpload, onRemoveEssentialsImage, onDeleteAtom, onGenerate, onInstantPaste, onReset,
+  onAtomEdit, onAtomBoxChange, onBrandEdit, onEssentialPromptChange
 }: {
   uploadedFile: File | null
   uploadedPreview: string | null
@@ -1246,8 +1421,10 @@ function CanvasView({
   onRemoveEssentialsImage: () => void
   onDeleteAtom: (sectionId: string) => void
   onGenerate: () => void
+  onInstantPaste: () => void
   onReset: () => void
   onAtomEdit: (id: string, mode: 'same' | 'customize', value: string) => void
+  onAtomBoxChange: (id: string, box: AtomBox) => void
   onBrandEdit: (field: string, value: string) => void
   onEssentialPromptChange: (index: number, value: string) => void
 }) {
@@ -1299,13 +1476,21 @@ function CanvasView({
 
   // ── Phase 2+: Analyzing / Editing / Generating ──
   const visibleSections = breakdown?.design?.editableComponents?.filter(s => !s.deleted) || []
-  const selectedAtomCount = visibleSections.filter(section => atomEdits[section.id]?.mode === 'customize').length
+  const selectedSections = visibleSections.filter(section => atomEdits[section.id]?.mode === 'customize')
+  const selectedAtomCount = selectedSections.length
   const essentialCount = essentialPrompts.filter(prompt => prompt.trim()).length
   const totalChangeCount = selectedAtomCount + essentialCount
   const remainingChangeCount = Math.max(0, 3 - totalChangeCount)
-  const canApplyRound = totalChangeCount === 3
+  const canApplyRound = totalChangeCount >= 1 && totalChangeCount <= 3
   const activeSourcePreview = generatedImage || uploadedPreview
   const activeSourceName = generatedImage ? 'Latest generated parent' : uploadedFile.name
+  const placedSwapCount = selectedSections.filter(section => atomEdits[section.id]?.assetDataUrl).length
+  // Instant paste: every selected change is an image swap and nothing needs the AI pass
+  const instantPasteAvailable = placedSwapCount > 0
+    && placedSwapCount === selectedAtomCount
+    && selectedSections.every(section => !atomEdits[section.id]?.value?.trim())
+    && essentialCount === 0
+    && !essentialsImage
 
   return (
     <div className="min-h-full flex flex-col lg:flex-row lg:h-full">
@@ -1320,16 +1505,19 @@ function CanvasView({
             </div>
             <button onClick={onReset} className="text-xs text-muted-foreground hover:text-foreground transition-colors">Change</button>
           </div>
-          <div className="relative flex h-[340px] items-center justify-center rounded-xl overflow-hidden border border-white/[0.06] bg-white/[0.02]">
-            <img src={activeSourcePreview!} alt="Active parent source flyer" className="h-full w-full object-contain" />
-            {isAnalyzing && (
-              <div className="absolute inset-0 bg-background/80 backdrop-blur-sm flex flex-col items-center justify-center">
-                <Loader2 className="w-8 h-8 text-primary animate-spin mb-3" />
-                <span className="text-sm font-medium text-primary">Spyda is dissecting...</span>
-                <span className="text-xs text-muted-foreground mt-1">{analysisStage || 'Analyzing layout, text, colors, structure'}</span>
-              </div>
-            )}
-          </div>
+          <PlacementCanvas
+            src={activeSourcePreview!}
+            atoms={breakdown?.design?.editableComponents || []}
+            atomEdits={atomEdits}
+            isAnalyzing={isAnalyzing}
+            analysisStage={analysisStage}
+            onBoxChange={onAtomBoxChange}
+          />
+          {placedSwapCount > 0 && (
+            <p className="mt-2 text-[11px] leading-relaxed text-muted-foreground/70">
+              Replacements are shown at their exact final size, baked in by Spyda before the AI ever sees the design. Drag to reposition, use the corner handle to resize.
+            </p>
+          )}
           {analyzeError && (
             <div className="mt-3 rounded-lg border border-destructive/30 bg-destructive/10 px-4 py-3 text-sm text-destructive">
               {analyzeError}
@@ -1420,13 +1608,14 @@ function CanvasView({
             <div className="rounded-xl border border-white/[0.06] bg-white/[0.025] p-4">
               <div className="flex flex-wrap items-center justify-between gap-3">
                 <div>
-                  <p className="text-xs font-bold uppercase tracking-[0.12em] text-primary">3-change round</p>
+                  <p className="text-xs font-bold uppercase tracking-[0.12em] text-primary">Edit round — up to 3 focused changes</p>
                   <p className="mt-1 text-xs text-muted-foreground">
                     {selectedAtomCount} atom change{selectedAtomCount !== 1 ? 's' : ''} + {essentialCount} Essential prompt{essentialCount !== 1 ? 's' : ''}. {remainingChangeCount} slot{remainingChangeCount !== 1 ? 's' : ''} left.
+                    {placedSwapCount > 0 ? ` ${placedSwapCount} replacement image${placedSwapCount !== 1 ? 's' : ''} placed at exact size.` : ''}
                   </p>
                 </div>
                 <span className={`rounded-full px-3 py-1 text-xs font-bold ${canApplyRound ? 'bg-primary/15 text-primary' : 'bg-white/[0.05] text-muted-foreground'}`}>
-                  {totalChangeCount}/3 ready
+                  {totalChangeCount}/3
                 </span>
               </div>
             </div>
@@ -1450,6 +1639,9 @@ function CanvasView({
               <div className="flex items-center gap-2 mb-4">
                 <span className="text-[11px] font-bold tracking-[0.12em] uppercase text-primary">Brand Constants</span>
               </div>
+              <p className="-mt-2 mb-4 text-[11px] leading-relaxed text-muted-foreground/70">
+                Pre-filled from the analyzed design. They only restyle the flyer when you change them — leave them untouched to keep the parent design's exact look.
+              </p>
               <div className="grid grid-cols-2 gap-4 mb-4">
                 <div>
                   <label className="text-xs text-muted-foreground mb-1 block">Heading Font</label>
@@ -1601,15 +1793,28 @@ function CanvasView({
             </div>
 
             {/* Bottom Generate */}
-            <div className="pt-4 pb-8">
+            <div className="pt-4 pb-8 space-y-3">
               <button
                 onClick={onGenerate}
                 disabled={isGenerating || !canApplyRound}
                 className="w-full inline-flex h-14 items-center justify-center gap-3 rounded-xl bg-gradient-to-r from-[#22c55e] to-[#16a34a] text-sm font-bold text-primary-foreground shadow-[0_18px_44px_rgba(157,250,176,0.22)] transition-all hover:shadow-[0_22px_54px_rgba(157,250,176,0.32)] hover:-translate-y-0.5 disabled:opacity-50 disabled:pointer-events-none"
               >
                 {isGenerating ? <Loader2 className="w-5 h-5 animate-spin" /> : <Sparkles className="w-5 h-5" />}
-                {isGenerating ? 'Applying 3 Changes...' : `Apply Round (${totalChangeCount}/3)`}
+                {isGenerating ? 'Applying changes...' : `Apply Round with AI (${totalChangeCount}/3)`}
               </button>
+              {instantPasteAvailable && (
+                <button
+                  onClick={onInstantPaste}
+                  disabled={isGenerating}
+                  className="w-full inline-flex h-11 items-center justify-center gap-2 rounded-xl border border-primary/25 bg-primary/[0.06] text-xs font-bold text-primary transition-colors hover:bg-primary/10 disabled:opacity-50 disabled:pointer-events-none"
+                >
+                  <Zap className="w-4 h-4" />
+                  Instant Paste — pixel-exact, no AI, no credit
+                </button>
+              )}
+              <p className="text-[11px] leading-relaxed text-muted-foreground/60">
+                Replacement images are always placed at the original atom's exact size before generation. "Apply Round with AI" additionally blends edges, applies text changes, and any brand or Essential instructions.
+              </p>
             </div>
           </div>
         ) : (
@@ -1746,10 +1951,15 @@ function AtomCard({
                 )}
                 <span className="text-xs text-muted-foreground">{edit?.assetName || 'No asset selected'}</span>
               </div>
+              {edit?.assetDataUrl && (
+                <p className="rounded-lg border border-primary/15 bg-primary/[0.04] px-3 py-2 text-[11px] leading-relaxed text-primary/90">
+                  Placed on the Source preview at the original atom's exact size. Drag it there to reposition, or use the corner handle to resize.
+                </p>
+              )}
               <textarea
                 value={edit?.value || ''}
                 onChange={e => onEdit(section.id, 'customize', e.target.value)}
-                placeholder={`${replacementHint}. Example: place this logo at the top right and keep it sharp.`}
+                placeholder={`Optional blending note for the AI pass, e.g. "match the background lighting". Position and size are already locked.`}
                 className="w-full h-16 px-3 py-2 rounded-lg bg-white/[0.04] border border-white/[0.06] text-sm text-foreground placeholder:text-muted-foreground/40 outline-none focus:border-primary/40 transition-colors resize-none"
               />
             </div>

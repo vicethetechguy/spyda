@@ -68,25 +68,47 @@ export function buildMockBreakdown() {
       },
       editableComponents: [
         {
+          id: "logo",
+          type: "brand",
+          editable: true,
+          name: "Top Logo",
+          content: "Brand logo",
+          style: "Small logo in the top-left corner",
+          layerIndex: 0,
+          boundingBox: { x: 5, y: 4, width: 18, height: 8 },
+          sectionId: "hero-section",
+        },
+        {
           id: "hero",
           type: "text",
           editable: true,
-          name: "Hero Section",
+          name: "Hero Headline",
           content: "Main headline",
           style: "Primary headline text",
           layerIndex: 1,
-          boundingBox: "top center",
+          boundingBox: { x: 8, y: 16, width: 84, height: 14 },
           sectionId: "hero-section",
         },
         {
           id: "image",
           type: "image",
           editable: true,
-          name: "Image Layer",
+          name: "Main Subject",
           content: "Primary subject",
-          style: "Main subject image",
+          style: "Main subject image in the center",
           layerIndex: 2,
-          boundingBox: "center",
+          boundingBox: { x: 20, y: 34, width: 60, height: 40 },
+          sectionId: "image-section",
+        },
+        {
+          id: "cta",
+          type: "action",
+          editable: true,
+          name: "CTA Button",
+          content: "Call to action",
+          style: "Button near the bottom",
+          layerIndex: 3,
+          boundingBox: { x: 30, y: 80, width: 40, height: 9 },
           sectionId: "image-section",
         },
       ],
@@ -372,6 +394,8 @@ Classify words as "text" or "action", logos as "brand", photos/products/app scre
 Use the OCR data below as the source of truth for all readable text. If OCR text appears in the flyer, preserve it exactly in the matching atom and use the OCR coordinates to infer where it belongs.
 ${formatOcrForPrompt(ocr)}
 
+BOUNDING BOXES ARE CRITICAL: every editableComponent must include a numeric boundingBox measured as PERCENTAGES of the full image (0-100), where x,y is the element's top-left corner and width,height is its tight visual footprint. Spyda uses these numbers to place replacement assets pixel-exactly, so measure each element carefully against the actual image. Example: a logo in the top-left tenth of the flyer is {"x": 4, "y": 3, "width": 14, "height": 6}.
+
 Return ONLY valid JSON with no markdown formatting matching this exact architecture:
 {
   "design": {
@@ -398,7 +422,7 @@ Return ONLY valid JSON with no markdown formatting matching this exact architect
         "content": "exact visible text or image description",
         "style": "visual description, color, size",
         "layerIndex": 0,
-        "boundingBox": "approx placement",
+        "boundingBox": { "x": 0, "y": 0, "width": 0, "height": 0 },
         "sectionId": "hero-section"
       }
     ]
@@ -494,7 +518,7 @@ Return ONLY valid JSON in this exact architecture:
         "content": "exact visible text or image description",
         "style": "visual description, color, size",
         "layerIndex": 0,
-        "boundingBox": "approx placement",
+        "boundingBox": { "x": 0, "y": 0, "width": 0, "height": 0 },
         "sectionId": "hero-section"
       }
     ]
@@ -569,7 +593,85 @@ function sanitizeRecipeForPrompt(recipe: any) {
   };
 }
 
+/*
+ * Composite-mode prompt: the client has already baked every replacement asset
+ * into the attached image at its exact final position and size (deterministic
+ * canvas placement). The model's only jobs are blending, text edits, and
+ * optional brand styling — so the prompt is short and direct, the way the
+ * same edit would be asked for in ChatGPT.
+ */
+function buildCompositePrompt(recipe: any) {
+  const pastedAssets = Array.isArray(recipe?.pastedAssets) ? recipe.pastedAssets : [];
+  const textEdits = Array.isArray(recipe?.textEdits) ? recipe.textEdits : [];
+  const otherEdits = Array.isArray(recipe?.otherEdits) ? recipe.otherEdits : [];
+  const essentials = Array.isArray(recipe?.essentials) ? recipe.essentials.filter(Boolean) : [];
+  const brand = recipe?.brandOverrides || null;
+  const unplacedAssets = getReferenceImages(recipe);
+  const qaViolations = Array.isArray(recipe?.qaCorrections?.violations) ? recipe.qaCorrections.violations : [];
+
+  const sections: string[] = [];
+
+  sections.push(`You are refining an existing flyer design. The first attached image is the flyer to finish — it is the layout ground truth. Work like a careful photo retoucher, not a designer: do not recompose, restructure, or reinterpret anything.`);
+
+  if (pastedAssets.length) {
+    sections.push(`ALREADY-PLACED REPLACEMENTS:
+${pastedAssets.map((asset: any) => `- "${asset.name || 'Replacement asset'}" already sits in the "${asset.atomName || 'replaced element'}" slot at its final, correct position and size.`).join("\n")}
+These pasted assets may look slightly cut-out. Blend each one into the design naturally — clean edges, matching lighting, and shadows consistent with the rest of the flyer — while keeping its EXACT position, EXACT size, EXACT proportions, exact colors, and exact content. Never enlarge, shrink, move, crop, restyle, recolor, or redraw them, and never add text or marks to them.`);
+  }
+
+  if (textEdits.length) {
+    sections.push(`TEXT CHANGES (apply in place):
+${textEdits.map((edit: any) => `- In the "${edit.atomName || 'text'}" region, replace the text "${edit.from || ''}" with "${edit.to || ''}".`).join("\n")}
+Render each new text with the same font style, size, color, alignment, and position as the text it replaces, fitted inside the same text region. If the new text is longer, tighten the letter-spacing or wrap lines — never grow the region.`);
+  }
+
+  if (otherEdits.length) {
+    sections.push(`OTHER EDITS:
+${otherEdits.map((edit: any) => `- "${edit.atomName || 'element'}": ${edit.instruction || ''} (keep this element in its current region at its current size unless the instruction explicitly says otherwise)`).join("\n")}`);
+  }
+
+  if (unplacedAssets.length) {
+    const offset = 1 + (recipe?.essentialsImage?.dataUrl ? 1 : 0);
+    sections.push(`ADDITIONAL ATTACHED ASSETS:
+${unplacedAssets.map((image: any, index: number) => `- Attached image ${index + 1 + offset}: "${image.name}" replaces "${image.originalContent || image.sectionName}". Place it exactly where that element sits in the flyer, at the same visible width and height as the element it replaces. Scale it down to fit that footprint if needed — never enlarge it, never let it overflow the flyer, never let it overlap neighbors. Preserve its identity exactly.`).join("\n")}`);
+  }
+
+  if (recipe?.essentialsImage?.dataUrl) {
+    sections.push(`ESSENTIALS IMAGE: the attached image "${recipe.essentialsImage.name || 'Essentials reference'}" is a hard visual requirement from the user. Use it exactly as the essentials instructions describe, preserving its identity.`);
+  }
+
+  if (brand) {
+    const brandLines = [
+      brand.headingFont ? `- Heading font direction: ${brand.headingFont}.` : "",
+      brand.bodyFont ? `- Body font direction: ${brand.bodyFont}.` : "",
+      brand.primaryColor ? `- Primary color (60%): ${brand.primaryColor}.` : "",
+      brand.secondaryColor ? `- Secondary color (30%): ${brand.secondaryColor}.` : "",
+      brand.accentColor ? `- Accent color (10%): ${brand.accentColor}.` : "",
+      brand.visualStyle ? `- Visual style: ${brand.visualStyle}.` : "",
+    ].filter(Boolean).join("\n");
+    sections.push(`BRAND STYLE OVERRIDES (apply globally without changing the layout):
+${brandLines}
+Restyle backgrounds, gradients, buttons, and decorative surfaces with these values, but never recolor pasted replacement assets, logos, photos, product shots, QR codes, or badges.`);
+  }
+
+  if (essentials.length) {
+    sections.push(`MUST-FOLLOW INSTRUCTIONS:
+${essentials.map((item: string) => `- ${item}`).join("\n")}`);
+  }
+
+  if (qaViolations.length) {
+    sections.push(`QA CORRECTIONS (the previous attempt failed these checks — fix every one):
+${qaViolations.map((violation: string) => `- ${violation}`).join("\n")}`);
+  }
+
+  const dims = recipe?.sourceDimensions;
+  sections.push(`EVERYTHING ELSE: keep the flyer pixel-faithful to the attached image — same layout, same element sizes and positions, same colors, same background, same aspect ratio${dims?.width ? ` (${dims.width} x ${dims.height})` : ""}. Do not add or remove elements. Output a clean, premium, print-quality flyer.`);
+
+  return sections.join("\n\n");
+}
+
 export function buildGenerationPrompt(recipe: any) {
+  if (recipe?.compositeMode) return buildCompositePrompt(recipe);
   const attachedReferenceImages = getReferenceImages(recipe);
   const hasSourceReference = Boolean(recipe?.sourceReferenceImage?.dataUrl);
   const hasChildSource = Boolean(recipe?.childSourceImage?.dataUrl);
@@ -719,6 +821,22 @@ function getImageEditInputs(recipe: any) {
       name: recipe.childSourceImage.name || "Current child source",
       dataUrl: recipe.childSourceImage.dataUrl,
     });
+  }
+
+  if (recipe?.compositeMode) {
+    // Composite mode: the child source already contains every placed
+    // replacement, so it is the single layout truth. Only the essentials
+    // image and un-placed fallback assets ride along.
+    if (recipe?.essentialsImage?.dataUrl) {
+      inputs.push({
+        sectionId: "essentials-reference",
+        sectionName: "Essentials Reference Image",
+        sectionType: "essentials",
+        name: recipe.essentialsImage.name || "Essentials reference image",
+        dataUrl: recipe.essentialsImage.dataUrl,
+      });
+    }
+    return [...inputs, ...getReferenceImages(recipe)];
   }
 
   if (recipe?.sourceReferenceImage?.dataUrl) {

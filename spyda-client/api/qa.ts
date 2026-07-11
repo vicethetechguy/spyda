@@ -52,7 +52,11 @@ function normalizeQaReport(raw: any): GenerationQaReport {
 
 export async function runGenerationQa({ recipe, generatedImage }: { recipe: any; generatedImage: string | null }): Promise<GenerationQaReport> {
   const openaiKey = process.env.OPENAI_API_KEY || "";
-  const sourceImage = recipe?.sourceReferenceImage?.dataUrl;
+  // In composite mode the child source already contains every replacement at
+  // its final position/size, so it is the expected-output baseline.
+  const sourceImage = recipe?.compositeMode
+    ? (recipe?.childSourceImage?.dataUrl || recipe?.sourceReferenceImage?.dataUrl)
+    : recipe?.sourceReferenceImage?.dataUrl;
 
   if (!openaiKey || !sourceImage || !generatedImage || process.env.SPYDA_QA_ENABLED === "false") {
     return { ok: false, skipped: true };
@@ -80,9 +84,13 @@ export async function runGenerationQa({ recipe, generatedImage }: { recipe: any;
       }))
     : [];
 
+  const compositeNote = recipe?.compositeMode
+    ? `Image 1 is the expected-output baseline: it ALREADY contains every replacement asset pasted at its final, correct position and size. The generated flyer must keep each of those assets at exactly that position and size — any pasted asset that moved, grew, or shrank relative to image 1 is a FAIL.\n`
+    : "";
+
   const prompt = `You are Spyda's generation QA gate.
 Compare image 1 (the parent Source flyer) with image 2 (the newly generated flyer).
-The generated flyer must preserve the Source layout exactly, with only the requested replacements applied IN PLACE at the SAME SIZE.
+${compositeNote}The generated flyer must preserve the Source layout exactly, with only the requested replacements applied IN PLACE at the SAME SIZE.
 
 Run this checklist and fail any violation:
 1. Top logo is fully visible and not cropped.
