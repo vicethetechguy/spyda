@@ -7,7 +7,7 @@ export default async function handler(req: any, res: any) {
   }
 
   try {
-    const { base64Image, aiProvider } = req.body;
+    const { base64Image, aiProvider, sourceMetadata } = req.body;
 
     if (!base64Image) {
       return res.status(400).json({ error: 'Upload a design image first.' });
@@ -20,7 +20,7 @@ export default async function handler(req: any, res: any) {
       ocr = { enabled: false, fullText: "", words: [], error: error?.message || "OCR failed." };
     }
 
-    const result = await analyzeDesign(base64Image, aiProvider, ocr);
+    const result = await analyzeDesign(base64Image, aiProvider, ocr, sourceMetadata);
     return res.status(200).json(result);
   } catch (error: any) {
     return res.status(500).json({ ok: false, error: error.message });

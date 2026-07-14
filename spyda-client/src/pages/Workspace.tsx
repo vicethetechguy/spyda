@@ -2,6 +2,7 @@ import { useState, useRef, useCallback, useEffect, useMemo } from 'react'
 import { useAuth } from '../lib/AuthContext'
 import { supabase } from '../lib/supabase'
 import { parseAtomBox, clampBox, compositeReplacements, getImageSize, type AtomBox } from '../lib/design'
+import type { LegacyBreakdown as BreakdownResult, LegacyEditableComponent as EditableComponent } from '../core/design-document'
 import { usePaystackPayment } from 'react-paystack'
 import SidebarNav from '../components/ui/dashboard-sidebar'
 import {
@@ -48,50 +49,10 @@ const AI_MODELS: AiModel[] = [
    Types
    ═══════════════════════════════════════════════ */
 
-type EditableComponent = {
-  id: string
-  name: string
-  type: string
-  editable: boolean
-  content: string
-  style: string
-  layerIndex: number
-  boundingBox: string | { x: number; y: number; width: number; height: number }
-  sectionId: string
-  deleted?: boolean
-  current?: any // Keep for backward compatibility with old mocks if needed
-  replacementNeeded?: string[] // Keep for backward compatibility
-}
-
-type StyleTokens = {
-  palette?: { primary?: string; secondary?: string; accent?: string }
-  typography?: { headingFont?: string; bodyFont?: string }
-  spacing?: string
-  shadows?: string
-  gradients?: string
-  effects?: string
-  borderRadius?: string
-  lighting?: string
-  // Legacy aliases
-  colors?: { primary?: string; secondary?: string; accent?: string }
-  headingFont?: string
-  bodyFont?: string
-  visualStyle?: string
-}
-
-type BreakdownResult = {
-  design: {
-    metadata?: { aspectRatio?: string; orientation?: string; colorSpace?: string }
-    sections?: Array<{ id: string; name: string; bounds: string }>
-    styleTokens: StyleTokens
-    editableComponents: EditableComponent[]
-  }
-}
-
 type ApiAnalyzeResponse = {
   ok: boolean
   mode?: string
-  breakdown?: any
+  breakdown?: BreakdownResult
   error?: string
 }
 
@@ -574,6 +535,7 @@ export default function Workspace() {
     // Auto-analyze
     setIsAnalyzing(true)
       try {
+        const sourceDimensions = await getImageDimensionsFromFile(file)
         const base64Image = await imageFileToDataUrl(file, 1024, 1024, 0.82);
         setUploadedPreview(base64Image)
         saveProjectSnapshot({
@@ -593,7 +555,17 @@ export default function Workspace() {
         const res = await fetch('/api/analyze', { 
           method: 'POST', 
           headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ base64Image, aiProvider: aiModel.provider })
+          body: JSON.stringify({
+            base64Image,
+            aiProvider: aiModel.provider,
+            sourceMetadata: {
+              designId: projectId,
+              width: sourceDimensions.width,
+              height: sourceDimensions.height,
+              fileName: file.name,
+              mimeType: file.type,
+            },
+          })
         })
         const data = await readApiJson<ApiAnalyzeResponse>(res)
         setAnalysisStage('Validating editable design atoms')
@@ -2477,4 +2449,3 @@ function PlaceholderView({ title }: { title: string }) {
     </div>
   )
 }
-

@@ -3,6 +3,7 @@ declare const process: {
 };
 
 import { analysisModel, groqAnalysisModel, imageModel } from "./models.js";
+import { adaptBreakdownToDesignDocument, designDocumentToLegacyBreakdown } from "../src/core/design-document.js";
 
 export { analysisModel, groqAnalysisModel, imageModel } from "./models.js";
 
@@ -308,42 +309,15 @@ function enrichBreakdownWithOcrTextAtoms(breakdown: any, ocr?: OcrResult) {
   };
 }
 
-function validateDesignBreakdown(breakdown: any) {
+export function validateDesignBreakdown(breakdown: any, options: AnalysisSourceMetadata & { provider?: string } = {}) {
   const normalized = normalizeBreakdownArchitecture(breakdown || {});
-  const components = Array.isArray(normalized.design?.editableComponents)
-    ? normalized.design.editableComponents
-    : [];
-
-  return {
-    ...normalized,
-    design: {
-      ...normalized.design,
-      styleTokens: normalized.design.styleTokens || {
-        palette: { primary: "#0F172A", secondary: "#22C55E", accent: "#F8FAFC" },
-        typography: { headingFont: "Space Grotesk", bodyFont: "Montserrat" },
-        visualStyle: "Same as uploaded design",
-      },
-      sections: Array.isArray(normalized.design.sections) && normalized.design.sections.length
-        ? normalized.design.sections
-        : [{ id: "main-section", name: "Main Design", bounds: "full canvas" }],
-      editableComponents: components.map((component: any, index: number) => ({
-        id: component.id || `component-${index + 1}`,
-        type: component.type || "text",
-        editable: component.editable ?? true,
-        name: component.name || `Component ${index + 1}`,
-        content: String(component.content || ""),
-        style: String(component.style || ""),
-        layerIndex: Number.isFinite(Number(component.layerIndex)) ? Number(component.layerIndex) : index,
-        boundingBox: component.boundingBox || "approx placement",
-        sectionId: component.sectionId || "main-section",
-        deleted: component.deleted,
-        current: component.current,
-        replacementNeeded: Array.isArray(component.replacementNeeded)
-          ? component.replacementNeeded
-          : ["Keep as-is or replace this component."],
-      })),
-    },
-  };
+  const document = adaptBreakdownToDesignDocument(normalized, {
+    id: options.designId,
+    provider: options.provider || "legacy-adapter",
+    canvas: { width: options.width, height: options.height },
+    sourceAsset: { fileName: options.fileName, mimeType: options.mimeType },
+  });
+  return designDocumentToLegacyBreakdown(document, normalized);
 }
 
 function getLikelyJsonObject(text: string) {
@@ -528,20 +502,45 @@ Return ONLY valid JSON in this exact architecture:
   return analyzeDesignWithOpenAI(base64Image, verifierPrompt);
 }
 
-export async function analyzeDesign(base64Image: string, provider = "openai", ocr: OcrResult = { enabled: false, fullText: "", words: [] }) {
+type AnalysisSourceMetadata = {
+  designId?: string;
+  width?: number;
+  height?: number;
+  fileName?: string;
+  mimeType?: string;
+};
+
+export async function analyzeDesign(
+  base64Image: string,
+  provider = "openai",
+  ocr: OcrResult = { enabled: false, fullText: "", words: [] },
+  sourceMetadata: AnalysisSourceMetadata = {},
+) {
   const prompt = getBreakdownPrompt(ocr);
 
   if (normalizeAiProvider(provider) === "groq") {
     const result = await analyzeDesignWithGroq(base64Image, prompt);
     const verifiedBreakdown = await verifyBreakdownWithOpenAI(base64Image, result.breakdown, ocr).catch(() => result.breakdown);
-    return { ...result, mode: "groq+openai-verified", breakdown: validateDesignBreakdown(enrichBreakdownWithOcrTextAtoms(verifiedBreakdown, ocr)), ocr };
+    return {
+      ...result,
+      mode: "groq+openai-verified",
+      breakdown: validateDesignBreakdown(enrichBreakdownWithOcrTextAtoms(verifiedBreakdown, ocr), { ...sourceMetadata, provider: "groq+openai" }),
+      ocr,
+    };
   }
 
   const openaiKey = process.env.OPENAI_API_KEY || "";
-  if (!openaiKey) return { ok: true, mode: "mock", breakdown: validateDesignBreakdown(buildMockBreakdown()) };
+  if (!openaiKey) {
+    return { ok: true, mode: "mock", breakdown: validateDesignBreakdown(buildMockBreakdown(), { ...sourceMetadata, provider: "mock" }) };
+  }
 
   const breakdown = await analyzeDesignWithOpenAI(base64Image, prompt);
-  return { ok: true, mode: "openai", breakdown: validateDesignBreakdown(enrichBreakdownWithOcrTextAtoms(breakdown, ocr)), ocr };
+  return {
+    ok: true,
+    mode: "openai",
+    breakdown: validateDesignBreakdown(enrichBreakdownWithOcrTextAtoms(breakdown, ocr), { ...sourceMetadata, provider: "openai" }),
+    ocr,
+  };
 }
 
 function sanitizeRecipeForPrompt(recipe: any) {

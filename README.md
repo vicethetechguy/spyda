@@ -16,6 +16,23 @@ npm install
 npm run dev
 ```
 
+Run the architecture regression tests with:
+
+```bash
+cd spyda-client
+npm test
+```
+
+## Spyda V2 Architecture
+
+Spyda is being evolved incrementally into a design reconstruction platform.
+The current workspace remains compatible while new engines adopt the shared,
+validated Design Document.
+
+- [Design Document decision](docs/architecture/ADR-001-design-document.md)
+- [Phase 0 baseline and protected behavior](docs/upgrade/phase-0-baseline.md)
+- [Product requirements](PRD.md)
+
 ## Production
 
 The live Vercel app should use `spyda-client` as the project root directory.
