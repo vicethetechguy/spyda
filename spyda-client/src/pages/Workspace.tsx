@@ -1425,6 +1425,31 @@ function StudioView({
   const essentialsInputRef = useRef<HTMLInputElement>(null)
   const essentialPromptRefs = useRef<Array<HTMLInputElement | null>>([])
   const [isDragging, setIsDragging] = useState(false)
+  const [atomsDrawerOpen, setAtomsDrawerOpen] = useState(false)
+  const [desktopAtomsPanel, setDesktopAtomsPanel] = useState(() => typeof window === 'undefined' || window.innerWidth >= 1024)
+
+  useEffect(() => {
+    const desktopQuery = window.matchMedia('(min-width: 1024px)')
+    const syncPanelMode = () => setDesktopAtomsPanel(desktopQuery.matches)
+    syncPanelMode()
+    desktopQuery.addEventListener('change', syncPanelMode)
+    return () => desktopQuery.removeEventListener('change', syncPanelMode)
+  }, [])
+
+  useEffect(() => {
+    if (!atomsDrawerOpen) return
+
+    const closeOnEscape = (event: KeyboardEvent) => {
+      if (event.key === 'Escape') setAtomsDrawerOpen(false)
+    }
+
+    window.addEventListener('keydown', closeOnEscape)
+    return () => window.removeEventListener('keydown', closeOnEscape)
+  }, [atomsDrawerOpen])
+
+  useEffect(() => {
+    if (!uploadedFile || !breakdown) setAtomsDrawerOpen(false)
+  }, [breakdown, uploadedFile])
 
   const handleDrop = useCallback((e: React.DragEvent) => {
     e.preventDefault()
@@ -1488,7 +1513,7 @@ function StudioView({
   return (
     <div className="flex-1 min-h-0 h-full w-full flex flex-col lg:flex-row lg:items-stretch">
       {/* Left: Source + Child Source */}
-      <div className="lg:w-[45%] shrink-0 border-r border-white/[0.06] flex flex-col overflow-y-auto">
+      <div className="min-h-0 w-full flex-1 shrink-0 overflow-y-auto border-r border-white/[0.06] flex flex-col lg:w-[45%] lg:flex-none">
         {/* Active Source Image */}
         <div className="p-6 border-b border-white/[0.06]">
           <div className="flex items-center justify-between mb-4">
@@ -1568,10 +1593,41 @@ function StudioView({
         </div>
       </div>
 
+      {atomsDrawerOpen && (
+        <button
+          type="button"
+          aria-label="Close Design Atoms"
+          onClick={() => setAtomsDrawerOpen(false)}
+          className="fixed inset-0 z-[70] bg-black/65 backdrop-blur-sm lg:hidden"
+        />
+      )}
+
+      {breakdown && !isAnalyzing && (
+        <button
+          type="button"
+          aria-label="Open Design Atoms"
+          aria-controls="design-atoms-panel"
+          aria-expanded={atomsDrawerOpen}
+          onClick={() => setAtomsDrawerOpen(true)}
+          className="fixed bottom-[calc(1.25rem+env(safe-area-inset-bottom))] right-4 z-[65] inline-flex h-14 w-14 items-center justify-center rounded-full border border-primary/35 bg-[#0b0e0c] shadow-[0_14px_40px_rgba(0,0,0,0.5),0_0_24px_rgba(34,197,94,0.2)] transition-transform active:scale-95 lg:hidden"
+        >
+          <img src="/assets/spyda-logo-drive.webp" alt="" className="h-9 w-9 object-contain" />
+          <span className="absolute -right-1 -top-1 inline-flex min-h-5 min-w-5 items-center justify-center rounded-full border-2 border-[#0b0e0c] bg-primary px-1 text-[9px] font-bold text-primary-foreground">
+            {visibleSections.length}
+          </span>
+        </button>
+      )}
+
       {/* Right: Atom Cards + Brand Card + Generate */}
-      <div className="flex-1 flex flex-col overflow-y-auto">
+      <aside
+        id="design-atoms-panel"
+        aria-label="Design Atoms"
+        aria-hidden={!desktopAtomsPanel && !atomsDrawerOpen}
+        inert={!desktopAtomsPanel && !atomsDrawerOpen}
+        className={`fixed inset-y-0 right-0 z-[80] flex w-[min(92vw,430px)] flex-col overflow-hidden border-l border-white/[0.08] bg-[#080a09] shadow-[-24px_0_64px_rgba(0,0,0,0.45)] transition-transform duration-300 ease-out lg:relative lg:inset-auto lg:z-auto lg:w-auto lg:flex-1 lg:translate-x-0 lg:bg-transparent lg:shadow-none ${atomsDrawerOpen ? 'translate-x-0' : 'translate-x-full'}`}
+      >
         {isAnalyzing ? (
-          <div className="flex-1 flex items-center justify-center">
+          <div className="flex-1 flex items-center justify-center overflow-y-auto p-6">
             <div className="text-center">
               <Loader2 className="w-10 h-10 text-primary animate-spin mx-auto mb-4" />
               <h3 className="font-heading text-xl font-semibold mb-2">Dissecting design atoms...</h3>
@@ -1579,23 +1635,34 @@ function StudioView({
             </div>
           </div>
         ) : breakdown ? (
-          <div className="p-6 space-y-4 flex-1 flex flex-col">
+          <div className="min-h-0 flex-1 space-y-4 overflow-y-auto p-4 sm:p-5 lg:p-6">
             {/* Header */}
-            <div className="flex items-center justify-between mb-2">
-              <div>
+            <div className="sticky top-0 z-20 -mx-4 -mt-4 mb-2 flex items-center justify-between gap-3 border-b border-white/[0.07] bg-[#080a09]/95 px-4 pb-4 pt-[calc(1rem+env(safe-area-inset-top))] backdrop-blur-xl sm:-mx-5 sm:-mt-5 sm:px-5 lg:-mx-6 lg:-mt-6 lg:bg-background/95 lg:px-6 lg:py-4">
+              <div className="min-w-0">
                 <h3 className="font-heading text-lg font-semibold">Design Atoms</h3>
-                <p className="text-xs text-muted-foreground mt-0.5">
+                <p className="mt-0.5 truncate text-xs text-muted-foreground">
                   {visibleSections.length} component{visibleSections.length !== 1 ? 's' : ''} detected • Edit replacements below
                 </p>
               </div>
-              <button
-                onClick={onGenerate}
-                disabled={isGenerating || !canApplyRound}
-                className="inline-flex h-10 items-center gap-2 rounded-lg bg-gradient-to-r from-[#22c55e] to-[#16a34a] px-6 text-sm font-bold text-primary-foreground shadow-lg shadow-primary/20 hover:brightness-110 transition-all disabled:opacity-50 disabled:pointer-events-none"
-              >
-                {isGenerating ? <Loader2 className="w-4 h-4 animate-spin" /> : <Zap className="w-4 h-4" />}
-                {isGenerating ? 'Applying...' : `Apply ${totalChangeCount}/3`}
-              </button>
+              <div className="flex shrink-0 items-center gap-2">
+                <button
+                  type="button"
+                  onClick={onGenerate}
+                  disabled={isGenerating || !canApplyRound}
+                  className="inline-flex h-9 items-center gap-2 rounded-lg bg-primary px-3 text-xs font-bold text-primary-foreground transition-colors hover:bg-primary/90 disabled:pointer-events-none disabled:opacity-50 sm:px-4"
+                >
+                  {isGenerating ? <Loader2 className="h-4 w-4 animate-spin" /> : <Zap className="h-4 w-4" />}
+                  {isGenerating ? 'Applying' : `Apply ${totalChangeCount}/3`}
+                </button>
+                <button
+                  type="button"
+                  aria-label="Close Design Atoms"
+                  onClick={() => setAtomsDrawerOpen(false)}
+                  className="inline-flex h-9 w-9 items-center justify-center rounded-lg border border-white/[0.08] bg-white/[0.03] text-muted-foreground transition-colors hover:bg-white/[0.07] hover:text-foreground lg:hidden"
+                >
+                  <X className="h-4 w-4" />
+                </button>
+              </div>
             </div>
 
             <div className="rounded-xl border border-white/[0.06] bg-white/[0.025] p-4">
@@ -1699,74 +1766,6 @@ function StudioView({
                 />
               </div>
               <div className="mt-4">
-                <label className="text-xs text-muted-foreground mb-1 block">Essentials</label>
-                <div className="space-y-2">
-                  {['Enter First Prompt', 'Enter Second Prompt', 'Enter Third Prompt'].map((placeholder, index) => (
-                    <input
-                      key={placeholder}
-                      ref={node => { essentialPromptRefs.current[index] = node }}
-                      value={essentialPrompts[index] || ''}
-                      onChange={e => onEssentialPromptChange(index, e.target.value)}
-                      onKeyDown={e => {
-                        if (e.key === 'Enter') {
-                          e.preventDefault()
-                          essentialPromptRefs.current[Math.min(index + 1, 2)]?.focus()
-                        }
-                      }}
-                      disabled={!essentialPrompts[index] && totalChangeCount >= 3}
-                      placeholder={placeholder}
-                      className="w-full h-10 px-3 rounded-lg bg-white/[0.04] border border-white/[0.06] text-sm text-foreground placeholder:text-muted-foreground/40 outline-none focus:border-primary/40 transition-colors disabled:opacity-40"
-                    />
-                  ))}
-                </div>
-                <p className="mt-2 text-[11px] leading-relaxed text-muted-foreground/60">
-                  Each filled Essential prompt counts as one of the 3 changes in this round.
-                </p>
-                <div className="mt-3 rounded-xl border border-white/[0.06] bg-white/[0.025] p-3">
-                  <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
-                    <div className="min-w-0">
-                      <p className="text-xs font-semibold text-foreground">Essentials image</p>
-                      <p className="mt-0.5 truncate text-[11px] text-muted-foreground">
-                        {essentialsImage?.name || 'Upload logo, product, screenshot, mood reference, or exact visual requirement'}
-                      </p>
-                    </div>
-                    <div className="flex shrink-0 items-center gap-2">
-                      {essentialsImage?.dataUrl && (
-                        <img src={essentialsImage.dataUrl} alt="Essentials reference" className="h-9 w-9 rounded-lg border border-white/[0.1] object-cover" />
-                      )}
-                      {essentialsImage && (
-                        <button
-                          type="button"
-                          onClick={onRemoveEssentialsImage}
-                          className="inline-flex h-9 items-center rounded-lg border border-white/[0.06] bg-white/[0.03] px-3 text-xs font-semibold text-muted-foreground transition-colors hover:bg-white/[0.06] hover:text-foreground"
-                        >
-                          Remove
-                        </button>
-                      )}
-                      <button
-                        type="button"
-                        onClick={() => essentialsInputRef.current?.click()}
-                        className="inline-flex h-9 items-center gap-2 rounded-lg border border-primary/20 bg-primary/5 px-3 text-xs font-semibold text-primary transition-colors hover:bg-primary/10"
-                      >
-                        <Upload className="h-3.5 w-3.5" />
-                        {essentialsImage ? 'Replace' : 'Upload'}
-                      </button>
-                      <input
-                        ref={essentialsInputRef}
-                        type="file"
-                        accept="image/*"
-                        className="hidden"
-                        onChange={e => {
-                          const file = e.target.files?.[0]
-                          if (file) onEssentialsImageUpload(file)
-                          e.currentTarget.value = ''
-                        }}
-                      />
-                    </div>
-                  </div>
-                </div>
-              </div>
-              <div className="mt-4">
                 <label className="text-xs text-muted-foreground mb-1 block">Flyer Size</label>
                 <select
                   value={brandEdits.outputSize}
@@ -1782,6 +1781,86 @@ function StudioView({
                 <p className="mt-2 text-[11px] leading-relaxed text-muted-foreground/60">
                   Match uploaded reference keeps the closest source aspect ratio. Platform sizes guide composition and map to the nearest supported GPT-Image canvas.
                 </p>
+              </div>
+            </div>
+
+            {/* Essentials Card */}
+            <div className="rounded-xl border border-[#8bd3ff]/20 bg-[#8bd3ff]/[0.025] p-5">
+              <div className="mb-4 flex items-start gap-3">
+                <span className="inline-flex h-8 w-8 shrink-0 items-center justify-center rounded-lg bg-[#8bd3ff]/10 text-[#8bd3ff]">
+                  <Wand2 className="h-4 w-4" />
+                </span>
+                <div>
+                  <h4 className="font-heading text-sm font-semibold">Essentials</h4>
+                  <p className="mt-1 text-[11px] leading-relaxed text-muted-foreground">
+                    Add instructions or an exact visual asset that was not captured in the detected atoms.
+                  </p>
+                </div>
+              </div>
+              <div className="space-y-2">
+                {['Enter First Prompt', 'Enter Second Prompt', 'Enter Third Prompt'].map((placeholder, index) => (
+                  <input
+                    key={placeholder}
+                    ref={node => { essentialPromptRefs.current[index] = node }}
+                    value={essentialPrompts[index] || ''}
+                    onChange={e => onEssentialPromptChange(index, e.target.value)}
+                    onKeyDown={e => {
+                      if (e.key === 'Enter') {
+                        e.preventDefault()
+                        essentialPromptRefs.current[Math.min(index + 1, 2)]?.focus()
+                      }
+                    }}
+                    disabled={!essentialPrompts[index] && totalChangeCount >= 3}
+                    placeholder={placeholder}
+                    className="h-10 w-full rounded-lg border border-white/[0.07] bg-black/20 px-3 text-sm text-foreground outline-none transition-colors placeholder:text-muted-foreground/40 focus:border-[#8bd3ff]/45 disabled:opacity-40"
+                  />
+                ))}
+              </div>
+              <p className="mt-2 text-[11px] leading-relaxed text-muted-foreground/60">
+                Each filled Essential prompt uses one of the 3 available changes in this round.
+              </p>
+              <div className="mt-4 border-t border-white/[0.07] pt-4">
+                <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+                  <div className="min-w-0">
+                    <p className="text-xs font-semibold text-foreground">Essential visual</p>
+                    <p className="mt-0.5 truncate text-[11px] text-muted-foreground">
+                      {essentialsImage?.name || 'Logo, product, screenshot, or exact visual reference'}
+                    </p>
+                  </div>
+                  <div className="flex shrink-0 items-center gap-2">
+                    {essentialsImage?.dataUrl && (
+                      <img src={essentialsImage.dataUrl} alt="Essentials reference" className="h-9 w-9 rounded-lg border border-white/[0.1] object-cover" />
+                    )}
+                    {essentialsImage && (
+                      <button
+                        type="button"
+                        onClick={onRemoveEssentialsImage}
+                        className="inline-flex h-9 items-center rounded-lg border border-white/[0.07] bg-white/[0.03] px-3 text-xs font-semibold text-muted-foreground transition-colors hover:bg-white/[0.06] hover:text-foreground"
+                      >
+                        Remove
+                      </button>
+                    )}
+                    <button
+                      type="button"
+                      onClick={() => essentialsInputRef.current?.click()}
+                      className="inline-flex h-9 items-center gap-2 rounded-lg border border-[#8bd3ff]/25 bg-[#8bd3ff]/[0.06] px-3 text-xs font-semibold text-[#8bd3ff] transition-colors hover:bg-[#8bd3ff]/10"
+                    >
+                      <Upload className="h-3.5 w-3.5" />
+                      {essentialsImage ? 'Replace' : 'Upload'}
+                    </button>
+                    <input
+                      ref={essentialsInputRef}
+                      type="file"
+                      accept="image/*"
+                      className="hidden"
+                      onChange={e => {
+                        const file = e.target.files?.[0]
+                        if (file) onEssentialsImageUpload(file)
+                        e.currentTarget.value = ''
+                      }}
+                    />
+                  </div>
+                </div>
               </div>
             </div>
 
@@ -1819,7 +1898,7 @@ function StudioView({
             </div>
           </div>
         )}
-      </div>
+      </aside>
     </div>
   )
 }
