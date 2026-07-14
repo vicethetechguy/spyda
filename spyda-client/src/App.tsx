@@ -9,12 +9,13 @@ import WorkspaceErrorBoundary from './components/WorkspaceErrorBoundary'
 
 function ProtectedRoute({ children }: { children: React.ReactNode }) {
   const { session, loading } = useAuth()
+  const allowLocalPreview = import.meta.env.DEV && import.meta.env.VITE_DEV_PREVIEW === 'true'
 
   if (loading) {
     return <SpydaSplash message="Checking your workspace access" />
   }
 
-  if (!session) {
+  if (!session && !allowLocalPreview) {
     return <Navigate to="/auth" replace />
   }
 

@@ -26,7 +26,15 @@ import {
   MoreHorizontal,
   Trash2,
   ShieldCheck,
-  ArrowLeft
+  ArrowLeft,
+  Search,
+  Grid2X2,
+  Clock3,
+  Coins,
+  CreditCard,
+  ArrowUpRight,
+  CircleCheck,
+  ReceiptText
 } from 'lucide-react'
 
 /* ═══════════════════════════════════════════════
@@ -392,7 +400,7 @@ function saveProjectSnapshot(project: SavedSpydaProject) {
 }
 
 export default function Workspace() {
-  const [sidebarOpen, setSidebarOpen] = useState(true)
+  const [sidebarOpen, setSidebarOpen] = useState(() => typeof window === 'undefined' || window.innerWidth >= 1024)
   const [activeId, setActiveId] = useState('canvas')
   const [aiModel, setAiModel] = useState<AiModel>(AI_MODELS[1])
   const [modelMenuOpen, setModelMenuOpen] = useState(false)
@@ -910,7 +918,14 @@ export default function Workspace() {
       
       {/* Sidebar */}
       <div className={`fixed inset-y-0 left-0 z-50 lg:relative h-full shrink-0 transition-all duration-300 ease-in-out overflow-hidden bg-[#060608]/95 backdrop-blur-2xl lg:bg-transparent border-r border-white/[0.04] lg:border-none ${sidebarOpen ? 'w-[260px] translate-x-0' : 'w-[260px] -translate-x-full lg:w-0 lg:translate-x-0'}`}>
-        <SidebarNav className="w-[260px] h-full" activeId={activeId} onSelect={setActiveId} />
+        <SidebarNav
+          className="w-[260px] h-full"
+          activeId={activeId}
+          onSelect={(id) => {
+            setActiveId(id)
+            if (window.innerWidth < 1024) setSidebarOpen(false)
+          }}
+        />
       </div>
 
       {/* Main */}
@@ -918,7 +933,13 @@ export default function Workspace() {
         {/* Top Bar */}
         <div className="relative z-50 h-14 shrink-0 border-b border-white/[0.06] bg-[#060608]/80 backdrop-blur-xl flex items-center justify-between px-4">
           <div className="flex items-center gap-3">
-            <button onClick={() => setSidebarOpen(!sidebarOpen)} className="p-2 rounded-lg text-muted-foreground hover:bg-white/[0.05] hover:text-foreground transition-colors">
+            <button
+              type="button"
+              onClick={() => setSidebarOpen(!sidebarOpen)}
+              aria-label={sidebarOpen ? 'Close navigation' : 'Open navigation'}
+              title={sidebarOpen ? 'Close navigation' : 'Open navigation'}
+              className="p-2 rounded-lg text-muted-foreground hover:bg-white/[0.05] hover:text-foreground transition-colors"
+            >
               {sidebarOpen ? <PanelLeftClose className="w-[18px] h-[18px]" strokeWidth={1.5} /> : <PanelLeftOpen className="w-[18px] h-[18px]" strokeWidth={1.5} />}
             </button>
             <div className="flex items-center gap-2 text-sm">
@@ -1038,7 +1059,7 @@ export default function Workspace() {
               }}
             />
           )}
-          {activeId === 'gallery' && <GalleryView />}
+          {activeId === 'gallery' && <GalleryView onNewDesign={() => setActiveId('canvas')} />}
           {activeId === 'wallet' && <WalletView />}
           {activeId === 'settings' && <SettingsView profilePic={profilePic} setProfilePic={setProfilePic} />}
           {!['canvas', 'qa-gate', 'gallery', 'wallet', 'settings'].includes(activeId) && <PlaceholderView title={activeTitle} />}
@@ -1953,93 +1974,167 @@ function AtomCard({
    Other Views (Gallery, Wallet, Settings)
    ═══════════════════════════════════════════════ */
 
-function GalleryView() {
+type GalleryFilter = 'all' | 'generated' | 'draft'
+
+function GalleryView({ onNewDesign }: { onNewDesign: () => void }) {
   const [projects, setProjects] = useState<SavedSpydaProject[]>([])
+  const [query, setQuery] = useState('')
+  const [filter, setFilter] = useState<GalleryFilter>('all')
 
   useEffect(() => {
-    setProjects(loadSavedProjects())
+    const savedProjects = loadSavedProjects()
+    if (!savedProjects.length && import.meta.env.DEV && import.meta.env.VITE_DEV_PREVIEW === 'true') {
+      const now = new Date().toISOString()
+      setProjects([
+        { id: 'preview-1', name: 'Fintech campaign', createdAt: now, updatedAt: now, generatedImage: '/assets/spyda-sample-04.jpeg' },
+        { id: 'preview-2', name: 'Product launch', createdAt: now, updatedAt: now, generatedImage: '/assets/spyda-sample-03.jpeg', qa: { score: 92 } },
+        { id: 'preview-3', name: 'Subscription offer', createdAt: now, updatedAt: now, referencePreview: '/assets/spyda-sample-08.jpeg' },
+        { id: 'preview-4', name: 'App campaign', createdAt: now, updatedAt: now, generatedImage: '/assets/spyda-sample-06.jpeg', qa: { score: 88 } },
+      ])
+      return
+    }
+    setProjects(savedProjects)
   }, [])
 
+  const filteredProjects = useMemo(() => {
+    const normalizedQuery = query.trim().toLowerCase()
+    return projects.filter(project => {
+      const matchesQuery = !normalizedQuery || project.name.toLowerCase().includes(normalizedQuery)
+      const matchesFilter = filter === 'all'
+        || (filter === 'generated' && Boolean(project.generatedImage))
+        || (filter === 'draft' && !project.generatedImage)
+      return matchesQuery && matchesFilter
+    })
+  }, [filter, projects, query])
+
+  const generatedCount = projects.filter(project => project.generatedImage).length
+  const downloadName = (project: SavedSpydaProject) => {
+    const baseName = project.name.replace(/\.[^.]+$/, '').replace(/[^a-z0-9-_]+/gi, '-').replace(/^-+|-+$/g, '') || 'spyda-design'
+    const preview = project.generatedImage || project.referencePreview || ''
+    const extension = /^(data:image\/jpe?g)|\.jpe?g(?:$|\?)/i.test(preview)
+      ? 'jpg'
+      : /^(data:image\/webp)|\.webp(?:$|\?)/i.test(preview)
+        ? 'webp'
+        : 'png'
+    return `${baseName}.${extension}`
+  }
+
   return (
-    <div className="p-8">
-      <div className="flex items-center justify-between mb-8">
+    <div className="mx-auto w-full max-w-[1280px] px-4 py-6 sm:px-6 lg:px-8 lg:py-8">
+      <div className="flex flex-col gap-5 border-b border-white/[0.07] pb-6 sm:flex-row sm:items-end sm:justify-between">
         <div>
-          <h2 className="font-heading text-2xl font-bold">Gallery</h2>
-          <p className="text-sm text-muted-foreground mt-1">Your saved references, breakdowns, and generated designs</p>
+          <div className="mb-2 flex items-center gap-2 text-[11px] font-semibold uppercase text-muted-foreground">
+            <Grid2X2 className="h-3.5 w-3.5 text-primary" />
+            {projects.length} saved design{projects.length !== 1 ? 's' : ''}
+          </div>
+          <h2 className="font-heading text-2xl font-semibold sm:text-[28px]">Your design library</h2>
+          <p className="mt-1.5 max-w-xl text-sm text-muted-foreground">References, active drafts, and finished Spyda generations in one place.</p>
         </div>
-        <button className="inline-flex h-9 items-center gap-2 rounded-lg bg-primary/10 border border-primary/20 px-4 text-sm font-medium text-primary hover:bg-primary/15 transition-colors">
-          <Sparkles className="w-4 h-4" /> New Design
+        <button type="button" onClick={onNewDesign} className="inline-flex h-10 shrink-0 items-center justify-center gap-2 rounded-lg bg-primary px-4 text-sm font-semibold text-primary-foreground transition-colors hover:bg-primary/90">
+          <Plus className="h-4 w-4" /> New design
         </button>
       </div>
-      {projects.length ? (
-        <div className="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-3 gap-6">
-          {projects.map(project => (
-            <div key={project.id} className="group rounded-2xl overflow-hidden border border-white/[0.06] bg-white/[0.025] transition-all hover:border-primary/30 hover:shadow-xl">
-              <div className="relative aspect-[4/5] bg-black/30">
-                {project.generatedImage || project.referencePreview ? (
-                  <img
-                    src={project.generatedImage || project.referencePreview || ''}
-                    alt={project.name}
-                    className="h-full w-full object-cover transition-transform duration-500 group-hover:scale-105"
-                  />
-                ) : (
-                  <div className="flex h-full items-center justify-center">
-                    <Image className="h-10 w-10 text-muted-foreground/30" />
+
+      {projects.length > 0 && (
+        <div className="flex flex-col gap-3 py-5 sm:flex-row sm:items-center sm:justify-between">
+          <label className="relative block w-full sm:max-w-sm">
+            <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
+            <input value={query} onChange={event => setQuery(event.target.value)} placeholder="Search designs" className="h-10 w-full rounded-lg border border-white/[0.08] bg-white/[0.025] pl-10 pr-3 text-sm outline-none transition-colors placeholder:text-muted-foreground/60 focus:border-primary/45" />
+          </label>
+          <div className="grid grid-cols-3 rounded-lg border border-white/[0.08] bg-white/[0.02] p-1">
+            {([
+              { id: 'all', label: 'All', count: projects.length },
+              { id: 'generated', label: 'Generated', count: generatedCount },
+              { id: 'draft', label: 'Drafts', count: projects.length - generatedCount },
+            ] as Array<{ id: GalleryFilter; label: string; count: number }>).map(option => (
+              <button key={option.id} type="button" onClick={() => setFilter(option.id)} className={`h-8 rounded-md px-2.5 text-xs font-medium transition-colors ${filter === option.id ? 'bg-white/[0.08] text-foreground' : 'text-muted-foreground hover:text-foreground'}`}>
+                {option.label} <span className="ml-1 text-[10px] opacity-60">{option.count}</span>
+              </button>
+            ))}
+          </div>
+        </div>
+      )}
+
+      {filteredProjects.length ? (
+        <div className="grid grid-cols-2 gap-3 pb-8 sm:gap-5 lg:gap-6">
+          {filteredProjects.map(project => {
+            const preview = project.generatedImage || project.referencePreview || ''
+            const atomCount = project.breakdown?.design?.editableComponents?.filter(atom => !atom.deleted).length || 0
+            return (
+              <article key={project.id} className="group min-w-0 overflow-hidden rounded-lg border border-white/[0.07] bg-white/[0.025] transition-colors hover:border-primary/30">
+                <div className="relative aspect-[4/5] overflow-hidden bg-[#101113]">
+                  {preview ? <img src={preview} alt={project.name} className="h-full w-full object-contain" /> : <div className="flex h-full items-center justify-center"><Image className="h-10 w-10 text-muted-foreground/30" /></div>}
+                  <div className="absolute left-2 top-2 rounded-md border border-white/10 bg-black/65 px-2 py-1 text-[9px] font-semibold uppercase text-white backdrop-blur-sm sm:left-3 sm:top-3 sm:text-[10px]">
+                    {project.generatedImage ? 'Generated' : 'Draft'}
                   </div>
-                )}
-                <div className="absolute left-3 top-3 rounded-full bg-black/55 px-3 py-1 text-[10px] font-bold uppercase tracking-[0.12em] text-white backdrop-blur">
-                  {project.generatedImage ? 'Generated' : 'Draft'}
+                  <div className="absolute right-2 top-2 flex items-center gap-2 sm:right-3 sm:top-3">
+                    {typeof project.qa?.score === 'number' && <div className="hidden rounded-md border border-primary/20 bg-black/65 px-2 py-1 text-[10px] font-semibold text-primary backdrop-blur-sm sm:block">{project.qa.score}% match</div>}
+                    {preview && <a href={preview} download={downloadName(project)} aria-label={`Download ${project.name}`} title="Download design" className="inline-flex h-8 w-8 items-center justify-center rounded-md border border-white/10 bg-black/65 text-white transition-colors hover:bg-black/85"><Download className="h-4 w-4" /></a>}
+                  </div>
                 </div>
-                {typeof project.qa?.score === 'number' && (
-                  <div className="absolute right-3 top-3 rounded-full bg-primary/90 px-3 py-1 text-xs font-bold text-primary-foreground">
-                    {project.qa.score}/100
+                <div className="p-3 sm:p-4">
+                  <h3 className="truncate font-heading text-sm font-semibold sm:text-base">{project.name}</h3>
+                  <div className="mt-2 flex min-w-0 items-center justify-between gap-2 text-[10px] text-muted-foreground sm:text-xs">
+                    <span className="truncate">{atomCount} atom{atomCount !== 1 ? 's' : ''}</span>
+                    <span className="inline-flex shrink-0 items-center gap-1"><Clock3 className="h-3 w-3" />{new Date(project.updatedAt).toLocaleDateString(undefined, { month: 'short', day: 'numeric' })}</span>
                   </div>
-                )}
-              </div>
-              <div className="p-4">
-                <h3 className="line-clamp-1 font-heading text-base font-semibold">{project.name}</h3>
-                <p className="mt-1 text-xs text-muted-foreground">
-                  {project.breakdown?.design?.editableComponents?.filter(atom => !atom.deleted).length || 0} design atoms saved
-                </p>
-                <p className="mt-3 text-[11px] text-muted-foreground/60">
-                  Updated {new Date(project.updatedAt).toLocaleDateString()}
-                </p>
-              </div>
-            </div>
-          ))}
+                </div>
+              </article>
+            )
+          })}
         </div>
       ) : (
-        <div className="rounded-2xl border border-dashed border-white/[0.08] bg-white/[0.02] p-12 text-center">
-          <Sparkles className="mx-auto mb-4 h-9 w-9 text-primary/50" />
-          <h3 className="font-heading text-lg font-semibold">No saved designs yet</h3>
-          <p className="mt-2 text-sm text-muted-foreground">Analyze or generate a flyer and Spyda will save it here automatically.</p>
+        <div className="border-b border-dashed border-white/[0.09] py-16 text-center">
+          <Grid2X2 className="mx-auto mb-4 h-9 w-9 text-primary/60" />
+          <h3 className="font-heading text-lg font-semibold">{projects.length ? 'No matching designs' : 'Your gallery is ready'}</h3>
+          <p className="mx-auto mt-2 max-w-md text-sm text-muted-foreground">{projects.length ? 'Try a different search or gallery filter.' : 'Create a design and Spyda will keep its reference, atoms, and generated output here.'}</p>
+          {!projects.length && <button type="button" onClick={onNewDesign} className="mt-5 inline-flex h-9 items-center gap-2 rounded-lg border border-primary/25 bg-primary/10 px-4 text-sm font-semibold text-primary hover:bg-primary/15"><Plus className="h-4 w-4" /> Start a design</button>}
         </div>
       )}
     </div>
   )
 }
 
+type CreditTier = {
+  amountUSD: number
+  credits: number
+  label: string
+  title: string
+  detail: string
+  recommended?: boolean
+}
+
+const CREDIT_TIERS: CreditTier[] = [
+  { amountUSD: 5, credits: 500, label: '$5', title: 'Starter', detail: 'For focused edits and quick experiments' },
+  { amountUSD: 10, credits: 1000, label: '$10', title: 'Creator', detail: 'For regular design reconstruction', recommended: true },
+  { amountUSD: 25, credits: 2800, label: '$25', title: 'Studio', detail: 'Extra credits for production work' },
+]
+
 function WalletView() {
   const { user } = useAuth()
   const [balance, setBalance] = useState(0)
   const [loading, setLoading] = useState(true)
+  const [balanceError, setBalanceError] = useState('')
+  const [selectedTier, setSelectedTier] = useState<CreditTier>(CREDIT_TIERS[1])
 
-  // Fetch balance on load
   useEffect(() => {
     async function fetchBalance() {
-      if (!user) return
+      if (!user) {
+        setLoading(false)
+        return
+      }
       try {
         const { data, error } = await supabase
           .from('profiles')
           .select('wallet_balance')
           .eq('id', user.id)
           .single()
-        
-        if (data && data.wallet_balance) {
-          setBalance(data.wallet_balance)
-        }
+
+        if (error) throw error
+        setBalance(Number(data?.wallet_balance || 0))
       } catch (err) {
         console.error('Error fetching balance:', err)
+        setBalanceError('We could not refresh your balance. Try again shortly.')
       } finally {
         setLoading(false)
       }
@@ -2047,130 +2142,131 @@ function WalletView() {
     fetchBalance()
   }, [user])
 
-  // Exchange rate: 1 USD = 1500 NGN (mock)
   const USD_TO_NGN = 1500
-
-  // Paystack configuration logic
-  const handleTopUp = (amountUSD: number, creditsToAdd: number) => {
-    if (!user) return alert("Please log in to add credits.")
-    
-    // Amount in Kobo (NGN * 100)
-    const amountInKobo = amountUSD * USD_TO_NGN * 100
-
-    const config = {
-      reference: (new Date()).getTime().toString(),
-      email: user.email || 'user@spyda.ai',
-      amount: amountInKobo, 
-      publicKey: import.meta.env.VITE_PAYSTACK_PUBLIC_KEY || '',
-      currency: 'NGN'
-    }
-
-    const onSuccess = async (reference: any) => {
-      // Payment complete! Update Supabase
-      const newBalance = balance + creditsToAdd
-      setBalance(newBalance)
-
-      try {
-        await supabase
-          .from('profiles')
-          .update({ wallet_balance: newBalance })
-          .eq('id', user.id)
-        
-        alert(`Success! Transaction Ref: ${reference.reference}. Added ${creditsToAdd} credits!`)
-      } catch (e) {
-        console.error('Error updating balance in DB:', e)
-        alert('Payment succeeded but failed to update database. Please contact support.')
-      }
-    }
-
-    const onClose = () => {
-      console.log('Payment modal closed.')
-    }
-
-    // Since we can't use hooks dynamically inside the click handler, 
-    // we use the Paystack Pop initialization directly or a wrapper component.
-    // However, react-paystack provides usePaystackPayment hook which we can initialize at the top level.
-    // To support dynamic amounts with the hook, we can set the config in state, but it's easier to just use the hook in a child component or use the initializePayment function.
-  }
+  const CREDITS_PER_GENERATION = 12
+  const generationsRemaining = Math.floor(balance / CREDITS_PER_GENERATION)
+  const selectedGenerations = Math.floor(selectedTier.credits / CREDITS_PER_GENERATION)
+  const localPrice = new Intl.NumberFormat('en-NG', { style: 'currency', currency: 'NGN', maximumFractionDigits: 0 }).format(selectedTier.amountUSD * USD_TO_NGN)
 
   return (
-    <div className="p-8 max-w-3xl mx-auto">
-      <h2 className="font-heading text-2xl font-bold mb-2">Wallet</h2>
-      <p className="text-sm text-muted-foreground mb-8">Manage your Spyda credits and billing</p>
-      <div className="relative overflow-hidden rounded-2xl p-8 mb-8">
-        <div className="absolute inset-0 bg-gradient-to-br from-[#22c55e]/20 via-[#16a34a]/10 to-[#8bd3ff]/10 border border-primary/20 rounded-2xl" />
-        <div className="absolute top-0 right-0 w-[300px] h-[300px] bg-primary/10 rounded-full blur-[100px] pointer-events-none" />
-        <div className="relative z-10">
-          <p className="text-sm text-primary/70 font-semibold mb-2">AVAILABLE BALANCE</p>
-          <div className="font-heading text-5xl font-bold text-foreground mb-1">
-            {loading ? <Loader2 className="w-8 h-8 animate-spin" /> : balance} 
-            <span className="text-xl text-muted-foreground font-normal ml-2">Credits</span>
+    <div className="mx-auto w-full max-w-[1180px] px-4 py-6 sm:px-6 lg:px-8 lg:py-8">
+      <div className="border-b border-white/[0.07] pb-6">
+        <div className="mb-2 flex items-center gap-2 text-[11px] font-semibold uppercase text-muted-foreground"><Coins className="h-3.5 w-3.5 text-primary" /> Spyda credits</div>
+        <h2 className="font-heading text-2xl font-semibold sm:text-[28px]">Wallet and billing</h2>
+        <p className="mt-1.5 text-sm text-muted-foreground">Keep your design workflow moving and top up only when you need to.</p>
+      </div>
+
+      <section className="grid gap-5 border-b border-white/[0.07] py-6 md:grid-cols-[1.35fr_1fr] md:items-end lg:py-8">
+        <div>
+          <p className="text-xs font-semibold uppercase text-muted-foreground">Available balance</p>
+          <div className="mt-3 flex min-h-14 items-end gap-3">
+            {loading ? <Loader2 className="mb-2 h-8 w-8 animate-spin text-primary" /> : <span className="font-heading text-5xl font-semibold leading-none sm:text-6xl">{balance.toLocaleString()}</span>}
+            <span className="mb-1 text-sm font-medium text-primary sm:mb-2">credits</span>
           </div>
-          <p className="text-sm text-muted-foreground">≈ {Math.floor(balance / 12)} generations remaining</p>
+          {balanceError ? <p className="mt-3 text-sm text-amber-400">{balanceError}</p> : <p className="mt-3 text-sm text-muted-foreground">Enough for approximately {generationsRemaining.toLocaleString()} design generation{generationsRemaining !== 1 ? 's' : ''}.</p>}
         </div>
-      </div>
-      <h3 className="font-heading font-semibold text-lg mb-4">Quick Top-Up</h3>
-      <div className="grid grid-cols-1 sm:grid-cols-3 gap-4 mb-8">
-        {[
-          { amountUSD: 5, credits: 500, label: "$5" },
-          { amountUSD: 10, credits: 1000, label: "$10" },
-          { amountUSD: 25, credits: 2800, label: "$25" },
-        ].map((tier) => (
-          <PaystackTopUpButton 
-            key={tier.amountUSD} 
-            tier={tier} 
-            user={user} 
-            balance={balance}
-            setBalance={setBalance}
-            usdToNgn={USD_TO_NGN}
-          />
-        ))}
-      </div>
+        <div className="grid grid-cols-2 gap-px overflow-hidden rounded-lg border border-white/[0.08] bg-white/[0.08]">
+          <div className="bg-background p-4"><Zap className="mb-3 h-4 w-4 text-primary" /><p className="text-[11px] uppercase text-muted-foreground">Generation rate</p><p className="mt-1 font-heading text-lg font-semibold">{CREDITS_PER_GENERATION} credits</p></div>
+          <div className="bg-background p-4"><ReceiptText className="mb-3 h-4 w-4 text-primary" /><p className="text-[11px] uppercase text-muted-foreground">Billing account</p><p className="mt-1 truncate text-sm font-semibold" title={user?.email || ''}>{user?.email || 'Signed out'}</p></div>
+        </div>
+      </section>
+
+      <section className="py-6 lg:py-8">
+        <div className="flex items-end justify-between gap-4">
+          <div><h3 className="font-heading text-lg font-semibold">Choose a credit pack</h3><p className="mt-1 text-sm text-muted-foreground">Credits stay available in your Spyda account.</p></div>
+          <CreditCard className="hidden h-5 w-5 text-muted-foreground sm:block" />
+        </div>
+        <div className="mt-5 grid gap-3 md:grid-cols-3">
+          {CREDIT_TIERS.map(tier => {
+            const selected = selectedTier.amountUSD === tier.amountUSD
+            return (
+              <button key={tier.amountUSD} type="button" onClick={() => setSelectedTier(tier)} aria-pressed={selected} className={`relative min-h-40 rounded-lg border p-5 text-left transition-colors ${selected ? 'border-primary/60 bg-primary/[0.07]' : 'border-white/[0.08] bg-white/[0.02] hover:border-white/[0.16]'}`}>
+                <div className="flex items-start justify-between gap-3">
+                  <div>
+                    <div className="flex flex-wrap items-center gap-2">
+                      <p className="text-xs font-semibold uppercase text-muted-foreground">{tier.title}</p>
+                      {tier.recommended && <span className="rounded-sm bg-primary/10 px-1.5 py-0.5 text-[9px] font-semibold uppercase text-primary">Recommended</span>}
+                    </div>
+                    <p className="mt-2 font-heading text-3xl font-semibold">{tier.label}</p>
+                  </div>
+                  <span className={`inline-flex h-5 w-5 items-center justify-center rounded-full border ${selected ? 'border-primary bg-primary text-primary-foreground' : 'border-white/[0.16]'}`}>{selected && <Check className="h-3 w-3" strokeWidth={3} />}</span>
+                </div>
+                <p className="mt-4 text-sm font-semibold text-primary">{tier.credits.toLocaleString()} credits</p>
+                <p className="mt-1 text-xs leading-5 text-muted-foreground">{tier.detail}</p>
+              </button>
+            )
+          })}
+        </div>
+
+        <div className="mt-5 flex flex-col gap-4 border-t border-white/[0.07] pt-5 sm:flex-row sm:items-center sm:justify-between">
+          <div><p className="text-sm font-semibold">{selectedTier.credits.toLocaleString()} credits <span className="font-normal text-muted-foreground">· about {selectedGenerations} generations</span></p><p className="mt-1 text-xs text-muted-foreground">Charged as {localPrice} through Paystack.</p></div>
+          <PaystackTopUpButton tier={selectedTier} user={user} balance={balance} setBalance={setBalance} usdToNgn={USD_TO_NGN} />
+        </div>
+        <div className="mt-6 flex items-start gap-3 border-t border-white/[0.07] pt-5 text-xs leading-5 text-muted-foreground"><ShieldCheck className="mt-0.5 h-4 w-4 shrink-0 text-primary" />Payments are processed securely by Paystack. Your card details are never stored by Spyda.</div>
+      </section>
     </div>
   )
 }
 
-// Subcomponent to handle the usePaystackPayment hook dynamically per tier
-function PaystackTopUpButton({ tier, user, balance, setBalance, usdToNgn }: any) {
+type PaystackTopUpButtonProps = {
+  tier: CreditTier
+  user: ReturnType<typeof useAuth>['user']
+  balance: number
+  setBalance: (balance: number) => void
+  usdToNgn: number
+}
+
+function PaystackTopUpButton({ tier, user, balance, setBalance, usdToNgn }: PaystackTopUpButtonProps) {
+  const [paymentState, setPaymentState] = useState<'idle' | 'processing' | 'success' | 'error'>('idle')
+  const paystackKey = import.meta.env.VITE_PAYSTACK_PUBLIC_KEY || ''
   const config = {
-    reference: (new Date()).getTime().toString() + tier.amountUSD,
+    reference: `${Date.now()}-${tier.amountUSD}`,
     email: user?.email || 'user@spyda.ai',
-    amount: tier.amountUSD * usdToNgn * 100, // NGN to Kobo
-    publicKey: import.meta.env.VITE_PAYSTACK_PUBLIC_KEY || '',
+    amount: tier.amountUSD * usdToNgn * 100,
+    publicKey: paystackKey,
     currency: 'NGN'
   }
 
   const initializePayment = usePaystackPayment(config)
 
-  const handleSuccess = async (reference: any) => {
+  const handleSuccess = async () => {
+    setPaymentState('processing')
     const newBalance = balance + tier.credits
-    setBalance(newBalance)
 
     if (user) {
-      await supabase
-        .from('profiles')
-        .update({ wallet_balance: newBalance })
-        .eq('id', user.id)
+      const { error } = await supabase.from('profiles').update({ wallet_balance: newBalance }).eq('id', user.id)
+      if (error) {
+        console.error('Error updating wallet balance:', error)
+        setPaymentState('error')
+        return
+      }
     }
+    setBalance(newBalance)
+    setPaymentState('success')
   }
 
   const handleClose = () => {
-    // Modal closed
+    setPaymentState('idle')
   }
 
   return (
     <button
+      type="button"
+      disabled={paymentState === 'processing' || !paystackKey}
       onClick={() => {
         if (!user) {
           alert("Please log in to add credits.")
           return
         }
+        setPaymentState('processing')
         initializePayment({ onSuccess: handleSuccess, onClose: handleClose })
       }}
-      className="rounded-xl border border-white/[0.06] bg-white/[0.02] p-6 text-center transition-all hover:border-primary/30 hover:bg-primary/[0.03] cursor-pointer"
+      className="inline-flex h-11 min-w-48 items-center justify-center gap-2 rounded-lg bg-primary px-5 text-sm font-semibold text-primary-foreground transition-colors hover:bg-primary/90 disabled:cursor-not-allowed disabled:opacity-50"
     >
-      <div className="font-heading text-2xl font-bold text-foreground">{tier.label}</div>
-      <div className="text-sm text-muted-foreground mt-1">{tier.credits.toLocaleString()} Credits</div>
+      {paymentState === 'processing' && <Loader2 className="h-4 w-4 animate-spin" />}
+      {paymentState === 'success' && <CircleCheck className="h-4 w-4" />}
+      {paymentState === 'error' ? 'Balance update failed' : paymentState === 'success' ? 'Credits added' : !paystackKey ? 'Payment unavailable' : `Add ${tier.credits.toLocaleString()} credits`}
+      {paymentState === 'idle' && paystackKey && <ArrowUpRight className="h-4 w-4" />}
     </button>
   )
 }
