@@ -119,7 +119,7 @@ function PlanCheckoutButton({ plan, current, onActivated }: { plan: Subscription
   }
 
   return (
-    <button type="button" disabled={current || state === 'processing' || !publicKey || !user} onClick={purchase} className={`mt-5 inline-flex h-10 w-full items-center justify-center gap-2 rounded-lg text-xs font-semibold ${current ? 'border border-primary/30 bg-primary/10 text-primary' : 'bg-primary text-primary-foreground'} disabled:cursor-not-allowed disabled:opacity-60`}>
+    <button type="button" disabled={current || state === 'processing' || !publicKey || !user} onClick={purchase} className={`mt-6 inline-flex h-11 w-full items-center justify-center gap-2 rounded-lg text-sm font-semibold transition-colors ${current ? 'border border-primary/30 bg-primary/10 text-primary' : 'bg-primary text-primary-foreground hover:bg-primary/90'} disabled:cursor-not-allowed disabled:opacity-60`}>
       {state === 'processing' && <Loader2 className="h-4 w-4 animate-spin" />}
       {current ? 'Current plan' : !user ? 'Sign in to subscribe' : !publicKey ? 'Billing unavailable' : `Choose ${plan.name}`}
     </button>
@@ -149,14 +149,23 @@ export function SubscriptionView({ onBack }: { onBack: () => void }) {
 
       {message && <div className="mt-5 flex items-center justify-between gap-3 rounded-lg border border-primary/20 bg-primary/[0.06] p-4 text-sm text-primary"><span>{message}</span><button type="button" onClick={() => setMessage('')} aria-label="Dismiss"><X className="h-4 w-4" /></button></div>}
 
-      <div className="mt-7 grid gap-4 lg:grid-cols-3">
+      <div className="mt-7 flex snap-x snap-mandatory gap-4 overflow-x-auto px-[8vw] pb-3 sm:px-0 lg:grid lg:grid-cols-3 lg:overflow-visible lg:pb-0">
         {PLANS.map(plan => (
-          <article key={plan.id} tabIndex={0} aria-label={`${plan.name} subscription plan`} className={`pricing-texture pricing-texture--${plan.id === 'free' ? 'free' : plan.id === 'creator' ? 'creator' : 'pro'} rounded-lg border p-5 outline-none ${plan.id === subscription.planId ? 'border-primary/40 bg-primary/[0.05]' : 'border-white/[0.08] bg-white/[0.02]'}`}>
-            <div className="flex items-start justify-between gap-3"><div><h3 className="font-heading text-xl font-semibold">{plan.name}</h3><p className="mt-1 text-xs text-primary">{plan.credits}</p></div>{plan.id === subscription.planId && <CheckCircle2 className="h-5 w-5 text-primary" />}</div>
-            <p className="mt-4 font-heading text-3xl font-semibold">{plan.price ? `NGN ${plan.price.toLocaleString()}` : 'Free'} <span className="font-sans text-xs font-normal text-muted-foreground">{plan.price ? '/ 30 days' : ''}</span></p>
-            <p className="mt-3 min-h-10 text-xs leading-5 text-muted-foreground">{plan.description}</p>
-            <div className="mt-5 space-y-3 border-t border-white/[0.07] pt-5">{plan.features.map(feature => <div key={feature} className="flex items-center gap-2 text-xs"><Check className="h-3.5 w-3.5 text-primary" /> {feature}</div>)}</div>
-            {plan.id === 'free' ? <button type="button" disabled={subscription.planId === 'free'} onClick={cancelAccess} className="mt-5 h-10 w-full rounded-lg border border-white/[0.1] text-xs font-semibold disabled:opacity-60">{subscription.planId === 'free' ? 'Current plan' : 'Move to Free'}</button> : <PlanCheckoutButton plan={plan} current={plan.id === subscription.planId} onActivated={record => { setSubscription(record); setMessage(`${plan.name} access is now active.`) }} />}
+          <article key={plan.id} tabIndex={0} aria-label={`${plan.name} subscription plan`} className={`pricing-texture pricing-texture--${plan.id === 'free' ? 'free' : plan.id === 'creator' ? 'creator' : 'pro'} relative flex w-[84vw] max-w-[340px] shrink-0 snap-start flex-col rounded-lg border p-6 outline-none sm:w-[340px] lg:w-auto lg:max-w-none ${plan.id === 'creator' ? 'border-primary/45 bg-primary/[0.04]' : 'border-white/[0.07] bg-white/[0.02]'}`}>
+            {plan.id === 'creator' && <span className="absolute right-4 top-4 rounded bg-primary/10 px-2 py-1 text-[9px] font-semibold uppercase tracking-[0.12em] text-primary">Popular</span>}
+            <h3 className="font-heading text-lg font-semibold">{plan.name}</h3>
+            <p className="mt-4 font-heading text-3xl font-semibold">{plan.price ? `NGN ${plan.price.toLocaleString()}` : 'Free'}</p>
+            <p className="mt-1 text-xs text-primary">{plan.price ? '30 days of access' : plan.credits}</p>
+            <p className="mt-4 min-h-12 text-sm leading-6 text-muted-foreground">{plan.description}</p>
+            <ul className="mt-5 flex-1 space-y-3 border-t border-white/[0.07] pt-5">
+              {plan.features.map(feature => (
+                <li key={feature} className="flex items-start gap-2.5 text-xs leading-5 text-muted-foreground">
+                  <Check className="mt-0.5 h-3.5 w-3.5 shrink-0 text-primary" strokeWidth={2.4} />
+                  {feature}
+                </li>
+              ))}
+            </ul>
+            {plan.id === 'free' ? <button type="button" disabled={subscription.planId === 'free'} onClick={cancelAccess} className="mt-6 inline-flex h-11 w-full items-center justify-center rounded-lg border border-white/[0.1] bg-white/[0.03] text-sm font-semibold transition-colors hover:bg-white/[0.07] disabled:cursor-not-allowed disabled:opacity-60">{subscription.planId === 'free' ? 'Current plan' : 'Move to Free'}</button> : <PlanCheckoutButton plan={plan} current={plan.id === subscription.planId} onActivated={record => { setSubscription(record); setMessage(`${plan.name} access is now active.`) }} />}
           </article>
         ))}
       </div>
