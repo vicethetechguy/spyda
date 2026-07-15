@@ -344,7 +344,7 @@ export function BrandAssetsView({ onUseAsset }: { onUseAsset: (asset: BrandAsset
     setAssets(next)
     window.localStorage.setItem(BRAND_ASSETS_KEY, JSON.stringify(next))
   }
-  const add = (asset: Omit<BrandAsset, 'id' | 'createdAt'>) => saveAssets([{ ...asset, id: crypto.randomUUID(), createdAt: new Date().toISOString() }, ...assets])
+  const add = (asset: Omit<BrandAsset, 'id' | 'createdAt'>) => saveAssets([{ ...asset, id: typeof crypto !== 'undefined' && 'randomUUID' in crypto ? crypto.randomUUID() : `asset-${Date.now()}`, createdAt: new Date().toISOString() }, ...assets])
   const addColor = () => {
     if (!/^#[0-9a-fA-F]{6}$/.test(color)) return setError('Enter a six-digit HEX color, such as #22C55E.')
     add({ kind: 'color', name: colorName.trim() || color.toUpperCase(), value: color.toUpperCase() }); setError('')

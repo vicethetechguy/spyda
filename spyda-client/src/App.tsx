@@ -6,17 +6,44 @@ import Workspace from './pages/Workspace'
 import Auth from './pages/Auth'
 import SpydaSplash from './components/SpydaSplash'
 import WorkspaceErrorBoundary from './components/WorkspaceErrorBoundary'
+import { supabase } from './lib/supabase'
 
 function ProtectedRoute({ children }: { children: React.ReactNode }) {
   const { session, loading } = useAuth()
+  const [securityState, setSecurityState] = useState<'checking' | 'allowed' | 'mfa-required'>('checking')
   const allowLocalPreview = import.meta.env.DEV && import.meta.env.VITE_DEV_PREVIEW === 'true'
+
+  useEffect(() => {
+    let active = true
+    if (!session) {
+      setSecurityState(allowLocalPreview ? 'allowed' : 'checking')
+      return () => { active = false }
+    }
+
+    setSecurityState('checking')
+    supabase.auth.mfa.getAuthenticatorAssuranceLevel().then(({ data }) => {
+      if (!active) return
+      setSecurityState(data?.nextLevel === 'aal2' && data?.currentLevel !== 'aal2' ? 'mfa-required' : 'allowed')
+    }).catch(() => {
+      if (active) setSecurityState('allowed')
+    })
+    return () => { active = false }
+  }, [allowLocalPreview, session])
 
   if (loading) {
     return <SpydaSplash message="Checking your workspace access" />
   }
 
   if (!session && !allowLocalPreview) {
-    return <Navigate to="/" replace />
+    return <Navigate to="/auth" replace />
+  }
+
+  if (session && securityState === 'mfa-required') {
+    return <Navigate to="/auth" replace />
+  }
+
+  if (securityState === 'checking') {
+    return <SpydaSplash message="Checking account security" />
   }
 
   return <>{children}</>

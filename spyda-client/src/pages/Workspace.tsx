@@ -516,6 +516,8 @@ export default function Workspace() {
     gallery: 'Gallery',
     history: 'History',
     projects: 'Projects',
+    'p-active': 'Active Projects',
+    'p-archived': 'Archived Projects',
     templates: 'Templates',
     'brand-assets': 'Brand Assets',
     wallet: 'Wallet',
@@ -2449,7 +2451,7 @@ function SettingsView({ profilePic, setProfilePic, onManageSubscription }: { pro
     async function loadProfile() {
       if (!user) return
       try {
-        const { data, error } = await supabase
+        const { data } = await supabase
           .from('profiles')
           .select('*')
           .eq('id', user.id)

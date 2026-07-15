@@ -91,7 +91,7 @@ function WorkspaceSwitcher({
               {current}
             </span>
             <span className="text-[11px] text-muted-foreground leading-none">
-              Pro Plan
+              Design workspace
             </span>
           </div>
         </div>

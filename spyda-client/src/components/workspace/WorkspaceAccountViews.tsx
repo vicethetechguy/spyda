@@ -44,13 +44,12 @@ type SubscriptionPlan = {
   credits: string
   description: string
   features: string[]
-  planCode?: string
 }
 
 const PLANS: SubscriptionPlan[] = [
   { id: 'free', name: 'Free', price: 0, credits: 'Starter access', description: 'Explore the Spyda workflow.', features: ['3 saved projects', 'Basic design analysis', 'Community templates'] },
-  { id: 'creator', name: 'Creator', price: 12000, credits: '1,200 monthly credits', description: 'For creators producing campaigns regularly.', features: ['Unlimited saved projects', 'Premium analysis', 'Brand asset library', 'Priority generation'], planCode: import.meta.env.VITE_PAYSTACK_CREATOR_PLAN_CODE },
-  { id: 'studio', name: 'Studio', price: 30000, credits: '3,500 monthly credits', description: 'For teams and high-volume design work.', features: ['Everything in Creator', 'Shared project capacity', 'Faster processing queue', 'Advanced brand controls'], planCode: import.meta.env.VITE_PAYSTACK_STUDIO_PLAN_CODE },
+  { id: 'creator', name: 'Creator', price: 12000, credits: '1,200 credits per access period', description: 'For creators producing campaigns regularly.', features: ['Unlimited saved projects', 'Premium analysis', 'Brand asset library', 'Priority generation'] },
+  { id: 'studio', name: 'Studio', price: 30000, credits: '3,500 credits per access period', description: 'For teams and high-volume design work.', features: ['Everything in Creator', 'Shared project capacity', 'Faster processing queue', 'Advanced brand controls'] },
 ]
 
 function subscriptionStorageKey(userId?: string) {
@@ -92,7 +91,6 @@ function PlanCheckoutButton({ plan, current, onActivated }: { plan: Subscription
     amount: plan.price * 100,
     currency: 'NGN',
     reference: `spyda-sub-${plan.id}-${Date.now()}`,
-    ...(plan.planCode ? { plan: plan.planCode } : {}),
   }
   const initializePayment = usePaystackPayment(config)
 
@@ -165,7 +163,7 @@ export function SubscriptionView({ onBack }: { onBack: () => void }) {
 
       <div className="mt-8 grid gap-5 lg:grid-cols-[1fr_320px]">
         <section className="rounded-lg border border-white/[0.08] bg-white/[0.02] p-5"><div className="flex items-center gap-2"><CreditCard className="h-4 w-4 text-primary" /><h3 className="text-sm font-semibold">Billing history</h3></div>{!subscription.billingHistory.length ? <p className="mt-5 text-sm text-muted-foreground">No payments have been made on this account yet.</p> : <div className="mt-4 divide-y divide-white/[0.07]">{subscription.billingHistory.map(entry => <div key={entry.id} className="flex items-center justify-between gap-4 py-3"><div><p className="text-sm font-medium capitalize">{entry.plan} access</p><p className="mt-1 text-[11px] text-muted-foreground">{formatDate(entry.date)} · {entry.reference}</p></div><p className="text-sm font-semibold">NGN {entry.amount.toLocaleString()}</p></div>)}</div>}</section>
-        <aside className="rounded-lg border border-white/[0.08] bg-white/[0.02] p-5"><ShieldCheck className="h-5 w-5 text-primary" /><h3 className="mt-3 text-sm font-semibold">Protected checkout</h3><p className="mt-2 text-xs leading-5 text-muted-foreground">Payments are handled by Paystack. Spyda does not store your card details.</p><div className="mt-4 flex items-center gap-2 text-xs text-muted-foreground"><CalendarDays className="h-4 w-4" /> Paid access lasts 30 days unless a recurring Paystack plan is configured.</div></aside>
+        <aside className="rounded-lg border border-white/[0.08] bg-white/[0.02] p-5"><ShieldCheck className="h-5 w-5 text-primary" /><h3 className="mt-3 text-sm font-semibold">Protected checkout</h3><p className="mt-2 text-xs leading-5 text-muted-foreground">Payments are handled by Paystack. Spyda does not store your card details.</p><div className="mt-4 flex items-center gap-2 text-xs text-muted-foreground"><CalendarDays className="h-4 w-4" /> Each payment activates 30 days of access. It does not renew automatically.</div></aside>
       </div>
     </div>
   )
