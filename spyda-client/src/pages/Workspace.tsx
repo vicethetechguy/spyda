@@ -932,7 +932,7 @@ export default function Workspace() {
       <div className="flex-1 flex flex-col min-w-0">
         {/* Top Bar */}
         <div className="relative z-50 h-14 shrink-0 border-b border-white/[0.06] bg-[#060608]/80 backdrop-blur-xl flex items-center justify-between px-4">
-          <div className="flex items-center gap-3">
+          <div className="flex min-w-0 items-center gap-2 sm:gap-3">
             <button
               type="button"
               onClick={() => setSidebarOpen(!sidebarOpen)}
@@ -942,10 +942,10 @@ export default function Workspace() {
             >
               {sidebarOpen ? <PanelLeftClose className="w-[18px] h-[18px]" strokeWidth={1.5} /> : <PanelLeftOpen className="w-[18px] h-[18px]" strokeWidth={1.5} />}
             </button>
-            <div className="flex items-center gap-2 text-sm">
-              <span className="text-muted-foreground">My Workspace</span>
-              <span className="text-muted-foreground/30">/</span>
-              <span className="font-semibold text-foreground">{activeTitle}</span>
+            <div className="flex min-w-0 items-center gap-2 text-sm">
+              <span className="hidden text-muted-foreground sm:inline">My Workspace</span>
+              <span className="hidden text-muted-foreground/30 sm:inline">/</span>
+              <span className="truncate font-semibold text-foreground">{activeTitle}</span>
               {activeId === 'canvas' && (
                 <button
                   onClick={() => setActiveId('qa-gate')}
@@ -960,7 +960,7 @@ export default function Workspace() {
               )}
             </div>
           </div>
-          <div className="flex items-center gap-3">
+          <div className="flex shrink-0 items-center gap-2 sm:gap-3">
             {/* AI Model Switcher */}
             <div className="relative">
               <button
@@ -997,8 +997,8 @@ export default function Workspace() {
               )}
             </div>
             {activeId === 'canvas' && uploadedFile && (
-              <button onClick={handleReset} className="inline-flex h-8 items-center gap-2 rounded-lg border border-white/[0.08] bg-white/[0.03] px-3 text-xs font-medium text-muted-foreground hover:bg-white/[0.06] transition-colors">
-                <RotateCcw className="w-3.5 h-3.5" /> Reset
+              <button onClick={handleReset} title="Reset" aria-label="Reset" className="inline-flex h-8 items-center gap-2 rounded-lg border border-white/[0.08] bg-white/[0.03] px-2.5 text-xs font-medium text-muted-foreground hover:bg-white/[0.06] transition-colors sm:px-3">
+                <RotateCcw className="w-3.5 h-3.5" /> <span className="hidden sm:inline">Reset</span>
               </button>
             )}
             <button 
@@ -1635,9 +1635,9 @@ function StudioView({
             </div>
           </div>
         ) : breakdown ? (
-          <div className="min-h-0 flex-1 space-y-4 overflow-y-auto p-4 sm:p-5 lg:p-6">
+          <div className="min-h-0 flex-1 space-y-4 overflow-y-auto px-4 pb-4 sm:px-5 sm:pb-5 lg:px-6 lg:pb-6">
             {/* Header */}
-            <div className="sticky top-0 z-20 -mx-4 -mt-4 mb-2 flex items-center justify-between gap-3 border-b border-white/[0.07] bg-[#080a09]/95 px-4 pb-4 pt-[calc(1rem+env(safe-area-inset-top))] backdrop-blur-xl sm:-mx-5 sm:-mt-5 sm:px-5 lg:-mx-6 lg:-mt-6 lg:bg-background/95 lg:px-6 lg:py-4">
+            <div className="sticky top-0 z-30 -mx-4 mb-2 flex items-center justify-between gap-3 border-b border-white/[0.07] bg-[#080a09] px-4 pb-4 pt-[calc(1rem+env(safe-area-inset-top))] sm:-mx-5 sm:px-5 lg:-mx-6 lg:bg-background lg:px-6 lg:py-4">
               <div className="min-w-0">
                 <h3 className="font-heading text-lg font-semibold">Design Atoms</h3>
                 <p className="mt-0.5 truncate text-xs text-muted-foreground">
@@ -1954,7 +1954,7 @@ function AtomCard({
             <MoreHorizontal className="h-4 w-4" />
           </button>
           {menuOpen && (
-            <div className="absolute right-0 top-9 z-30 w-40 overflow-hidden rounded-xl border border-white/[0.08] bg-[#101312] p-1 shadow-2xl shadow-black/40">
+            <div className="absolute right-0 top-9 z-20 w-40 overflow-hidden rounded-xl border border-white/[0.08] bg-[#101312] p-1 shadow-2xl shadow-black/40">
               <button
                 type="button"
                 onClick={() => {
