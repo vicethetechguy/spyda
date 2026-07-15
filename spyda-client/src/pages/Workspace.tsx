@@ -159,6 +159,10 @@ const OUTPUT_SIZE_OPTIONS = [
   { value: 'a4-landscape-3508x2480', label: 'A4 Landscape', detail: '3508 x 2480' },
 ]
 
+// Vercel Functions accept 4.5 MB request bodies. Keep multipart uploads below
+// 4 MB so field metadata and boundaries have room without reaching the limit.
+const SAFE_GENERATION_UPLOAD_BYTES = 4 * 1024 * 1024
+
 const HEX_COLOR_PATTERN = /^#?[0-9a-fA-F]{6}$/
 
 function normalizeHexColor(value: string, fallback: string) {
@@ -206,9 +210,9 @@ function imageFileToDataUrl(file: File, maxWidth = 1024, maxHeight = 1024, quali
 
         resolve(canvas.toDataURL(mimeType, quality))
       }
-      img.onerror = (error: any) => reject(error)
+      img.onerror = () => reject(new Error('Spyda could not read this uploaded image. Try uploading it again as PNG, JPEG, or WebP.'))
     }
-    reader.onerror = (error: any) => reject(error)
+    reader.onerror = () => reject(new Error('Spyda could not read this uploaded image. Try uploading it again.'))
   })
 }
 
@@ -241,9 +245,9 @@ function imageFileToBlob(file: File, maxWidth = 1024, maxHeight = 1024, quality 
           else reject(new Error('Could not prepare image for generation.'))
         }, mimeType, quality)
       }
-      img.onerror = (error: any) => reject(error)
+      img.onerror = () => reject(new Error('Spyda could not read this uploaded image. Try uploading it again as PNG, JPEG, or WebP.'))
     }
-    reader.onerror = (error: any) => reject(error)
+    reader.onerror = () => reject(new Error('Spyda could not read this uploaded image. Try uploading it again.'))
   })
 }
 
@@ -283,7 +287,7 @@ function imageSourceToBlob(imageSrc: string, maxWidth = 1024, maxHeight = 1024, 
         else reject(new Error('Could not prepare image for generation.'))
       }, mimeType, quality)
     }
-    img.onerror = (error: any) => reject(error)
+    img.onerror = () => reject(new Error('Spyda could not prepare one of the selected images. Re-upload that asset and try again.'))
     img.src = imageSrc
   })
 }
@@ -296,9 +300,9 @@ function getImageDimensionsFromFile(file: File): Promise<{ width: number; height
       const img = new window.Image()
       img.src = event.target?.result as string
       img.onload = () => resolve({ width: img.naturalWidth || img.width, height: img.naturalHeight || img.height })
-      img.onerror = (error: any) => reject(error)
+      img.onerror = () => reject(new Error('Spyda could not read the uploaded reference dimensions. Re-upload the reference and try again.'))
     }
-    reader.onerror = (error: any) => reject(error)
+    reader.onerror = () => reject(new Error('Spyda could not read the uploaded reference. Re-upload it and try again.'))
   })
 }
 
@@ -336,7 +340,7 @@ function resizeImageToDimensions(imageSrc: string, width: number, height: number
       ctx.drawImage(img, cropX, cropY, cropWidth, cropHeight, 0, 0, width, height)
       resolve(canvas.toDataURL('image/png'))
     }
-    img.onerror = (error: any) => reject(error)
+    img.onerror = () => reject(new Error('Spyda received an unreadable generated image. Apply the round again.'))
     img.src = imageSrc
   })
 }
@@ -354,14 +358,21 @@ function getImageSizeChoice(file: File): Promise<string> {
         else if (ratio < 0.9) resolve('Portrait 1024 x 1536')
         else resolve('Square 1024 x 1024')
       }
-      img.onerror = (error: any) => reject(error)
+      img.onerror = () => reject(new Error('Spyda could not read the uploaded reference size. Re-upload it and try again.'))
     }
-    reader.onerror = (error: any) => reject(error)
+    reader.onerror = () => reject(new Error('Spyda could not read the uploaded reference. Re-upload it and try again.'))
   })
 }
 
 async function readApiJson<T>(response: Response): Promise<T> {
   const contentType = response.headers.get('content-type') || ''
+
+  if (response.status === 413) {
+    throw new Error('The generation package exceeded Vercel\'s upload limit. Remove one replacement image or upload smaller files, then try again.')
+  }
+  if (response.status === 408 || response.status === 504) {
+    throw new Error('The generation request timed out before the image model finished. Your selected changes are still saved; try Apply again.')
+  }
 
   if (contentType.includes('application/json')) {
     const payload = await response.json()
@@ -372,6 +383,12 @@ async function readApiJson<T>(response: Response): Promise<T> {
   }
 
   const text = await response.text()
+  if (/FUNCTION_INVOCATION_TIMEOUT|timed out/i.test(text)) {
+    throw new Error('The generation request timed out before the image model finished. Your selected changes are still saved; try Apply again.')
+  }
+  if (/FUNCTION_PAYLOAD_TOO_LARGE|payload too large/i.test(text)) {
+    throw new Error('The generated image or upload package exceeded Vercel\'s size limit. Try again after removing one replacement image.')
+  }
   const serverMessage = text.trim().slice(0, 220) || `Server returned ${response.status}.`
   throw new Error(serverMessage)
 }
@@ -842,14 +859,21 @@ export default function Workspace() {
       const form = new FormData()
       form.append('recipe', JSON.stringify(recipe))
       const childSourceBlob = await imageSourceToBlob(compositeDataUrl, 1024, 1536, 0.85)
+      let uploadBytes = childSourceBlob.size
       form.append('childSourceImage', childSourceBlob, 'working-design.jpg')
       if (essentialsImage) {
         const essentialsBlob = await imageSourceToBlob(essentialsImage.dataUrl, 768, 768, 0.78)
+        uploadBytes += essentialsBlob.size
         form.append('essentialsImage', essentialsBlob, essentialsImage.name || 'essentials-reference.jpg')
       }
       for (const image of referenceImages) {
         const blob = await imageSourceToBlob(image.dataUrl, 768, 768, 0.78)
+        uploadBytes += blob.size
         form.append(image.fieldName, blob, image.name || `${image.sectionId}.jpg`)
+      }
+
+      if (uploadBytes > SAFE_GENERATION_UPLOAD_BYTES) {
+        throw new Error('This generation package is still too large for the server. Remove one replacement image or upload smaller image files, then try again.')
       }
 
       const res = await fetch('/api/generate', {
@@ -860,7 +884,9 @@ export default function Workspace() {
 
       if (data?.ok && data?.image) {
         setGenerationStage(data.qa ? 'Checking reference match' : 'Finalizing design')
-        const imageSrc = data.image.startsWith('http') ? data.image : `data:image/png;base64,${data.image}`
+        const imageSrc = data.image.startsWith('http') || data.image.startsWith('data:image/')
+          ? data.image
+          : `data:image/webp;base64,${data.image}`
         await finalizeRound(imageSrc, data.qa || null)
       } else if (data?.ok && !data?.image) {
         setGenerateError(data?.message || 'Generation returned no image (mock mode — set OPENAI_API_KEY).')
@@ -871,8 +897,8 @@ export default function Workspace() {
       const message = String(err?.message || '')
       setGenerateError(
         message === 'Failed to fetch'
-          ? 'The generation request could not reach the server. Refresh and try again. If it repeats, use fewer large replacement images in that round.'
-          : message || 'Generation request could not reach the server. Refresh and try again with smaller replacement images.'
+          ? 'Spyda could not connect to the generation server. Check your connection and retry; your selected changes are still saved.'
+          : message || 'Spyda could not prepare one of the selected images. Re-upload that replacement or Essential visual, then try again.'
       )
     } finally {
       setGenerationStage('')

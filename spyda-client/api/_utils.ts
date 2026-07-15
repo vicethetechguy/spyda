@@ -881,7 +881,8 @@ function buildImageEditForm({
   form.append("prompt", prompt);
   form.append("size", size);
   form.append("quality", quality);
-  form.append("output_format", "png");
+  form.append("output_format", "webp");
+  form.append("output_compression", "86");
 
   for (const [index, image] of referenceImages.entries()) {
     const blob = dataUrlToBlob(image.dataUrl);
@@ -890,6 +891,11 @@ function buildImageEditForm({
   }
 
   return form;
+}
+
+function normalizeGeneratedImageOutput(value: string | null | undefined, mimeType = "image/webp") {
+  if (!value || value.startsWith("http") || value.startsWith("data:image/")) return value || null;
+  return `data:${mimeType};base64,${value}`;
 }
 
 async function requestOpenAiImageEdit({
@@ -959,13 +965,19 @@ export async function generateDesign({ recipe }: { recipe: any }) {
       });
     }
 
-    return { ok: true, mode: "openai-edit", model: actualModel, image: payload.data?.[0]?.b64_json || payload.data?.[0]?.url || null };
+    return {
+      ok: true,
+      mode: "openai-edit",
+      model: actualModel,
+      image: normalizeGeneratedImageOutput(payload.data?.[0]?.b64_json || payload.data?.[0]?.url),
+    };
   }
 
   const requestBody: Record<string, unknown> = { model: actualModel, prompt, size, quality };
 
   if (isGptImageModel(actualModel)) {
-    requestBody.output_format = "png";
+    requestBody.output_format = "webp";
+    requestBody.output_compression = 86;
   } else {
     requestBody.response_format = "b64_json";
   }
@@ -982,5 +994,10 @@ export async function generateDesign({ recipe }: { recipe: any }) {
   }
 
   const payload = await response.json();
-  return { ok: true, mode: "openai", model: actualModel, image: payload.data?.[0]?.b64_json || payload.data?.[0]?.url || null };
+  return {
+    ok: true,
+    mode: "openai",
+    model: actualModel,
+    image: normalizeGeneratedImageOutput(payload.data?.[0]?.b64_json || payload.data?.[0]?.url),
+  };
 }
