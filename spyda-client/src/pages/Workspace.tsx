@@ -650,7 +650,8 @@ export default function Workspace() {
     const selectedAtoms = (breakdown.design?.editableComponents || [])
       .filter(s => !s.deleted && atomEdits[s.id]?.mode === 'customize')
     const filledEssentials = essentialPrompts.map(prompt => prompt.trim()).filter(Boolean)
-    const totalChanges = selectedAtoms.length + filledEssentials.length
+    const essentialVisualSlots = essentialsImage && filledEssentials.length === 0 ? 1 : 0
+    const totalChanges = selectedAtoms.length + filledEssentials.length + essentialVisualSlots
 
     if (totalChanges < 1) {
       setGenerateError('Pick at least 1 change before applying this round.')
@@ -1497,7 +1498,8 @@ function StudioView({
   const selectedSections = visibleSections.filter(section => atomEdits[section.id]?.mode === 'customize')
   const selectedAtomCount = selectedSections.length
   const essentialCount = essentialPrompts.filter(prompt => prompt.trim()).length
-  const totalChangeCount = selectedAtomCount + essentialCount
+  const essentialVisualSlots = essentialsImage && essentialCount === 0 ? 1 : 0
+  const totalChangeCount = selectedAtomCount + essentialCount + essentialVisualSlots
   const remainingChangeCount = Math.max(0, 3 - totalChangeCount)
   const canApplyRound = totalChangeCount >= 1 && totalChangeCount <= 3
   const activeSourcePreview = generatedImage || uploadedPreview
@@ -1648,11 +1650,11 @@ function StudioView({
                 <button
                   type="button"
                   onClick={onGenerate}
-                  disabled={isGenerating || !canApplyRound}
+                  disabled={isGenerating}
                   className="inline-flex h-9 items-center gap-2 rounded-lg bg-primary px-3 text-xs font-bold text-primary-foreground transition-colors hover:bg-primary/90 disabled:pointer-events-none disabled:opacity-50 sm:px-4"
                 >
                   {isGenerating ? <Loader2 className="h-4 w-4 animate-spin" /> : <Zap className="h-4 w-4" />}
-                  {isGenerating ? 'Applying' : `Apply ${totalChangeCount}/3`}
+                  {isGenerating ? 'Applying' : totalChangeCount === 0 ? 'Select change' : totalChangeCount > 3 ? 'Reduce changes' : `Apply ${totalChangeCount}/3`}
                 </button>
                 <button
                   type="button"
@@ -1666,12 +1668,17 @@ function StudioView({
             </div>
 
             <div className="min-h-0 flex-1 space-y-4 overflow-y-auto overscroll-contain px-4 pb-[calc(1rem+env(safe-area-inset-bottom))] pt-4 sm:px-5 sm:pb-5 lg:px-6 lg:pb-6">
+            {generateError && (
+              <div role="alert" className="rounded-lg border border-destructive/30 bg-destructive/10 px-4 py-3 text-sm leading-relaxed text-destructive">
+                {generateError}
+              </div>
+            )}
             <div className="rounded-xl border border-white/[0.06] bg-white/[0.025] p-4">
               <div className="flex flex-wrap items-center justify-between gap-3">
                 <div>
                   <p className="text-xs font-bold uppercase tracking-[0.12em] text-primary">Edit round — up to 3 focused changes</p>
                   <p className="mt-1 text-xs text-muted-foreground">
-                    {selectedAtomCount} atom change{selectedAtomCount !== 1 ? 's' : ''} + {essentialCount} Essential prompt{essentialCount !== 1 ? 's' : ''}. {remainingChangeCount} slot{remainingChangeCount !== 1 ? 's' : ''} left.
+                    {selectedAtomCount} atom change{selectedAtomCount !== 1 ? 's' : ''} + {essentialCount} Essential prompt{essentialCount !== 1 ? 's' : ''}{essentialVisualSlots ? ' + 1 Essential visual' : ''}. {remainingChangeCount} slot{remainingChangeCount !== 1 ? 's' : ''} left.
                     {placedSwapCount > 0 ? ` ${placedSwapCount} replacement image${placedSwapCount !== 1 ? 's' : ''} placed at exact size.` : ''}
                   </p>
                 </div>
@@ -1869,11 +1876,11 @@ function StudioView({
             <div className="pt-4 pb-8 space-y-3 mt-auto">
               <button
                 onClick={onGenerate}
-                disabled={isGenerating || !canApplyRound}
+                disabled={isGenerating}
                 className="w-full inline-flex h-14 items-center justify-center gap-3 rounded-xl bg-gradient-to-r from-[#22c55e] to-[#16a34a] text-sm font-bold text-primary-foreground shadow-[0_18px_44px_rgba(157,250,176,0.22)] transition-all hover:shadow-[0_22px_54px_rgba(157,250,176,0.32)] hover:-translate-y-0.5 disabled:opacity-50 disabled:pointer-events-none"
               >
                 {isGenerating ? <Loader2 className="w-5 h-5 animate-spin" /> : <Sparkles className="w-5 h-5" />}
-                {isGenerating ? 'Applying changes...' : `Apply Round with AI (${totalChangeCount}/3)`}
+                {isGenerating ? 'Applying changes...' : totalChangeCount === 0 ? 'Select a change to continue' : totalChangeCount > 3 ? 'Reduce this round to 3 changes' : `Apply Round with AI (${totalChangeCount}/3)`}
               </button>
               {instantPasteAvailable && (
                 <button
