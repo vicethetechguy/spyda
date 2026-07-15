@@ -151,7 +151,7 @@ export function SubscriptionView({ onBack }: { onBack: () => void }) {
 
       <div className="mt-7 grid gap-4 lg:grid-cols-3">
         {PLANS.map(plan => (
-          <article key={plan.id} className={`rounded-lg border p-5 ${plan.id === subscription.planId ? 'border-primary/40 bg-primary/[0.05]' : 'border-white/[0.08] bg-white/[0.02]'}`}>
+          <article key={plan.id} tabIndex={0} aria-label={`${plan.name} subscription plan`} className={`pricing-texture pricing-texture--${plan.id === 'free' ? 'free' : plan.id === 'creator' ? 'creator' : 'pro'} rounded-lg border p-5 outline-none ${plan.id === subscription.planId ? 'border-primary/40 bg-primary/[0.05]' : 'border-white/[0.08] bg-white/[0.02]'}`}>
             <div className="flex items-start justify-between gap-3"><div><h3 className="font-heading text-xl font-semibold">{plan.name}</h3><p className="mt-1 text-xs text-primary">{plan.credits}</p></div>{plan.id === subscription.planId && <CheckCircle2 className="h-5 w-5 text-primary" />}</div>
             <p className="mt-4 font-heading text-3xl font-semibold">{plan.price ? `NGN ${plan.price.toLocaleString()}` : 'Free'} <span className="font-sans text-xs font-normal text-muted-foreground">{plan.price ? '/ 30 days' : ''}</span></p>
             <p className="mt-3 min-h-10 text-xs leading-5 text-muted-foreground">{plan.description}</p>

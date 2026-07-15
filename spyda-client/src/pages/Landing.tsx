@@ -13,7 +13,6 @@ import {
   RefreshCw,
   ScanSearch,
   SlidersHorizontal,
-  Sparkles,
   Upload,
   WandSparkles,
 } from 'lucide-react'
@@ -39,16 +38,17 @@ function FeatureCard({ icon: Icon, title, desc }: { icon: React.ElementType; tit
   )
 }
 
-function PricingCard({ name, price, detail, desc, features, featured }: {
+function PricingCard({ name, price, detail, desc, features, featured, texture }: {
   name: string
   price: string
   detail: string
   desc: string
   features: string[]
   featured?: boolean
+  texture: 'free' | 'starter' | 'creator' | 'pro'
 }) {
   return (
-    <article className={`relative flex flex-col rounded-lg border p-6 ${featured ? 'border-primary/45 bg-primary/[0.04]' : 'border-white/[0.07] bg-white/[0.02]'}`}>
+    <article tabIndex={0} aria-label={`${name} pricing plan`} className={`pricing-texture pricing-texture--${texture} relative flex w-[84vw] max-w-[340px] shrink-0 snap-start flex-col rounded-lg border p-6 outline-none md:w-auto md:max-w-none ${featured ? 'border-primary/45 bg-primary/[0.04]' : 'border-white/[0.07] bg-white/[0.02]'}`}>
       {featured && <span className="absolute right-4 top-4 rounded bg-primary/10 px-2 py-1 text-[9px] font-semibold uppercase tracking-[0.12em] text-primary">Popular</span>}
       <h3 className="font-heading text-lg font-semibold">{name}</h3>
       <p className="mt-4 font-heading text-3xl font-semibold">{price}</p>
@@ -121,10 +121,6 @@ export default function Landing() {
           <div className="absolute inset-x-0 top-0 h-px bg-gradient-to-r from-transparent via-primary/40 to-transparent" />
           <div className="relative mx-auto max-w-6xl">
             <div className="mx-auto max-w-5xl text-center">
-              <div className="mb-6 inline-flex items-center gap-2 rounded-lg border border-white/[0.08] bg-white/[0.025] px-3 py-2 text-[10px] font-semibold uppercase tracking-[0.14em] text-muted-foreground">
-                <Sparkles className="h-3.5 w-3.5 text-primary" />
-                Reference-led design editing
-              </div>
               <h1 className="font-heading text-[2.65rem] font-semibold leading-[1.03] sm:text-6xl lg:text-[4.25rem]">
                 Keep the design you like.
                 <br />
@@ -263,10 +259,10 @@ export default function Landing() {
               <h2 className="font-heading text-3xl font-semibold sm:text-5xl">Pay for the design work you need.</h2>
               <p className="mt-5 text-base leading-7 text-muted-foreground">Top up for occasional revisions or activate 30 days of access for a larger design workload.</p>
             </div>
-            <div className="mx-auto mt-14 grid max-w-5xl gap-4 md:grid-cols-3">
-              <PricingCard name="Top-Up" price="From $5" detail="Flexible Spyda credits" desc="A simple option for occasional flyer analysis and generation." features={['Credits stay in your account', 'No recurring payment', 'Use them when a revision arrives', 'Available from your Spyda wallet']} />
-              <PricingCard name="Creator" price="NGN 12,000" detail="30 days of access" desc="For creators handling regular campaigns, promotions, and client revisions." features={['1,200 credits per access period', 'Unlimited saved projects', 'Brand asset library', 'Premium design analysis']} featured />
-              <PricingCard name="Studio" price="NGN 30,000" detail="30 days of access" desc="For teams and high-volume creative work that needs more room to move." features={['3,500 credits per access period', 'Everything in Creator', 'Faster processing queue', 'Advanced brand controls']} />
+            <div className="mx-auto mt-14 flex max-w-5xl snap-x snap-mandatory gap-4 overflow-x-auto px-[8vw] pb-3 md:grid md:grid-cols-3 md:overflow-visible md:px-0 md:pb-0">
+              <PricingCard name="Top-Up" price="From $5" detail="Flexible Spyda credits" desc="A simple option for occasional flyer analysis and generation." features={['Credits stay in your account', 'No recurring payment', 'Use them when a revision arrives', 'Available from your Spyda wallet']} texture="starter" />
+              <PricingCard name="Creator" price="NGN 12,000" detail="30 days of access" desc="For creators handling regular campaigns, promotions, and client revisions." features={['1,200 credits per access period', 'Unlimited saved projects', 'Brand asset library', 'Premium design analysis']} texture="creator" featured />
+              <PricingCard name="Studio" price="NGN 30,000" detail="30 days of access" desc="For teams and high-volume creative work that needs more room to move." features={['3,500 credits per access period', 'Everything in Creator', 'Faster processing queue', 'Advanced brand controls']} texture="pro" />
             </div>
             <p className="mt-5 text-center text-xs text-muted-foreground">Paid access does not renew automatically. Payments are handled securely through Paystack.</p>
           </div>

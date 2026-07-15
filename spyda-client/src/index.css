@@ -199,6 +199,99 @@
   animation: marquee 30s linear infinite;
 }
 
+/* Pricing cards bloom into the uploaded grain-gradient references on hover. */
+.pricing-texture {
+  isolation: isolate;
+  overflow: hidden;
+  transition: color 320ms ease, border-color 320ms ease, transform 320ms ease, box-shadow 320ms ease;
+}
+
+.pricing-texture::before,
+.pricing-texture::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  z-index: 0;
+  pointer-events: none;
+  opacity: 0;
+  transition: opacity 380ms ease, transform 650ms cubic-bezier(0.2, 0.8, 0.2, 1);
+}
+
+.pricing-texture > * {
+  z-index: 1;
+}
+
+.pricing-texture::before {
+  transform: scale(1.12) rotate(-2deg);
+  background: var(--pricing-texture);
+}
+
+.pricing-texture::after {
+  background-image: radial-gradient(circle, rgba(255,255,255,0.7) 0 0.45px, transparent 0.75px);
+  background-size: 3px 3px;
+  mix-blend-mode: overlay;
+}
+
+.pricing-texture--free {
+  --pricing-texture:
+    radial-gradient(circle at 78% 82%, #e8a38d 0, #876ab5 26%, transparent 47%),
+    radial-gradient(circle at 22% 30%, #0c64bd 0, #042f71 48%, #071431 100%);
+}
+
+.pricing-texture--starter {
+  --pricing-texture:
+    radial-gradient(circle at 94% 92%, #f16d55 0, #675bf0 35%, transparent 58%),
+    radial-gradient(circle at 18% 25%, #7894ff 0, #4945d2 55%, #292171 100%);
+}
+
+.pricing-texture--creator {
+  --pricing-texture:
+    radial-gradient(circle at 14% 16%, #46a5f8 0, #1472c7 22%, transparent 43%),
+    radial-gradient(circle at 88% 72%, #ff6a41 0, #c9271a 44%, #721320 100%);
+}
+
+.pricing-texture--pro {
+  --pricing-texture:
+    radial-gradient(circle at 84% 88%, #ffad35 0, #ff4b27 27%, transparent 50%),
+    radial-gradient(circle at 18% 78%, #f13725 0, #7f263e 40%, transparent 61%),
+    radial-gradient(circle at 72% 12%, #4e63a9 0, #251d55 58%, #0d0b21 100%);
+}
+
+.pricing-texture:hover,
+.pricing-texture:focus-within {
+  color: #fff;
+  border-color: rgba(255,255,255,0.34);
+  transform: translateY(-4px);
+  box-shadow: 0 24px 60px rgba(0,0,0,0.35);
+}
+
+.pricing-texture:hover::before,
+.pricing-texture:hover::after,
+.pricing-texture:focus-within::before,
+.pricing-texture:focus-within::after {
+  opacity: 1;
+  transform: scale(1) rotate(0deg);
+}
+
+.pricing-texture:hover p,
+.pricing-texture:hover li,
+.pricing-texture:hover span,
+.pricing-texture:hover svg,
+.pricing-texture:focus-within p,
+.pricing-texture:focus-within li,
+.pricing-texture:focus-within span,
+.pricing-texture:focus-within svg {
+  color: rgba(255,255,255,0.88) !important;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .pricing-texture,
+  .pricing-texture::before,
+  .pricing-texture::after {
+    transition: none;
+  }
+}
+
 .spyda-splash {
   position: fixed;
   inset: 0;
