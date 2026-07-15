@@ -1635,9 +1635,9 @@ function StudioView({
             </div>
           </div>
         ) : breakdown ? (
-          <div className="min-h-0 flex-1 space-y-4 overflow-y-auto px-4 pb-4 sm:px-5 sm:pb-5 lg:px-6 lg:pb-6">
+          <div className="flex min-h-0 flex-1 flex-col">
             {/* Header */}
-            <div className="sticky top-0 z-30 -mx-4 mb-2 flex items-center justify-between gap-3 border-b border-white/[0.07] bg-[#080a09] px-4 pb-4 pt-[calc(1rem+env(safe-area-inset-top))] sm:-mx-5 sm:px-5 lg:-mx-6 lg:bg-background lg:px-6 lg:py-4">
+            <div className="relative z-30 flex w-full shrink-0 items-center justify-between gap-3 border-b border-white/[0.08] bg-[#080a09] px-4 pb-4 pt-[calc(1rem+env(safe-area-inset-top))] shadow-[0_10px_28px_rgba(0,0,0,0.28)] sm:px-5 lg:bg-background lg:px-6 lg:py-4">
               <div className="min-w-0">
                 <h3 className="font-heading text-lg font-semibold">Design Atoms</h3>
                 <p className="mt-0.5 truncate text-xs text-muted-foreground">
@@ -1665,6 +1665,7 @@ function StudioView({
               </div>
             </div>
 
+            <div className="min-h-0 flex-1 space-y-4 overflow-y-auto overscroll-contain px-4 pb-[calc(1rem+env(safe-area-inset-bottom))] pt-4 sm:px-5 sm:pb-5 lg:px-6 lg:pb-6">
             <div className="rounded-xl border border-white/[0.06] bg-white/[0.025] p-4">
               <div className="flex flex-wrap items-center justify-between gap-3">
                 <div>
@@ -1887,6 +1888,7 @@ function StudioView({
               <p className="text-[11px] leading-relaxed text-muted-foreground/60">
                 Replacement images are always placed at the original atom's exact size before generation. "Apply Round with AI" additionally blends edges, applies text changes, and any brand or Essential instructions.
               </p>
+            </div>
             </div>
           </div>
         ) : (
