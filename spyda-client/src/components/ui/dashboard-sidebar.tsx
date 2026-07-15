@@ -154,6 +154,7 @@ function NavItem({
   const handleClick = () => {
     if (hasChildren) {
       setIsOpen(!isOpen);
+      onSelect(item.id);
     } else {
       onSelect(item.id);
     }

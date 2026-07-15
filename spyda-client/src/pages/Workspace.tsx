@@ -6,6 +6,15 @@ import type { LegacyBreakdown as BreakdownResult, LegacyEditableComponent as Edi
 import { usePaystackPayment } from 'react-paystack'
 import SidebarNav from '../components/ui/dashboard-sidebar'
 import {
+  BrandAssetsView,
+  HistoryView,
+  ProjectsView,
+  TemplatesView,
+  type BrandAsset,
+  type WorkspaceProject,
+} from '../components/workspace/WorkspaceLibraryViews'
+import { SecurityPanel, SubscriptionView } from '../components/workspace/WorkspaceAccountViews'
+import {
   PanelLeftClose,
   PanelLeftOpen,
   Upload,
@@ -94,6 +103,7 @@ type SavedSpydaProject = {
   name: string
   createdAt: string
   updatedAt: string
+  archived?: boolean
   referencePreview?: string | null
   generatedImage?: string | null
   breakdown?: BreakdownResult | null
@@ -401,6 +411,7 @@ function saveProjectSnapshot(project: SavedSpydaProject) {
     const existing = loadSavedProjects()
     const next = [project, ...existing.filter(item => item.id !== project.id)].slice(0, 24)
     window.localStorage.setItem(SAVED_PROJECTS_KEY, JSON.stringify(next))
+    window.dispatchEvent(new CustomEvent('spyda-projects-updated'))
   } catch (error) {
     console.warn('Spyda could not save this project snapshot locally.', error)
   }
@@ -508,6 +519,7 @@ export default function Workspace() {
     templates: 'Templates',
     'brand-assets': 'Brand Assets',
     wallet: 'Wallet',
+    subscription: 'Subscription',
     settings: 'Settings',
   }
 
@@ -521,6 +533,7 @@ export default function Workspace() {
       name: updates.name || existing?.name || uploadedFile?.name || 'Untitled Spyda project',
       createdAt: existing?.createdAt || updates.createdAt || new Date().toISOString(),
       updatedAt: new Date().toISOString(),
+      archived: updates.archived ?? existing?.archived ?? false,
       referencePreview: updates.referencePreview ?? existing?.referencePreview ?? uploadedPreview,
       generatedImage: updates.generatedImage ?? existing?.generatedImage ?? generatedImage,
       breakdown: updates.breakdown ?? existing?.breakdown ?? breakdown,
@@ -529,6 +542,39 @@ export default function Workspace() {
       qa: updates.qa ?? existing?.qa ?? generationQa,
     })
   }, [atomEdits, brandEdits, breakdown, currentProjectId, generatedImage, generationQa, uploadedFile, uploadedPreview])
+
+  const handleOpenProject = useCallback(async (project: WorkspaceProject) => {
+    const source = project.referencePreview || project.generatedImage
+    if (!source) return
+
+    try {
+      const blob = await dataUrlToBlob(source)
+      const safeName = project.name || 'Spyda project'
+      const file = new File([blob], safeName, { type: blob.type || 'image/png' })
+      setUploadedFile(file)
+      setUploadedPreview(project.referencePreview || source)
+      setGeneratedImage(project.generatedImage || null)
+      setBreakdown(project.breakdown || null)
+      setAtomEdits((project.atomEdits || {}) as Record<string, AtomEdit>)
+      if (project.brandEdits) setBrandEdits(project.brandEdits)
+      setGenerationQa((project.qa || null) as GenerationQaReport | null)
+      setCurrentProjectId(project.id)
+      setEssentialsImage(null)
+      setEssentialPrompts(['', '', ''])
+      setAnalyzeError(null)
+      setGenerateError(null)
+      setActiveId('canvas')
+    } catch {
+      setActiveId('history')
+    }
+  }, [])
+
+  const handleUseBrandAsset = useCallback((asset: BrandAsset) => {
+    if (asset.kind === 'image') setEssentialsImage({ name: asset.name, dataUrl: asset.value })
+    if (asset.kind === 'color') setBrandEdits(previous => ({ ...previous, primaryColor: asset.value }))
+    if (asset.kind === 'font') setBrandEdits(previous => ({ ...previous, headingFont: asset.value, bodyFont: asset.value }))
+    setActiveId('canvas')
+  }, [])
 
   const handleDesignUpload = useCallback(async (file: File) => {
     const projectId = typeof crypto !== 'undefined' && 'randomUUID' in crypto
@@ -609,6 +655,14 @@ export default function Workspace() {
         setIsAnalyzing(false)
       }
   }, [aiModel, brandEdits])
+
+  const handleUseTemplate = useCallback(async (source: string, name: string) => {
+    const response = await fetch(source)
+    if (!response.ok) throw new Error('This template could not be loaded.')
+    const blob = await response.blob()
+    setActiveId('canvas')
+    await handleDesignUpload(new File([blob], name, { type: blob.type || 'image/jpeg' }))
+  }, [handleDesignUpload])
 
   /* ── Generate handler ── */
   const handleAtomImageUpload = useCallback(async (section: EditableComponent, file: File) => {
@@ -1077,9 +1131,13 @@ export default function Workspace() {
             />
           )}
           {activeId === 'gallery' && <GalleryView onNewDesign={() => setActiveId('canvas')} />}
+          {activeId === 'history' && <HistoryView onOpenProject={handleOpenProject} onNewDesign={() => setActiveId('canvas')} />}
+          {['projects', 'p-active', 'p-archived'].includes(activeId) && <ProjectsView initialFilter={activeId === 'p-archived' ? 'archived' : 'active'} onOpenProject={handleOpenProject} onNewDesign={() => setActiveId('canvas')} />}
+          {activeId === 'templates' && <TemplatesView onUseTemplate={handleUseTemplate} />}
+          {activeId === 'brand-assets' && <BrandAssetsView onUseAsset={handleUseBrandAsset} />}
           {activeId === 'wallet' && <WalletView />}
-          {activeId === 'settings' && <SettingsView profilePic={profilePic} setProfilePic={setProfilePic} />}
-          {!['canvas', 'qa-gate', 'gallery', 'wallet', 'settings'].includes(activeId) && <PlaceholderView title={activeTitle} />}
+          {activeId === 'subscription' && <SubscriptionView onBack={() => setActiveId('settings')} />}
+          {activeId === 'settings' && <SettingsView profilePic={profilePic} setProfilePic={setProfilePic} onManageSubscription={() => setActiveId('subscription')} />}
         </div>
       </div>
     </div>
@@ -2375,7 +2433,7 @@ function PaystackTopUpButton({ tier, user, balance, setBalance, usdToNgn }: Pays
   )
 }
 
-function SettingsView({ profilePic, setProfilePic }: { profilePic: string | null, setProfilePic: (url: string | null) => void }) {
+function SettingsView({ profilePic, setProfilePic, onManageSubscription }: { profilePic: string | null, setProfilePic: (url: string | null) => void, onManageSubscription: () => void }) {
   const { user } = useAuth()
   const [saved, setSaved] = useState(false)
   const [loadingProfile, setLoadingProfile] = useState(true)
@@ -2418,15 +2476,14 @@ function SettingsView({ profilePic, setProfilePic }: { profilePic: string | null
   const handleSave = async () => {
     if (!user) return
     try {
-      const { error } = await supabase.from('profiles').upsert({
-        id: user.id,
+      const { error } = await supabase.from('profiles').update({
         display_name: formData.display_name,
         brand_name: formData.brand_name,
         openai_key: formData.openai_key,
         groq_key: formData.groq_key,
         avatar_url: profilePic,
         updated_at: new Date().toISOString()
-      })
+      }).eq('id', user.id)
       if (!error) {
         setSaved(true)
         setTimeout(() => setSaved(false), 2000)
@@ -2598,54 +2655,16 @@ function SettingsView({ profilePic, setProfilePic }: { profilePic: string | null
             <h4 className="font-heading text-sm font-bold mb-4 flex items-center gap-2">
               <Zap className="w-4 h-4 text-primary" /> Current Plan
             </h4>
-            <div className="text-3xl font-heading font-bold text-foreground mb-1">Pro</div>
-            <p className="text-xs text-muted-foreground mb-6">Active subscription</p>
-            <div className="space-y-3 mb-6">
-              <div className="flex justify-between text-xs">
-                <span className="text-muted-foreground">Credits Usage</span>
-                <span className="font-medium text-foreground">84%</span>
-              </div>
-              <div className="h-1.5 w-full bg-background rounded-full overflow-hidden">
-                <div className="h-full bg-primary w-[84%] rounded-full"></div>
-              </div>
-              <p className="text-[10px] text-muted-foreground text-right">Reset in 12 days</p>
-            </div>
-            <button className="w-full inline-flex h-9 items-center justify-center rounded-lg border border-primary/20 bg-primary/10 text-xs font-semibold text-primary hover:bg-primary/20 transition-colors">
+            <div className="text-2xl font-heading font-bold text-foreground mb-1">Spyda access</div>
+            <p className="text-xs leading-5 text-muted-foreground mb-6">Review your current plan, access period, and billing history.</p>
+            <button type="button" onClick={onManageSubscription} className="w-full inline-flex h-9 items-center justify-center rounded-lg border border-primary/20 bg-primary/10 text-xs font-semibold text-primary hover:bg-primary/20 transition-colors">
               Manage Subscription
             </button>
           </div>
-          
-          <div className="rounded-2xl border border-white/[0.06] bg-white/[0.02] p-6">
-            <h4 className="font-heading text-sm font-bold mb-4">Security</h4>
-            <div className="space-y-4">
-              <button className="w-full flex items-center justify-between py-2 text-sm text-foreground hover:text-primary transition-colors">
-                <span>Change Password</span>
-                <ChevronRight className="w-4 h-4 text-muted-foreground" />
-              </button>
-              <button className="w-full flex items-center justify-between py-2 text-sm text-foreground hover:text-primary transition-colors">
-                <span>Two-Factor Auth</span>
-                <span className="text-xs text-primary bg-primary/10 px-2 py-0.5 rounded-full">Off</span>
-              </button>
-              <button className="w-full flex items-center justify-between py-2 text-sm text-foreground hover:text-primary transition-colors">
-                <span>Active Sessions</span>
-                <ChevronRight className="w-4 h-4 text-muted-foreground" />
-              </button>
-            </div>
-          </div>
+
+          <SecurityPanel />
         </div>
       </div>
-    </div>
-  )
-}
-
-function PlaceholderView({ title }: { title: string }) {
-  return (
-    <div className="h-full flex flex-col items-center justify-center p-8">
-      <div className="mx-auto mb-6 w-16 h-16 rounded-2xl bg-white/[0.04] border border-white/[0.06] flex items-center justify-center">
-        <Wand2 className="w-7 h-7 text-muted-foreground/40" strokeWidth={1.5} />
-      </div>
-      <h2 className="font-heading text-2xl font-bold mb-2">{title}</h2>
-      <p className="text-muted-foreground text-sm">This section is coming soon.</p>
     </div>
   )
 }
