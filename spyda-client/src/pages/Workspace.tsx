@@ -292,17 +292,12 @@ function imageSourceToBlob(imageSrc: string, maxWidth = 1024, maxHeight = 1024, 
   })
 }
 
-function getImageDimensionsFromFile(file: File): Promise<{ width: number; height: number }> {
+function getImageDimensionsFromSrc(imageSrc: string): Promise<{ width: number; height: number }> {
   return new Promise((resolve, reject) => {
-    const reader = new FileReader()
-    reader.readAsDataURL(file)
-    reader.onload = (event) => {
-      const img = new window.Image()
-      img.src = event.target?.result as string
-      img.onload = () => resolve({ width: img.naturalWidth || img.width, height: img.naturalHeight || img.height })
-      img.onerror = () => reject(new Error('Spyda could not read the uploaded reference dimensions. Re-upload the reference and try again.'))
-    }
-    reader.onerror = () => reject(new Error('Spyda could not read the uploaded reference. Re-upload it and try again.'))
+    const img = new window.Image()
+    img.src = imageSrc
+    img.onload = () => resolve({ width: img.naturalWidth || img.width, height: img.naturalHeight || img.height })
+    img.onerror = () => reject(new Error('Spyda could not read the uploaded reference dimensions. Re-upload the reference and try again.'))
   })
 }
 
@@ -345,22 +340,17 @@ function resizeImageToDimensions(imageSrc: string, width: number, height: number
   })
 }
 
-function getImageSizeChoice(file: File): Promise<string> {
+function getImageSizeChoice(imageSrc: string): Promise<string> {
   return new Promise((resolve, reject) => {
-    const reader = new FileReader()
-    reader.readAsDataURL(file)
-    reader.onload = (event) => {
-      const img = new window.Image()
-      img.src = event.target?.result as string
-      img.onload = () => {
-        const ratio = img.width / Math.max(1, img.height)
-        if (ratio > 1.12) resolve('Landscape 1536 x 1024')
-        else if (ratio < 0.9) resolve('Portrait 1024 x 1536')
-        else resolve('Square 1024 x 1024')
-      }
-      img.onerror = () => reject(new Error('Spyda could not read the uploaded reference size. Re-upload it and try again.'))
+    const img = new window.Image()
+    img.src = imageSrc
+    img.onload = () => {
+      const ratio = img.width / Math.max(1, img.height)
+      if (ratio > 1.12) resolve('Landscape 1536 x 1024')
+      else if (ratio < 0.9) resolve('Portrait 1024 x 1536')
+      else resolve('Square 1024 x 1024')
     }
-    reader.onerror = () => reject(new Error('Spyda could not read the uploaded reference. Re-upload it and try again.'))
+    img.onerror = () => reject(new Error('Spyda could not read the uploaded reference size. Re-upload it and try again.'))
   })
 }
 
@@ -560,8 +550,8 @@ export default function Workspace() {
     // Auto-analyze
     setIsAnalyzing(true)
       try {
-        const sourceDimensions = await getImageDimensionsFromFile(file)
         const base64Image = await imageFileToDataUrl(file, 1024, 1024, 0.82);
+        const sourceDimensions = await getImageDimensionsFromSrc(base64Image)
         setUploadedPreview(base64Image)
         saveProjectSnapshot({
           id: projectId,
@@ -686,8 +676,8 @@ export default function Workspace() {
 
     try {
       const activeSourcePreview = generatedImage || uploadedPreview || ''
-      const sourceDimensions = await getImageDimensionsFromFile(uploadedFile)
-      const sourceImageSize = await getImageSizeChoice(uploadedFile)
+      const sourceDimensions = await getImageDimensionsFromSrc(uploadedPreview || '')
+      const sourceImageSize = await getImageSizeChoice(uploadedPreview || '')
       const chosenOutputSize = brandEdits.outputSize === 'match-reference' ? sourceImageSize : brandEdits.outputSize
       const previewSize = await getImageSize(activeSourcePreview)
 
