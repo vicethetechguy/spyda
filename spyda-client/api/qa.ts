@@ -3,6 +3,8 @@ import { analysisModel } from "./models.js";
 import { applyDesignEdits, enforceDesignConstraints, type DesignEditIntent } from "../src/core/constraint-engine.js";
 import { parseDesignDocument } from "../src/core/design-document.js";
 import { validateDesignFidelity, validateRenderedDimensions, type FidelityReport, type RenderedDimensionReport } from "../src/core/validation-engine.js";
+import { buildApprovedDifferenceContract, buildGenerationQaPrompt, findMissingRequiredText } from "./qa-contract.js";
+import { runOcr } from "./_ocr_service.js";
 
 declare const process: {
   env: Record<string, string | undefined>;
@@ -24,6 +26,10 @@ export type GenerationQaReport = {
   textMatch?: string;
   assetMatch?: string;
   sizeMatch?: string;
+  categoryScores?: Record<string, number>;
+  approvedChangesApplied?: string[];
+  unapprovedChanges?: string[];
+  hardGateFailures?: Array<{ code: string; message: string; region?: string }>;
   issues?: string[];
   suggestions?: string[];
   structural?: FidelityReport;
@@ -54,21 +60,45 @@ function runDeterministicValidation(recipe: any, generatedImage: string | null) 
   }
 }
 
-function normalizeQaReport(raw: any): GenerationQaReport {
-  const score = Number(raw?.score);
+export function normalizeQaReport(raw: any): GenerationQaReport {
+  const categoryScores = Object.fromEntries(
+    Object.entries(raw?.categoryScores || {})
+      .map(([key, value]) => [key, Math.max(0, Math.min(100, Math.round(Number(value))))])
+      .filter(([, value]) => Number.isFinite(value)),
+  );
+  const categoryValues = Object.values(categoryScores) as number[];
+  const reportedScore = Number(raw?.score);
+  const categoryScore = categoryValues.length ? Math.min(...categoryValues) : reportedScore;
+  let score = Number.isFinite(reportedScore) && Number.isFinite(categoryScore)
+    ? Math.min(reportedScore, categoryScore)
+    : Number.isFinite(reportedScore) ? reportedScore : categoryScore;
   const issues = Array.isArray(raw?.issues) ? raw.issues.filter(Boolean).map(String) : [];
   const suggestions = Array.isArray(raw?.suggestions) ? raw.suggestions.filter(Boolean).map(String) : [];
-  const passed = typeof raw?.passed === "boolean"
-    ? raw.passed
-    : Number.isFinite(score)
-      ? score >= 70
-      : issues.length === 0;
+  const approvedChangesApplied = Array.isArray(raw?.approvedChangesApplied) ? raw.approvedChangesApplied.filter(Boolean).map(String) : [];
+  const unapprovedChanges = Array.isArray(raw?.unapprovedChanges) ? raw.unapprovedChanges.filter(Boolean).map(String) : [];
+  const hardGateFailures = Array.isArray(raw?.hardGateFailures)
+    ? raw.hardGateFailures.filter(Boolean).map((failure: any) => ({
+        code: String(failure?.code || "qa-failure"),
+        message: String(failure?.message || failure || "QA hard gate failed."),
+        region: failure?.region ? String(failure.region) : undefined,
+      }))
+    : [];
+  if (hardGateFailures.length || unapprovedChanges.length) score = Math.min(Number.isFinite(score) ? score : 89, 89);
+  const passed = raw?.passed === true
+    && hardGateFailures.length === 0
+    && unapprovedChanges.length === 0
+    && Number.isFinite(score)
+    && score >= 95;
 
   return {
     ok: true,
     skipped: false,
     passed,
     score: Number.isFinite(score) ? Math.max(0, Math.min(100, Math.round(score))) : undefined,
+    categoryScores,
+    approvedChangesApplied,
+    unapprovedChanges,
+    hardGateFailures,
     layoutMatch: raw?.layoutMatch ? String(raw.layoutMatch) : undefined,
     textMatch: raw?.textMatch ? String(raw.textMatch) : undefined,
     assetMatch: raw?.assetMatch ? String(raw.assetMatch) : undefined,
@@ -117,7 +147,7 @@ export async function runGenerationQa({ recipe, generatedImage }: { recipe: any;
     ? `Image 1 is the expected-output baseline: it ALREADY contains every replacement asset pasted at its final, correct position and size. The generated flyer must keep each of those assets at exactly that position and size — any pasted asset that moved, grew, or shrank relative to image 1 is a FAIL.\n`
     : "";
 
-  const prompt = `You are Spyda's generation QA gate.
+  const legacyPrompt = `You are Spyda's generation QA gate.
 Compare image 1 (the parent Source flyer) with image 2 (the newly generated flyer).
 ${compositeNote}The generated flyer must preserve the Source layout exactly, with only the requested replacements applied IN PLACE at the SAME SIZE.
 
@@ -150,9 +180,10 @@ Be strict on sizing, concise in wording. Return ONLY valid JSON:
   "suggestions": ["specific corrective instruction for regeneration, e.g. 'shrink the replacement logo to the original top-left logo footprint'"]
 }
 Set "passed" to false when any checklist item fails. Score 0-100 for overall reference fidelity.`;
+  const prompt = buildGenerationQaPrompt(recipe) || legacyPrompt;
 
   try {
-    const response = await fetch("https://api.openai.com/v1/chat/completions", {
+    const qaRequest = fetch("https://api.openai.com/v1/chat/completions", {
       method: "POST",
       signal: AbortSignal.timeout(25000),
       headers: { "Authorization": `Bearer ${openaiKey}`, "Content-Type": "application/json" },
@@ -160,7 +191,7 @@ Set "passed" to false when any checklist item fails. Score 0-100 for overall ref
         model: analysisModel,
         temperature: 0,
         response_format: { type: "json_object" },
-        max_tokens: 700,
+        max_tokens: 1200,
         messages: [{
           role: "user",
           content: [
@@ -171,6 +202,10 @@ Set "passed" to false when any checklist item fails. Score 0-100 for overall ref
         }],
       }),
     });
+    const [response, generatedOcr] = await Promise.all([
+      qaRequest,
+      runOcr(generatedImage).catch(() => null),
+    ]);
 
     if (!response.ok) {
       const err = await response.json().catch(() => ({}));
@@ -180,12 +215,28 @@ Set "passed" to false when any checklist item fails. Score 0-100 for overall ref
     const payload = await response.json();
     const report = normalizeQaReport(extractJson(payload.choices?.[0]?.message?.content || "{}"));
     const dimensionIssue = deterministic.dimensions?.passed === false ? deterministic.dimensions.issue : null;
+    const missingText = generatedOcr?.enabled
+      ? findMissingRequiredText(buildApprovedDifferenceContract(recipe), generatedOcr.fullText)
+      : [];
+    const textGateFailures = missingText.map(item => ({
+      code: "required-text-missing",
+      message: `Required text was not detected: "${item.value}"`,
+      region: item.atom,
+    }));
+    const hardGateFailures = [...(report.hardGateFailures || []), ...textGateFailures];
     return {
       ...report,
-      passed: Boolean(report.passed && deterministic.structural?.passed !== false && deterministic.dimensions?.passed !== false),
+      passed: Boolean(report.passed && deterministic.dimensions?.passed !== false && textGateFailures.length === 0),
+      score: textGateFailures.length ? Math.min(report.score ?? 89, 89) : report.score,
+      hardGateFailures,
       structural: deterministic.structural,
       dimensions: deterministic.dimensions,
-      issues: [...(report.issues || []), ...(dimensionIssue ? [dimensionIssue] : [])],
+      issues: [
+        ...(report.issues || []),
+        ...(report.unapprovedChanges || []).map(change => `Unapproved change: ${change}`),
+        ...hardGateFailures.map(failure => `${failure.message}${failure.region ? ` (${failure.region})` : ""}`),
+        ...(dimensionIssue ? [dimensionIssue] : []),
+      ],
     };
   } catch (error: any) {
     return { ok: false, skipped: true, structural: deterministic.structural, dimensions: deterministic.dimensions, error: error?.message || "QA failed." };

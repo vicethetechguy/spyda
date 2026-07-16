@@ -44,6 +44,7 @@ export type WorkspaceProject = {
   updatedAt: string
   archived?: boolean
   referencePreview?: string | null
+  qaParentPreview?: string | null
   generatedImage?: string | null
   breakdown?: BreakdownResult | null
   atomEdits?: Record<string, WorkspaceAtomEdit>

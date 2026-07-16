@@ -6,6 +6,7 @@ import { analysisModel, groqAnalysisModel, imageModel } from "./models.js";
 import { adaptBreakdownToDesignDocument, designDocumentToLegacyBreakdown } from "../src/core/design-document.js";
 import { buildDesignIntelligence } from "../src/core/analysis-pipeline.js";
 import { planRecipeRenderStrategy } from "../src/core/render-strategy.js";
+import { buildApprovedDifferenceContract } from "./qa-contract.js";
 
 export { analysisModel, groqAnalysisModel, imageModel } from "./models.js";
 
@@ -626,10 +627,23 @@ function buildCompositePrompt(recipe: any) {
   const brand = recipe?.brandOverrides || null;
   const unplacedAssets = getReferenceImages(recipe);
   const qaViolations = Array.isArray(recipe?.qaCorrections?.violations) ? recipe.qaCorrections.violations : [];
+  const approvalContract = buildApprovedDifferenceContract(recipe);
 
   const sections: string[] = [];
 
   sections.push(`You are refining an existing flyer design. The first attached image is the flyer to finish — it is the layout ground truth. Work like a careful photo retoucher, not a designer: do not recompose, restructure, or reinterpret anything.`);
+
+  if (approvalContract.unchangedText.length) {
+    sections.push(`COPY LOCK — KEEP THIS WORDING EXACTLY:
+${approvalContract.unchangedText.slice(0, 45).map(item => `- "${item.requiredText}" in the "${item.atom}" region.`).join("\n")}
+Do not rewrite, improve, paraphrase, translate, or replace any locked copy with plausible marketing text. New wording is allowed only in TEXT CHANGES or MUST-FOLLOW INSTRUCTIONS below.`);
+  }
+
+  if (approvalContract.protectedAssets.length) {
+    sections.push(`PROTECTED IDENTITY ASSETS:
+${approvalContract.protectedAssets.slice(0, 30).map(item => `- "${item.atom}" (${item.identity}) at ${JSON.stringify(item.boundingBox)}.`).join("\n")}
+Keep each protected asset visually identical to the parent: same identity, intrinsic colors, crop, size, position, and marks. Brand styling must not alter these assets.`);
+  }
 
   if (pastedAssets.length) {
     sections.push(`ALREADY-PLACED REPLACEMENTS:
@@ -683,7 +697,10 @@ ${qaViolations.map((violation: string) => `- ${violation}`).join("\n")}`);
   }
 
   const dims = recipe?.sourceDimensions;
-  sections.push(`EVERYTHING ELSE: keep the flyer pixel-faithful to the attached image — same layout, same element sizes and positions, same colors, same background, same aspect ratio${dims?.width ? ` (${dims.width} x ${dims.height})` : ""}. Do not add or remove elements. Output a clean, premium, print-quality flyer.`);
+  const appearanceRule = brand
+    ? "apply only the approved Brand Style Overrides to editable style surfaces while preserving the same background geometry"
+    : "keep the same colors and background";
+  sections.push(`EVERYTHING ELSE: keep the flyer pixel-faithful to the attached image — same layout, same element sizes and positions, ${appearanceRule}, same aspect ratio${dims?.width ? ` (${dims.width} x ${dims.height})` : ""}. Do not add or remove elements. Output a clean, premium, print-quality flyer.`);
 
   return sections.join("\n\n");
 }

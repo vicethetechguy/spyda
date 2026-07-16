@@ -93,6 +93,10 @@ type GenerationQaReport = {
   textMatch?: string
   assetMatch?: string
   sizeMatch?: string
+  categoryScores?: Record<string, number>
+  approvedChangesApplied?: string[]
+  unapprovedChanges?: string[]
+  hardGateFailures?: Array<{ code: string; message: string; region?: string }>
   issues?: string[]
   suggestions?: string[]
   error?: string
@@ -105,6 +109,7 @@ type SavedSpydaProject = {
   updatedAt: string
   archived?: boolean
   referencePreview?: string | null
+  qaParentPreview?: string | null
   generatedImage?: string | null
   breakdown?: BreakdownResult | null
   atomEdits?: Record<string, AtomEdit>
@@ -472,6 +477,7 @@ export default function Workspace() {
   const [isAnalyzing, setIsAnalyzing] = useState(false)
   const [isGenerating, setIsGenerating] = useState(false)
   const [generatedImage, setGeneratedImage] = useState<string | null>(null)
+  const [qaParentPreview, setQaParentPreview] = useState<string | null>(null)
   const [generationQa, setGenerationQa] = useState<GenerationQaReport | null>(null)
   const [analysisStage, setAnalysisStage] = useState('')
   const [generationStage, setGenerationStage] = useState('')
@@ -547,13 +553,14 @@ export default function Workspace() {
       updatedAt: new Date().toISOString(),
       archived: updates.archived ?? existing?.archived ?? false,
       referencePreview: updates.referencePreview ?? existing?.referencePreview ?? uploadedPreview,
+      qaParentPreview: updates.qaParentPreview ?? existing?.qaParentPreview ?? qaParentPreview,
       generatedImage: updates.generatedImage ?? existing?.generatedImage ?? generatedImage,
       breakdown: updates.breakdown ?? existing?.breakdown ?? breakdown,
       atomEdits: updates.atomEdits ?? existing?.atomEdits ?? atomEdits,
       brandEdits: updates.brandEdits ?? existing?.brandEdits ?? brandEdits,
       qa: updates.qa ?? existing?.qa ?? generationQa,
     })
-  }, [atomEdits, brandEdits, breakdown, currentProjectId, generatedImage, generationQa, uploadedFile, uploadedPreview])
+  }, [atomEdits, brandEdits, breakdown, currentProjectId, generatedImage, generationQa, qaParentPreview, uploadedFile, uploadedPreview])
 
   const handleOpenProject = useCallback(async (project: WorkspaceProject) => {
     const source = project.referencePreview || project.generatedImage
@@ -565,6 +572,7 @@ export default function Workspace() {
       const file = new File([blob], safeName, { type: blob.type || 'image/png' })
       setUploadedFile(file)
       setUploadedPreview(project.referencePreview || source)
+      setQaParentPreview(project.qaParentPreview || project.referencePreview || source)
       setGeneratedImage(project.generatedImage || null)
       setBreakdown(project.breakdown || null)
       setAtomEdits((project.atomEdits || {}) as Record<string, AtomEdit>)
@@ -597,6 +605,7 @@ export default function Workspace() {
     setCurrentProjectId(projectId)
     setBreakdown(null)
     setGeneratedImage(null)
+    setQaParentPreview(null)
     setGenerationQa(null)
     setAnalyzeError(null)
     setGenerateError(null)
@@ -801,12 +810,14 @@ export default function Workspace() {
 
       const finalizeRound = async (imageSrc: string, qa: GenerationQaReport | null) => {
         const normalizedImageSrc = await resizeImageToDimensions(imageSrc, sourceDimensions.width, sourceDimensions.height)
+        setQaParentPreview(activeSourcePreview)
         setGeneratedImage(normalizedImageSrc)
         setGenerationQa(qa)
         persistCurrentProject({
           id: currentProjectId || undefined,
           name: uploadedFile.name || 'Spyda generated design',
           referencePreview: uploadedPreview,
+          qaParentPreview: activeSourcePreview,
           generatedImage: normalizedImageSrc,
           breakdown,
           atomEdits,
@@ -875,10 +886,12 @@ export default function Workspace() {
 
       const recipe: Record<string, any> = {
         compositeMode: true,
+        clientCorrectionLoop: true,
         architectureVersion: breakdown.architectureVersion || 'spyda-v1-compatibility',
         designDocument: breakdown.designDocument,
         layoutIntelligence: breakdown.layoutIntelligence,
         constraintProfile: breakdown.constraintProfile,
+        editableComponents: (breakdown.design?.editableComponents || []).filter(component => !component.deleted),
         aiProvider: aiModel.provider,
         imageSize: chosenOutputSize,
         sourceImageSize,
@@ -916,32 +929,89 @@ export default function Workspace() {
         })),
       }
 
-      setGenerationStage('Sending design to GPT-Image')
-      const form = new FormData()
-      form.append('recipe', JSON.stringify(recipe))
       const childSourceBlob = await imageSourceToBlob(compositeDataUrl, 1024, 1536, 0.85)
       let uploadBytes = childSourceBlob.size
-      form.append('childSourceImage', childSourceBlob, 'working-design.jpg')
-      if (essentialsImage) {
-        const essentialsBlob = await imageSourceToBlob(essentialsImage.dataUrl, 768, 768, 0.78)
-        uploadBytes += essentialsBlob.size
-        form.append('essentialsImage', essentialsBlob, essentialsImage.name || 'essentials-reference.jpg')
-      }
+      const essentialsBlob = essentialsImage
+        ? await imageSourceToBlob(essentialsImage.dataUrl, 768, 768, 0.78)
+        : null
+      if (essentialsBlob) uploadBytes += essentialsBlob.size
+      const referenceUploads: Array<{ fieldName: string; name: string; blob: Blob }> = []
       for (const image of referenceImages) {
         const blob = await imageSourceToBlob(image.dataUrl, 768, 768, 0.78)
         uploadBytes += blob.size
-        form.append(image.fieldName, blob, image.name || `${image.sectionId}.jpg`)
+        referenceUploads.push({ fieldName: image.fieldName, name: image.name || `${image.sectionId}.jpg`, blob })
       }
 
       if (uploadBytes > SAFE_GENERATION_UPLOAD_BYTES) {
         throw new Error('This generation package is still too large for the server. Remove one replacement image or upload smaller image files, then try again.')
       }
 
-      const res = await fetch('/api/generate', {
-        method: 'POST',
-        body: form,
-      })
-      const data = await readApiJson<ApiGenerateResponse>(res)
+      const buildGenerationForm = (attemptRecipe: Record<string, any>) => {
+        const form = new FormData()
+        form.append('recipe', JSON.stringify(attemptRecipe))
+        form.append('childSourceImage', childSourceBlob, 'working-design.jpg')
+        if (essentialsBlob && essentialsImage) {
+          form.append('essentialsImage', essentialsBlob, essentialsImage.name || 'essentials-reference.jpg')
+        }
+        for (const upload of referenceUploads) form.append(upload.fieldName, upload.blob, upload.name)
+        return form
+      }
+
+      const maxAttempts = 3
+      let attemptRecipe = recipe
+      let data: ApiGenerateResponse | null = null
+      let attemptsUsed = 0
+
+      for (let attempt = 1; attempt <= maxAttempts; attempt += 1) {
+        attemptsUsed = attempt
+        setGenerationStage(attempt === 1
+          ? 'Generating and checking reference fidelity'
+          : `Auto-correcting reference drift (${attempt}/${maxAttempts})`)
+
+        let candidate: ApiGenerateResponse
+        try {
+          const response = await fetch('/api/generate', {
+            method: 'POST',
+            body: buildGenerationForm(attemptRecipe),
+          })
+          candidate = await readApiJson<ApiGenerateResponse>(response)
+        } catch (attemptError) {
+          if (data?.image) break
+          throw attemptError
+        }
+
+        if (!candidate?.ok || !candidate?.image) {
+          if (data?.image) break
+          data = candidate
+          break
+        }
+
+        const candidateScore = candidate.qa?.score ?? (candidate.qa?.passed ? 100 : 0)
+        const bestScore = data?.qa?.score ?? (data?.qa?.passed ? 100 : -1)
+        if (!data || candidateScore > bestScore || (candidate.qa?.passed && !data.qa?.passed)) data = candidate
+
+        const reachedPerfectGate = candidate.qa?.passed === true && candidate.qa?.score === 100
+        if (reachedPerfectGate || !candidate.qa || candidate.qa.skipped || candidate.qa.ok === false) break
+
+        const corrections = [
+          ...(candidate.qa.hardGateFailures || []).map(failure => failure.message),
+          ...(candidate.qa.unapprovedChanges || []).map(change => `Remove this unapproved change: ${change}`),
+          ...(candidate.qa.suggestions || []),
+          ...(candidate.qa.issues || []),
+        ].map(value => value.trim()).filter((value, index, values) => value && values.indexOf(value) === index).slice(0, 8)
+        if (!corrections.length) break
+
+        attemptRecipe = {
+          ...recipe,
+          qaCorrections: {
+            instruction: 'Rebuild from the same active parent. Preserve all approved changes that passed, remove every unapproved difference, and fix every hard-gate failure without changing any other pixel region.',
+            previousScore: candidate.qa.score,
+            violations: corrections,
+          },
+        }
+      }
+
+      if (data?.qa && attemptsUsed > 1) data = { ...data, qa: { ...data.qa, retried: true } }
 
       if (data?.ok && data?.image) {
         setGenerationStage(data.qa ? 'Checking reference match' : 'Finalizing design')
@@ -975,6 +1045,7 @@ export default function Workspace() {
     setEssentialsImage(null)
     setBreakdown(null)
     setGeneratedImage(null)
+    setQaParentPreview(null)
     setGenerationQa(null)
     setAnalysisStage('')
     setGenerationStage('')
@@ -1107,7 +1178,7 @@ export default function Workspace() {
           {activeId === 'canvas' && (
             <StudioView
               uploadedFile={uploadedFile}
-              uploadedPreview={uploadedPreview}
+              uploadedPreview={qaParentPreview || uploadedPreview}
               breakdown={breakdown}
               isAnalyzing={isAnalyzing}
               isGenerating={isGenerating}
@@ -1257,6 +1328,20 @@ function QaGateView({ qa, generatedImage, uploadedPreview, onBack, onApplyEssent
             </div>
           )}
 
+          {!!qa?.categoryScores && Object.keys(qa.categoryScores).length > 0 && (
+            <div>
+              <p className="mb-3 text-[11px] font-bold uppercase tracking-[0.12em] text-muted-foreground">Fidelity Gates</p>
+              <div className="grid grid-cols-2 gap-2 sm:grid-cols-5">
+                {Object.entries(qa.categoryScores).map(([category, score]) => (
+                  <div key={category} className="rounded-xl border border-white/[0.06] bg-white/[0.02] px-3 py-3">
+                    <p className="truncate text-[10px] font-semibold capitalize text-muted-foreground">{category.replace(/([A-Z])/g, ' $1')}</p>
+                    <p className={`mt-1 text-lg font-bold ${score === 100 ? 'text-primary' : score >= 95 ? 'text-foreground' : 'text-amber-500'}`}>{score}</p>
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
+
           {/* Category notes */}
           <div className="grid gap-3 sm:grid-cols-2">
             {[
@@ -1271,6 +1356,32 @@ function QaGateView({ qa, generatedImage, uploadedPreview, onBack, onApplyEssent
               </div>
             ))}
           </div>
+
+          {!!qa?.approvedChangesApplied?.length && (
+            <div className="rounded-xl border border-primary/20 bg-primary/[0.03] px-4 py-3">
+              <p className="mb-2 text-[11px] font-bold uppercase tracking-[0.12em] text-primary">Approved Changes Confirmed</p>
+              <ul className="space-y-1.5">
+                {qa.approvedChangesApplied.map((change, index) => (
+                  <li key={index} className="flex items-start gap-2 text-sm text-foreground/85">
+                    <Check className="mt-0.5 h-3.5 w-3.5 shrink-0 text-primary" /> {change}
+                  </li>
+                ))}
+              </ul>
+            </div>
+          )}
+
+          {!!qa?.hardGateFailures?.length && (
+            <div className="rounded-xl border border-amber-500/30 bg-amber-500/[0.04] px-4 py-3">
+              <p className="mb-2 text-[11px] font-bold uppercase tracking-[0.12em] text-amber-500">Hard Gate Failures</p>
+              <ul className="space-y-1.5">
+                {qa.hardGateFailures.map((failure, index) => (
+                  <li key={`${failure.code}-${index}`} className="text-sm text-foreground/85">
+                    <span className="font-semibold">{failure.message}</span>{failure.region ? ` — ${failure.region}` : ''}
+                  </li>
+                ))}
+              </ul>
+            </div>
+          )}
 
           {/* Issues */}
           {!!qa?.issues?.length && (

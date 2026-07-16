@@ -96,7 +96,7 @@ export default async function handler(req: any, res: any) {
     // A second image generation can exceed a serverless request window.
     // Keep it opt-in; the first result and QA report still return to the user.
     const autoRetryEnabled = process.env.SPYDA_QA_AUTO_RETRY === 'true';
-    if (autoRetryEnabled && qa.ok && qa.passed === false && result.image) {
+    if (!recipe.clientCorrectionLoop && autoRetryEnabled && qa.ok && qa.passed === false && result.image) {
       const corrections = [...(qa.suggestions || []), ...(qa.issues || [])].slice(0, 5);
       if (corrections.length) {
         const retryRecipe = {
