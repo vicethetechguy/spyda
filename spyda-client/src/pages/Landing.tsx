@@ -128,10 +128,14 @@ export default function Landing() {
 
   const handleInstall = async () => {
     if (installPrompt) {
-      await installPrompt.prompt()
-      await installPrompt.userChoice
-      setInstallPrompt(null)
-      return
+      try {
+        await installPrompt.prompt()
+        await installPrompt.userChoice
+        setInstallPrompt(null)
+        return
+      } catch {
+        setInstallPrompt(null)
+      }
     }
 
     const isIos = /iphone|ipad|ipod/i.test(navigator.userAgent)
@@ -164,11 +168,11 @@ export default function Landing() {
                 className="inline-flex h-9 items-center gap-2 rounded-lg border border-white/[0.1] bg-white/[0.025] px-2.5 text-xs font-medium text-muted-foreground transition-colors hover:bg-white/[0.06] hover:text-foreground lg:px-3"
               >
                 <Download className="h-3.5 w-3.5" />
-                <span className="hidden lg:inline">Install</span>
+                <span className="hidden md:inline">Install Spyda</span>
               </button>
             )}
             <Link to="/auth" className="hidden h-9 items-center px-3 text-xs font-medium text-muted-foreground transition-colors hover:text-foreground sm:inline-flex">Sign in</Link>
-            <Link to="/auth" state={{ mode: 'signup' }} className="inline-flex h-9 items-center gap-2 rounded-lg bg-primary px-3.5 text-xs font-semibold text-primary-foreground transition-colors hover:bg-primary/90 sm:px-4">
+            <Link to="/auth" className="inline-flex h-9 items-center gap-2 rounded-lg bg-primary px-3.5 text-xs font-semibold text-primary-foreground transition-colors hover:bg-primary/90 sm:px-4">
               Open Spyda <ArrowRight className="h-3.5 w-3.5" />
             </Link>
           </div>
@@ -190,7 +194,7 @@ export default function Landing() {
                 Upload a flyer you already trust. Spyda finds its text, images, logos, colors, and layout so you can replace the parts that need to change without rebuilding everything from zero.
               </p>
               <div className="mt-8 flex flex-col items-center justify-center gap-3 sm:flex-row">
-                <Link to="/auth" state={{ mode: 'signup' }} className="group inline-flex h-12 w-full items-center justify-center gap-2 rounded-lg bg-primary px-6 text-sm font-semibold text-primary-foreground shadow-[0_14px_40px_rgba(157,250,176,0.18)] transition-all hover:-translate-y-0.5 hover:bg-primary/90 sm:w-auto">
+                <Link to="/auth" className="group inline-flex h-12 w-full items-center justify-center gap-2 rounded-lg bg-primary px-6 text-sm font-semibold text-primary-foreground shadow-[0_14px_40px_rgba(157,250,176,0.18)] transition-all hover:-translate-y-0.5 hover:bg-primary/90 sm:w-auto">
                   Open Spyda <ArrowRight className="h-4 w-4 transition-transform group-hover:translate-x-0.5" />
                 </Link>
                 <a href="#how" className="inline-flex h-12 w-full items-center justify-center gap-2 rounded-lg border border-white/[0.1] bg-white/[0.025] px-6 text-sm font-medium transition-colors hover:bg-white/[0.06] sm:w-auto">
