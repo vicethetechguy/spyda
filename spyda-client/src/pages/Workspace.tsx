@@ -38,7 +38,6 @@ import {
   Search,
   Grid2X2,
   Clock3,
-  Coins,
   CreditCard,
   ArrowUpRight,
   CircleCheck,
@@ -2671,6 +2670,10 @@ type CreditTier = {
   recommended?: boolean
 }
 
+function SpydaCreditIcon({ className = '' }: { className?: string }) {
+  return <img src="/assets/spyda-credit.png" alt="" aria-hidden="true" className={`shrink-0 object-contain ${className}`} />
+}
+
 const CREDIT_TIERS: CreditTier[] = [
   { amountUSD: 5, credits: 500, label: '$5', title: 'Starter', detail: 'For focused edits and quick experiments' },
   { amountUSD: 10, credits: 1000, label: '$10', title: 'Creator', detail: 'For regular design reconstruction', recommended: true },
@@ -2718,7 +2721,7 @@ function WalletView() {
   return (
     <div className="mx-auto w-full max-w-[1180px] px-4 py-6 sm:px-6 lg:px-8 lg:py-8">
       <div className="border-b border-white/[0.07] pb-6">
-        <div className="mb-2 flex items-center gap-2 text-[11px] font-semibold uppercase text-muted-foreground"><Coins className="h-3.5 w-3.5 text-primary" /> Spyda credits</div>
+        <div className="mb-2 flex items-center gap-2 text-[11px] font-semibold uppercase text-muted-foreground"><SpydaCreditIcon className="h-4 w-4" /> Spyda credits</div>
         <h2 className="font-heading text-2xl font-semibold sm:text-[28px]">Wallet and billing</h2>
         <p className="mt-1.5 text-sm text-muted-foreground">Keep your design workflow moving and top up only when you need to.</p>
       </div>
@@ -2727,6 +2730,7 @@ function WalletView() {
         <div>
           <p className="text-xs font-semibold uppercase text-muted-foreground">Available balance</p>
           <div className="mt-3 flex min-h-14 items-end gap-3">
+            {!loading && <SpydaCreditIcon className="mb-1 h-10 w-10 sm:mb-1.5 sm:h-12 sm:w-12" />}
             {loading ? <Loader2 className="mb-2 h-8 w-8 animate-spin text-primary" /> : <span className="font-heading text-5xl font-semibold leading-none sm:text-6xl">{balance.toLocaleString()}</span>}
             <span className="mb-1 text-sm font-medium text-primary sm:mb-2">credits</span>
           </div>
@@ -2758,7 +2762,7 @@ function WalletView() {
                   </div>
                   <span className={`inline-flex h-5 w-5 items-center justify-center rounded-full border ${selected ? 'border-primary bg-primary text-primary-foreground' : 'border-white/[0.16]'}`}>{selected && <Check className="h-3 w-3" strokeWidth={3} />}</span>
                 </div>
-                <p className="mt-4 text-sm font-semibold text-primary">{tier.credits.toLocaleString()} credits</p>
+                <p className="mt-4 flex items-center gap-1.5 text-sm font-semibold text-primary"><SpydaCreditIcon className="h-4 w-4" /> {tier.credits.toLocaleString()} credits</p>
                 <p className="mt-1 text-xs leading-5 text-muted-foreground">{tier.detail}</p>
               </button>
             )
