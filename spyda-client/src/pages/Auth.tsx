@@ -16,7 +16,7 @@ import { supabase } from '../lib/supabase'
 import { useAuth } from '../lib/AuthContext'
 
 export default function Auth() {
-  const { session, signIn } = useAuth()
+  const { session, signIn, loading: sessionLoading } = useAuth()
   const location = useLocation()
   const [isSignUp, setIsSignUp] = useState(location.state?.mode === 'signup')
   const [email, setEmail] = useState('')
@@ -218,9 +218,9 @@ export default function Auth() {
                 </div>
               )}
 
-              <button type="submit" disabled={loading || mfaStatus === 'checking'} className="group inline-flex h-12 w-full items-center justify-center gap-2 rounded-lg bg-primary text-sm font-semibold text-primary-foreground shadow-[0_14px_38px_rgba(157,250,176,0.16)] transition-all hover:-translate-y-0.5 hover:bg-primary/90 disabled:cursor-not-allowed disabled:opacity-50 disabled:hover:translate-y-0">
-                {loading || mfaStatus === 'checking' ? <Loader2 className="h-5 w-5 animate-spin" /> : isMfa ? 'Verify and continue' : isSignUp ? 'Create account' : 'Sign in to Spyda'}
-                {!loading && mfaStatus !== 'checking' && <ArrowRight className="h-4 w-4 transition-transform group-hover:translate-x-0.5" />}
+              <button type="submit" disabled={loading || sessionLoading || mfaStatus === 'checking'} className="group inline-flex h-12 w-full items-center justify-center gap-2 rounded-lg bg-primary text-sm font-semibold text-primary-foreground shadow-[0_14px_38px_rgba(157,250,176,0.16)] transition-all hover:-translate-y-0.5 hover:bg-primary/90 disabled:cursor-not-allowed disabled:opacity-50 disabled:hover:translate-y-0">
+                {loading || sessionLoading || mfaStatus === 'checking' ? <Loader2 className="h-5 w-5 animate-spin" /> : isMfa ? 'Verify and continue' : isSignUp ? 'Create account' : 'Sign in to Spyda'}
+                {!loading && !sessionLoading && mfaStatus !== 'checking' && <ArrowRight className="h-4 w-4 transition-transform group-hover:translate-x-0.5" />}
               </button>
             </form>
 

@@ -1,4 +1,4 @@
-const CACHE_NAME = "spyda-shell-v2";
+const CACHE_NAME = "spyda-shell-v3";
 const APP_SHELL = [
   "/",
   "/workspace",
@@ -35,7 +35,7 @@ self.addEventListener("fetch", (event) => {
 
   if (request.mode === "navigate") {
     event.respondWith(
-      fetch(request)
+      fetch(request, { cache: "no-store" })
         .then((response) => {
           const responseClone = response.clone();
           caches.open(CACHE_NAME).then((cache) => cache.put("/", responseClone));

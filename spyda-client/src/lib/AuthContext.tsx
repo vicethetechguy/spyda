@@ -1,6 +1,6 @@
 import React, { createContext, useCallback, useContext, useEffect, useState } from 'react'
 import type { Session, User } from '@supabase/supabase-js'
-import { supabase } from './supabase'
+import { resetLocalSupabaseSession, supabase } from './supabase'
 
 type AuthContextType = {
   session: Session | null
@@ -27,12 +27,32 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     let active = true
     let authEventVersion = 0
 
-    supabase.auth.getSession().then(({ data: { session } }) => {
-      if (!active || authEventVersion > 0) return
-      setSession(session)
-      setUser(session?.user ?? null)
-      setLoading(false)
-    })
+    const restoreSession = async () => {
+      try {
+        const { data, error } = await supabase.auth.getSession()
+        if (error) {
+          await resetLocalSupabaseSession()
+          if (!active) return
+          setSession(null)
+          setUser(null)
+          setLoading(false)
+          return
+        }
+
+        if (!active || authEventVersion > 0) return
+        setSession(data.session)
+        setUser(data.session?.user ?? null)
+        setLoading(false)
+      } catch {
+        await resetLocalSupabaseSession()
+        if (!active) return
+        setSession(null)
+        setUser(null)
+        setLoading(false)
+      }
+    }
+
+    void restoreSession()
 
     const { data: { subscription } } = supabase.auth.onAuthStateChange((_event, session) => {
       authEventVersion += 1
@@ -49,6 +69,8 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   }, [])
 
   const signIn = useCallback(async (email: string, password: string) => {
+    // A rejected refresh token must not block a fresh password sign-in.
+    await resetLocalSupabaseSession()
     const { data, error } = await supabase.auth.signInWithPassword({ email, password })
     if (error) throw error
     if (!data.session) throw new Error('Spyda could not establish an account session.')
