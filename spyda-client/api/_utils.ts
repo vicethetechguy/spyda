@@ -27,11 +27,71 @@ export function isGptImageModel(model: string = "") {
   return model.toLowerCase().startsWith("gpt-image");
 }
 
-export function mapOutputSize(format: string = "", imageSize: string = "", model: string = "") {
+function parseRequestedDimensions(value: string) {
+  const match = value.match(/(\d{3,4})\s*x\s*(\d{3,4})/i);
+  return match ? { width: Number(match[1]), height: Number(match[2]) } : null;
+}
+
+export function normalizeGptImage2Dimensions(dimensions: { width: number; height: number }) {
+  const sourceWidth = Math.max(1, Number(dimensions.width) || 1);
+  const sourceHeight = Math.max(1, Number(dimensions.height) || 1);
+  const sourcePixels = sourceWidth * sourceHeight;
+  const minPixels = 655_360;
+  const maxPixels = 8_294_400;
+  const maxEdge = 3840;
+  let scale = 1;
+  if (sourcePixels < minPixels) scale = Math.sqrt((minPixels * 1.01) / sourcePixels);
+  if (sourcePixels > maxPixels) scale = Math.sqrt(maxPixels / sourcePixels);
+  if (Math.max(sourceWidth, sourceHeight) * scale > maxEdge) {
+    scale = Math.min(scale, maxEdge / Math.max(sourceWidth, sourceHeight));
+  }
+
+  const targetWidth = sourceWidth * scale;
+  const targetHeight = sourceHeight * scale;
+  const targetRatio = sourceWidth / sourceHeight;
+  const widthStep = Math.round(targetWidth / 16);
+  const heightStep = Math.round(targetHeight / 16);
+  const candidates: Array<{ width: number; height: number; score: number }> = [];
+
+  for (let widthOffset = -3; widthOffset <= 3; widthOffset += 1) {
+    for (let heightOffset = -3; heightOffset <= 3; heightOffset += 1) {
+      const width = Math.max(16, (widthStep + widthOffset) * 16);
+      const height = Math.max(16, (heightStep + heightOffset) * 16);
+      const pixels = width * height;
+      const ratio = width / height;
+      if (width > maxEdge || height > maxEdge || pixels < minPixels || pixels > maxPixels || ratio > 3 || ratio < 1 / 3) continue;
+      const ratioError = Math.abs(Math.log(ratio / targetRatio));
+      const sizeError = Math.abs(Math.log(pixels / Math.max(minPixels, Math.min(maxPixels, targetWidth * targetHeight))));
+      candidates.push({ width, height, score: ratioError * 10 + sizeError });
+    }
+  }
+
+  const best = candidates.sort((a, b) => a.score - b.score)[0];
+  if (best) return `${best.width}x${best.height}`;
+
+  const fallbackWidth = Math.max(16, Math.min(maxEdge, Math.round(targetWidth / 16) * 16));
+  const fallbackHeight = Math.max(16, Math.min(maxEdge, Math.round(targetHeight / 16) * 16));
+  return `${fallbackWidth}x${fallbackHeight}`;
+}
+
+export function mapOutputSize(
+  format: string = "",
+  imageSize: string = "",
+  model: string = "",
+  sourceDimensions?: { width: number; height: number } | null,
+  matchReference = false,
+) {
   const sizeChoice = imageSize.toLowerCase();
   const normalized = format.toLowerCase();
   const portraitSize = isGptImageModel(model) ? "1024x1536" : "1024x1792";
   const landscapeSize = isGptImageModel(model) ? "1536x1024" : "1792x1024";
+
+  if (model.toLowerCase().startsWith("gpt-image-2")) {
+    const requested = matchReference && sourceDimensions
+      ? sourceDimensions
+      : parseRequestedDimensions(imageSize) || sourceDimensions;
+    if (requested?.width && requested?.height) return normalizeGptImage2Dimensions(requested);
+  }
 
   if (sizeChoice.includes("story") || sizeChoice.includes("reel") || sizeChoice.includes("shorts") || sizeChoice.includes("portrait") || sizeChoice.includes("4:5") || sizeChoice.includes("9:16") || sizeChoice.includes("a4-portrait") || sizeChoice.includes("1080x1920") || sizeChoice.includes("1080x1350") || sizeChoice.includes("1024x1536") || sizeChoice.includes("2480x3508")) return portraitSize;
   if (sizeChoice.includes("landscape") || sizeChoice.includes("thumbnail") || sizeChoice.includes("banner") || sizeChoice.includes("cover") || sizeChoice.includes("16:9") || sizeChoice.includes("1.91:1") || sizeChoice.includes("3:1") || sizeChoice.includes("1536x1024") || sizeChoice.includes("1280x720") || sizeChoice.includes("1920x1080") || sizeChoice.includes("3000x1000") || sizeChoice.includes("3508x2480")) return landscapeSize;
@@ -652,6 +712,11 @@ This is a true one-for-one replacement. Completely remove the previous asset ide
 These pasted assets may look slightly cut-out. Blend each one into the design naturally — clean edges, matching lighting, and shadows consistent with the rest of the flyer — while keeping its EXACT position, EXACT size, EXACT proportions, intrinsic colors, and exact content. Never enlarge, shrink, move, crop, restyle, recolor, redraw, duplicate, decorate, or add text or marks to them.`);
   }
 
+  if (recipe?.editMask?.dataUrl) {
+    sections.push(`EDIT BOUNDARY:
+An edit mask limits this round to the selected atom regions. Make the requested changes inside those regions and preserve everything outside them exactly. Do not reinterpret, redraw, recolor, resize, or move unmasked content.`);
+  }
+
   if (textEdits.length) {
     sections.push(`TEXT CHANGES (apply in place):
 ${textEdits.map((edit: any) => `- In the "${edit.atomName || 'text'}" region, replace the text "${edit.from || ''}" with "${edit.to || ''}".`).join("\n")}
@@ -904,6 +969,7 @@ function buildImageEditForm({
   size,
   quality,
   referenceImages,
+  maskDataUrl,
   imageFieldName,
 }: {
   model: string;
@@ -911,6 +977,7 @@ function buildImageEditForm({
   size: string;
   quality: string;
   referenceImages: any[];
+  maskDataUrl?: string | null;
   imageFieldName: "image" | "image[]";
 }) {
   const form = new FormData();
@@ -925,6 +992,12 @@ function buildImageEditForm({
     const blob = dataUrlToBlob(image.dataUrl);
     const extension = blob.type.includes("png") ? "png" : "jpg";
     form.append(imageFieldName, blob, `reference-${index + 1}-${image.sectionId}.${extension}`);
+  }
+
+  if (maskDataUrl) {
+    const maskBlob = dataUrlToBlob(maskDataUrl);
+    const extension = maskBlob.type.includes("webp") ? "webp" : "png";
+    form.append("mask", maskBlob, `edit-mask.${extension}`);
   }
 
   return form;
@@ -942,6 +1015,7 @@ async function requestOpenAiImageEdit({
   size,
   quality,
   referenceImages,
+  maskDataUrl,
   imageFieldName,
 }: {
   openaiKey: string;
@@ -950,12 +1024,13 @@ async function requestOpenAiImageEdit({
   size: string;
   quality: string;
   referenceImages: any[];
+  maskDataUrl?: string | null;
   imageFieldName: "image" | "image[]";
 }) {
   const response = await fetch("https://api.openai.com/v1/images/edits", {
     method: "POST",
     headers: { "Authorization": `Bearer ${openaiKey}` },
-    body: buildImageEditForm({ model, prompt, size, quality, referenceImages, imageFieldName }),
+    body: buildImageEditForm({ model, prompt, size, quality, referenceImages, maskDataUrl, imageFieldName }),
   });
 
   if (!response.ok) {
@@ -983,9 +1058,16 @@ export async function generateDesign({ recipe }: { recipe: any }) {
 
   const prompt = buildGenerationPrompt(recipe);
   const actualModel = imageModel || "gpt-image-1.5";
-  const size = mapOutputSize(recipe?.format, recipe?.imageSize, actualModel);
+  const size = mapOutputSize(
+    recipe?.format,
+    recipe?.imageSize,
+    actualModel,
+    recipe?.sourceDimensions,
+    recipe?.matchReference === true,
+  );
   const quality = mapQuality(recipe?.quality, actualModel);
   const referenceImages = getImageEditInputs(recipe);
+  const maskDataUrl = recipe?.editMask?.dataUrl || null;
 
   if (referenceImages.length && isGptImageModel(actualModel)) {
     let payload;
@@ -997,6 +1079,7 @@ export async function generateDesign({ recipe }: { recipe: any }) {
         size,
         quality,
         referenceImages,
+        maskDataUrl,
         imageFieldName: "image[]",
       });
     } catch (error: any) {
@@ -1009,6 +1092,7 @@ export async function generateDesign({ recipe }: { recipe: any }) {
         size,
         quality,
         referenceImages,
+        maskDataUrl,
         imageFieldName: "image",
       });
     }

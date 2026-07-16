@@ -16,9 +16,17 @@ function asImageInputUrl(image: string) {
   return `data:image/png;base64,${image}`;
 }
 
+function settleWithin<T>(promise: Promise<T>, milliseconds: number): Promise<T | null> {
+  return Promise.race([
+    promise,
+    new Promise<null>(resolve => setTimeout(() => resolve(null), milliseconds)),
+  ]);
+}
+
 export type GenerationQaReport = {
   ok: boolean;
   skipped?: boolean;
+  pending?: boolean;
   passed?: boolean;
   retried?: boolean;
   score?: number;
@@ -185,26 +193,26 @@ Set "passed" to false when any checklist item fails. Score 0-100 for overall ref
   try {
     const qaRequest = fetch("https://api.openai.com/v1/chat/completions", {
       method: "POST",
-      signal: AbortSignal.timeout(25000),
+      signal: AbortSignal.timeout(18000),
       headers: { "Authorization": `Bearer ${openaiKey}`, "Content-Type": "application/json" },
       body: JSON.stringify({
         model: analysisModel,
         temperature: 0,
         response_format: { type: "json_object" },
-        max_tokens: 1200,
+        max_tokens: 800,
         messages: [{
           role: "user",
           content: [
             { type: "text", text: prompt },
-            { type: "image_url", image_url: { url: sourceImage } },
-            { type: "image_url", image_url: { url: asImageInputUrl(generatedImage) } },
+            { type: "image_url", image_url: { url: sourceImage, detail: "low" } },
+            { type: "image_url", image_url: { url: asImageInputUrl(generatedImage), detail: "low" } },
           ],
         }],
       }),
     });
     const [response, generatedOcr] = await Promise.all([
       qaRequest,
-      runOcr(generatedImage).catch(() => null),
+      settleWithin(runOcr(generatedImage).catch(() => null), 8000),
     ]);
 
     if (!response.ok) {

@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest'
 import { buildApprovedDifferenceContract, buildGenerationQaPrompt, findMissingRequiredText } from './qa-contract.js'
 import { normalizeQaReport } from './qa.js'
-import { buildGenerationPrompt } from './_utils.js'
+import { buildGenerationPrompt, mapOutputSize, normalizeGptImage2Dimensions } from './_utils.js'
 
 const recipe = {
   compositeMode: true,
@@ -24,6 +24,23 @@ const recipe = {
 }
 
 describe('approved difference QA contract', () => {
+  it('keeps GPT-Image 2 output close to the parent aspect ratio', () => {
+    const size = normalizeGptImage2Dimensions({ width: 736, height: 920 })
+    const [width, height] = size.split('x').map(Number)
+
+    expect(width % 16).toBe(0)
+    expect(height % 16).toBe(0)
+    expect(Math.abs((width / height) - (736 / 920))).toBeLessThan(0.015)
+    expect(width * height).toBeGreaterThanOrEqual(655_360)
+  })
+
+  it('uses the actual reference dimensions for GPT-Image 2 match-reference edits', () => {
+    const size = mapOutputSize('', 'Portrait 1024 x 1536', 'gpt-image-2', { width: 1080, height: 1350 }, true)
+    const [width, height] = size.split('x').map(Number)
+
+    expect(Math.abs((width / height) - 0.8)).toBeLessThan(0.015)
+  })
+
   it('separates approved brand and text edits from protected content', () => {
     const contract = buildApprovedDifferenceContract(recipe)
 

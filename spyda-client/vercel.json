@@ -10,6 +10,9 @@
     "api/ocr.ts": {
       "maxDuration": 60
     },
+    "api/validate-generation.ts": {
+      "maxDuration": 60
+    },
     "api/health.ts": {
       "maxDuration": 10
     }

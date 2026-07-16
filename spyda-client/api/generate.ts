@@ -60,6 +60,11 @@ async function readMultipartRecipe(req: any) {
     recipe.childSourceImage.dataUrl = await fileToDataUrl(childFile);
   }
 
+  const editMaskFile = firstFile(files.editMask);
+  if (editMaskFile && recipe.editMask) {
+    recipe.editMask.dataUrl = await fileToDataUrl(editMaskFile);
+  }
+
   const essentialsFile = firstFile(files.essentialsImage);
   if (essentialsFile && recipe.essentialsImage) {
     recipe.essentialsImage.dataUrl = await fileToDataUrl(essentialsFile);
@@ -90,6 +95,12 @@ export default async function handler(req: any, res: any) {
     }
 
     let result = await generateDesign({ recipe });
+    if (recipe.deferQa) {
+      return res.status(200).json({
+        ...result,
+        qa: { ok: true, skipped: true, pending: true },
+      });
+    }
     let qa = await runGenerationQa({ recipe, generatedImage: result.image });
 
     // QA gate: one automatic corrective retry when the output fails layout/size checks.

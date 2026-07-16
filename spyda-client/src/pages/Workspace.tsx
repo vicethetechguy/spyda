@@ -30,8 +30,6 @@ import {
   Check,
   Zap,
   Bot,
-  ChevronUp,
-  ChevronRight,
   MoreHorizontal,
   Trash2,
   ShieldCheck,
@@ -86,6 +84,7 @@ type ApiGenerateResponse = {
 type GenerationQaReport = {
   ok?: boolean
   skipped?: boolean
+  pending?: boolean
   passed?: boolean
   retried?: boolean
   score?: number
@@ -177,6 +176,7 @@ const OUTPUT_SIZE_OPTIONS = [
 // Vercel Functions accept 4.5 MB request bodies. Keep multipart uploads below
 // 4 MB so field metadata and boundaries have room without reaching the limit.
 const SAFE_GENERATION_UPLOAD_BYTES = 4 * 1024 * 1024
+const DESIGN_PREVIEW_HEIGHT = 'clamp(360px, 58vh, 620px)'
 
 const HEX_COLOR_PATTERN = /^#?[0-9a-fA-F]{6}$/
 
@@ -231,41 +231,6 @@ function imageFileToDataUrl(file: File, maxWidth = 1024, maxHeight = 1024, quali
   })
 }
 
-function imageFileToBlob(file: File, maxWidth = 1024, maxHeight = 1024, quality = 0.86, mimeType = 'image/jpeg'): Promise<Blob> {
-  return new Promise((resolve, reject) => {
-    const reader = new FileReader()
-    reader.readAsDataURL(file)
-    reader.onload = (event) => {
-      const img = new window.Image()
-      img.src = event.target?.result as string
-      img.onload = () => {
-        const canvas = document.createElement('canvas')
-        let width = img.width
-        let height = img.height
-
-        if (width > height && width > maxWidth) {
-          height *= maxWidth / width
-          width = maxWidth
-        } else if (height > maxHeight) {
-          width *= maxHeight / height
-          height = maxHeight
-        }
-
-        canvas.width = Math.round(width)
-        canvas.height = Math.round(height)
-        const ctx = canvas.getContext('2d')
-        ctx?.drawImage(img, 0, 0, canvas.width, canvas.height)
-        canvas.toBlob(blob => {
-          if (blob) resolve(blob)
-          else reject(new Error('Could not prepare image for generation.'))
-        }, mimeType, quality)
-      }
-      img.onerror = () => reject(new Error('Spyda could not read this uploaded image. Try uploading it again as PNG, JPEG, or WebP.'))
-    }
-    reader.onerror = () => reject(new Error('Spyda could not read this uploaded image. Try uploading it again.'))
-  })
-}
-
 async function dataUrlToBlob(dataUrl: string) {
   const response = await fetch(dataUrl)
   return response.blob()
@@ -311,6 +276,75 @@ function imageSourceToBlob(imageSrc: string, maxWidth = 1024, maxHeight = 1024, 
       }, mimeType, quality)
     }
     img.onerror = () => reject(new Error('Spyda could not prepare one of the selected images. Re-upload that asset and try again.'))
+  })
+}
+
+function prepareMaskedGenerationInput(
+  imageSrc: string,
+  editBoxes: AtomBox[],
+  maxWidth = 1024,
+  maxHeight = 1536,
+): Promise<{ imageBlob: Blob; maskBlob: Blob | null }> {
+  return new Promise((resolve, reject) => {
+    const img = new window.Image()
+    if (!imageSrc.startsWith('data:') && !imageSrc.startsWith('blob:')) img.crossOrigin = 'anonymous'
+    img.src = imageSrc
+    img.onload = async () => {
+      let width = img.naturalWidth || img.width
+      let height = img.naturalHeight || img.height
+      const scale = Math.min(1, maxWidth / width, maxHeight / height)
+      width = Math.max(1, Math.round(width * scale))
+      height = Math.max(1, Math.round(height * scale))
+
+      const imageCanvas = document.createElement('canvas')
+      imageCanvas.width = width
+      imageCanvas.height = height
+      const imageContext = imageCanvas.getContext('2d')
+      if (!imageContext) {
+        reject(new Error('Could not prepare the working design.'))
+        return
+      }
+      imageContext.fillStyle = '#ffffff'
+      imageContext.fillRect(0, 0, width, height)
+      imageContext.drawImage(img, 0, 0, width, height)
+
+      const toWebp = (canvas: HTMLCanvasElement, quality: number) => new Promise<Blob>((resolveBlob, rejectBlob) => {
+        canvas.toBlob(blob => blob ? resolveBlob(blob) : rejectBlob(new Error('Could not prepare the generation image.')), 'image/webp', quality)
+      })
+
+      try {
+        const imageBlob = await toWebp(imageCanvas, 0.86)
+        if (!editBoxes.length) {
+          resolve({ imageBlob, maskBlob: null })
+          return
+        }
+
+        const maskCanvas = document.createElement('canvas')
+        maskCanvas.width = width
+        maskCanvas.height = height
+        const maskContext = maskCanvas.getContext('2d')
+        if (!maskContext) {
+          resolve({ imageBlob, maskBlob: null })
+          return
+        }
+        maskContext.fillStyle = '#000000'
+        maskContext.fillRect(0, 0, width, height)
+        maskContext.globalCompositeOperation = 'destination-out'
+        for (const box of editBoxes) {
+          const padX = Math.max(4, (box.width / 100) * width * 0.12)
+          const padY = Math.max(4, (box.height / 100) * height * 0.12)
+          const x = Math.max(0, (box.x / 100) * width - padX)
+          const y = Math.max(0, (box.y / 100) * height - padY)
+          const boxWidth = Math.min(width - x, (box.width / 100) * width + padX * 2)
+          const boxHeight = Math.min(height - y, (box.height / 100) * height + padY * 2)
+          maskContext.clearRect(x, y, boxWidth, boxHeight)
+        }
+        resolve({ imageBlob, maskBlob: await toWebp(maskCanvas, 1) })
+      } catch (error) {
+        reject(error)
+      }
+    }
+    img.onerror = () => reject(new Error('Spyda could not prepare the active design for generation.'))
   })
 }
 
@@ -825,6 +859,18 @@ export default function Workspace() {
 
       const finalizeRound = async (imageSrc: string, qa: GenerationQaReport | null) => {
         const normalizedImageSrc = await resizeImageToDimensions(imageSrc, sourceDimensions.width, sourceDimensions.height)
+        const selectedIds = new Set(selectedAtoms.map(atom => atom.id))
+        const nextBreakdown: BreakdownResult = {
+          ...breakdown,
+          design: {
+            ...breakdown.design,
+            editableComponents: (breakdown.design?.editableComponents || []).map(atom =>
+              selectedIds.has(atom.id) ? { ...atom, deleted: true } : atom
+            ),
+          },
+        }
+        const nextAtomEdits = { ...atomEdits }
+        for (const atom of selectedAtoms) delete nextAtomEdits[atom.id]
         setQaParentPreview(activeSourcePreview)
         setGeneratedImage(normalizedImageSrc)
         setGenerationQa(qa)
@@ -834,33 +880,26 @@ export default function Workspace() {
           referencePreview: uploadedPreview,
           qaParentPreview: activeSourcePreview,
           generatedImage: normalizedImageSrc,
-          breakdown,
-          atomEdits,
+          breakdown: nextBreakdown,
+          atomEdits: nextAtomEdits,
           brandEdits,
           qa,
         })
-        setBreakdown(prev => {
-          if (!prev) return prev
-          const selectedIds = new Set(selectedAtoms.map(atom => atom.id))
-          return {
-            ...prev,
-            design: {
-              ...prev.design,
-              editableComponents: (prev.design.editableComponents || []).map(atom =>
-                selectedIds.has(atom.id) ? { ...atom, deleted: true } : atom
-              ),
-            },
-          }
-        })
-        setAtomEdits(prev => {
-          const next = { ...prev }
-          for (const atom of selectedAtoms) delete next[atom.id]
-          return next
-        })
+        setBreakdown(nextBreakdown)
+        setAtomEdits(nextAtomEdits)
         setEssentialPrompts(['', '', ''])
+        return normalizedImageSrc
       }
 
       const needsAi = Boolean(textEdits.length || otherEdits.length || filledEssentials.length || hasBrandOverrides || unplacedAssets.length || essentialsImage)
+      const measuredEditBoxes = selectedAtoms
+        .map(section => atomEdits[section.id]?.box || parseAtomBox(section.boundingBox, previewSize))
+        .filter((box): box is AtomBox => box !== null)
+        .map(clampBox)
+      const hasGlobalEdit = Boolean(filledEssentials.length || hasBrandOverrides || unplacedAssets.length || essentialsImage)
+      const localizedEditBoxes = !hasGlobalEdit && measuredEditBoxes.length === selectedAtoms.length
+        ? measuredEditBoxes
+        : []
 
       // ── Instant paste: pure image swaps need no AI at all ──
       if (options?.instant) {
@@ -902,6 +941,8 @@ export default function Workspace() {
       const recipe: Record<string, any> = {
         compositeMode: true,
         clientCorrectionLoop: true,
+        deferQa: true,
+        quality: 'medium',
         architectureVersion: breakdown.architectureVersion || 'spyda-v1-compatibility',
         designDocument: breakdown.designDocument,
         layoutIntelligence: breakdown.layoutIntelligence,
@@ -909,6 +950,7 @@ export default function Workspace() {
         editableComponents: (breakdown.design?.editableComponents || []).filter(component => !component.deleted),
         aiProvider: aiModel.provider,
         imageSize: chosenOutputSize,
+        matchReference: brandEdits.outputSize === 'match-reference',
         sourceImageSize,
         sourceDimensions,
         outputSizeLabel: OUTPUT_SIZE_OPTIONS.find(option => option.value === brandEdits.outputSize)?.label || 'Match uploaded reference',
@@ -945,8 +987,12 @@ export default function Workspace() {
         })),
       }
 
-      const childSourceBlob = await imageSourceToBlob(compositeDataUrl, 1024, 1536, 0.85)
+      const preparedInput = await prepareMaskedGenerationInput(compositeDataUrl, localizedEditBoxes)
+      const childSourceBlob = preparedInput.imageBlob
+      const editMaskBlob = preparedInput.maskBlob
+      if (editMaskBlob) recipe.editMask = { fieldName: 'editMask', role: 'selected-atom edit boundary' }
       let uploadBytes = childSourceBlob.size
+      if (editMaskBlob) uploadBytes += editMaskBlob.size
       const essentialsBlob = essentialsImage
         ? await imageSourceToBlob(essentialsImage.dataUrl, 768, 768, 0.78)
         : null
@@ -965,7 +1011,8 @@ export default function Workspace() {
       const buildGenerationForm = (attemptRecipe: Record<string, any>) => {
         const form = new FormData()
         form.append('recipe', JSON.stringify(attemptRecipe))
-        form.append('childSourceImage', childSourceBlob, 'working-design.jpg')
+        form.append('childSourceImage', childSourceBlob, 'working-design.webp')
+        if (editMaskBlob) form.append('editMask', editMaskBlob, 'edit-mask.webp')
         if (essentialsBlob && essentialsImage) {
           form.append('essentialsImage', essentialsBlob, essentialsImage.name || 'essentials-reference.jpg')
         }
@@ -973,68 +1020,46 @@ export default function Workspace() {
         return form
       }
 
-      const maxAttempts = 3
-      let attemptRecipe = recipe
-      let data: ApiGenerateResponse | null = null
-      let attemptsUsed = 0
-
-      for (let attempt = 1; attempt <= maxAttempts; attempt += 1) {
-        attemptsUsed = attempt
-        setGenerationStage(attempt === 1
-          ? 'Generating and checking reference fidelity'
-          : `Auto-correcting reference drift (${attempt}/${maxAttempts})`)
-
-        let candidate: ApiGenerateResponse
-        try {
-          const response = await fetch('/api/generate', {
-            method: 'POST',
-            body: buildGenerationForm(attemptRecipe),
-          })
-          candidate = await readApiJson<ApiGenerateResponse>(response)
-        } catch (attemptError) {
-          if (data?.image) break
-          throw attemptError
-        }
-
-        if (!candidate?.ok || !candidate?.image) {
-          if (data?.image) break
-          data = candidate
-          break
-        }
-
-        const candidateScore = candidate.qa?.score ?? (candidate.qa?.passed ? 100 : 0)
-        const bestScore = data?.qa?.score ?? (data?.qa?.passed ? 100 : -1)
-        if (!data || candidateScore > bestScore || (candidate.qa?.passed && !data.qa?.passed)) data = candidate
-
-        const reachedPerfectGate = candidate.qa?.passed === true && candidate.qa?.score === 100
-        if (reachedPerfectGate || !candidate.qa || candidate.qa.skipped || candidate.qa.ok === false) break
-
-        const corrections = [
-          ...(candidate.qa.hardGateFailures || []).map(failure => failure.message),
-          ...(candidate.qa.unapprovedChanges || []).map(change => `Remove this unapproved change: ${change}`),
-          ...(candidate.qa.suggestions || []),
-          ...(candidate.qa.issues || []),
-        ].map(value => value.trim()).filter((value, index, values) => value && values.indexOf(value) === index).slice(0, 8)
-        if (!corrections.length) break
-
-        attemptRecipe = {
-          ...recipe,
-          qaCorrections: {
-            instruction: 'Rebuild from the same active parent. Preserve all approved changes that passed, remove every unapproved difference, and fix every hard-gate failure without changing any other pixel region.',
-            previousScore: candidate.qa.score,
-            violations: corrections,
-          },
-        }
-      }
-
-      if (data?.qa && attemptsUsed > 1) data = { ...data, qa: { ...data.qa, retried: true } }
+      setGenerationStage(editMaskBlob
+        ? 'Applying one focused GPT-Image 2 edit'
+        : 'Applying one GPT-Image 2 edit')
+      const response = await fetch('/api/generate', {
+        method: 'POST',
+        body: buildGenerationForm(recipe),
+      })
+      const data = await readApiJson<ApiGenerateResponse>(response)
 
       if (data?.ok && data?.image) {
-        setGenerationStage(data.qa ? 'Checking reference match' : 'Finalizing design')
+        setGenerationStage('Finalizing design')
         const imageSrc = data.image.startsWith('http') || data.image.startsWith('data:image/')
           ? data.image
           : `data:image/webp;base64,${data.image}`
-        await finalizeRound(imageSrc, data.qa || null)
+        const pendingQa: GenerationQaReport = { ok: true, skipped: true, pending: true }
+        const normalizedImageSrc = await finalizeRound(imageSrc, pendingQa)
+
+        void (async () => {
+          try {
+            const generatedBlob = await imageSourceToBlob(normalizedImageSrc, 768, 1152, 0.72)
+            const qaForm = new FormData()
+            qaForm.append('recipe', JSON.stringify({ ...recipe, deferQa: false, editMask: undefined }))
+            qaForm.append('childSourceImage', childSourceBlob, 'qa-parent.webp')
+            qaForm.append('generatedImage', generatedBlob, 'qa-child.webp')
+            const qaResponse = await fetch('/api/validate-generation', { method: 'POST', body: qaForm })
+            const qaData = await readApiJson<{ ok: boolean; qa?: GenerationQaReport; error?: string }>(qaResponse)
+            const qa = qaData.qa || { ok: false, skipped: true, error: qaData.error || 'Background QA did not finish.' }
+            setGenerationQa(qa)
+            persistCurrentProject({
+              id: currentProjectId || undefined,
+              qaParentPreview: activeSourcePreview,
+              generatedImage: normalizedImageSrc,
+              qa,
+            })
+          } catch (qaError: any) {
+            const qa = { ok: false, skipped: true, error: String(qaError?.message || 'Background QA did not finish.') }
+            setGenerationQa(qa)
+            persistCurrentProject({ id: currentProjectId || undefined, generatedImage: normalizedImageSrc, qa })
+          }
+        })()
       } else if (data?.ok && !data?.image) {
         setGenerateError(data?.message || 'Generation returned no image (mock mode — set OPENAI_API_KEY).')
       } else {
@@ -1294,7 +1319,15 @@ function QaGateView({ qa, generatedImage, uploadedPreview, onBack, onApplyEssent
         <ArrowLeft className="w-4 h-4" /> Back to Canvas
       </button>
 
-      {!hasReport ? (
+      {qa?.pending ? (
+        <div className="flex flex-col items-center justify-center rounded-2xl border border-primary/15 bg-primary/[0.025] px-6 py-20 text-center">
+          <Loader2 className="mb-4 h-10 w-10 animate-spin text-primary" strokeWidth={1.5} />
+          <h2 className="text-lg font-semibold">Design ready, checking fidelity</h2>
+          <p className="mt-2 max-w-md text-sm text-muted-foreground">
+            Your flyer is already available on the Canvas. Spyda is comparing layout, text, assets, and replacement sizing in the background.
+          </p>
+        </div>
+      ) : !hasReport ? (
         <div className="flex flex-col items-center justify-center rounded-2xl border border-white/[0.06] bg-white/[0.02] py-20 text-center px-6">
           <ShieldCheck className="w-10 h-10 text-muted-foreground/30 mb-4" strokeWidth={1.25} />
           <h2 className="text-lg font-semibold">No QA report yet</h2>
@@ -1507,12 +1540,20 @@ function PlacementCanvas({
   const endDrag = () => { dragRef.current = null }
 
   return (
-    <div className="relative flex h-[340px] items-center justify-center rounded-xl overflow-hidden border border-white/[0.06] bg-white/[0.02]">
-      <div ref={wrapperRef} className="relative">
+    <div
+      className="relative flex w-full items-center justify-center overflow-hidden rounded-xl border border-white/[0.06] bg-white/[0.02] p-3"
+      style={{ height: DESIGN_PREVIEW_HEIGHT }}
+    >
+      <div
+        ref={wrapperRef}
+        className="relative flex max-w-full items-center justify-center"
+        style={{ maxHeight: `calc(${DESIGN_PREVIEW_HEIGHT} - 24px)` }}
+      >
         <img
           src={src}
           alt="Active parent source flyer"
-          className="block max-h-[336px] max-w-full object-contain"
+          className="block max-w-full object-contain"
+          style={{ maxHeight: `calc(${DESIGN_PREVIEW_HEIGHT} - 24px)` }}
           onLoad={event => setNaturalSize({
             width: event.currentTarget.naturalWidth || event.currentTarget.width,
             height: event.currentTarget.naturalHeight || event.currentTarget.height,
@@ -1585,7 +1626,7 @@ function PlacementCanvas({
 function StudioView({
   uploadedFile, uploadedPreview,
   breakdown, isAnalyzing, isGenerating, generatedImage,
-  generationQa, analysisStage, generationStage,
+  generationQa: _generationQa, analysisStage, generationStage,
   analyzeError, generateError, atomEdits, brandEdits,
   essentialsImage,
   essentialPrompts,
@@ -1772,7 +1813,10 @@ function StudioView({
             </div>
           </div>
           {generatedImage || uploadedPreview ? (
-            <div className="relative flex h-[min(72vh,760px)] min-h-[440px] w-full items-center justify-center overflow-hidden rounded-xl border border-primary/20 bg-white/[0.02] p-3">
+            <div
+              className="relative flex w-full items-center justify-center overflow-hidden rounded-xl border border-primary/20 bg-white/[0.02] p-3"
+              style={{ height: DESIGN_PREVIEW_HEIGHT }}
+            >
               <img src={generatedImage || uploadedPreview || ''} alt="Child source design" className="max-h-full max-w-full object-contain" />
               {isGenerating && (
                 <div className="absolute inset-0 flex flex-col items-center justify-center bg-background/80 backdrop-blur-sm">
