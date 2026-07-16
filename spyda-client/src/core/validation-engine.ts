@@ -1,5 +1,5 @@
 import { parseDesignDocument, type DesignDocument, type DesignObject, type PercentBox } from './design-document'
-import type { LayoutIntelligenceModel } from './layout-intelligence'
+import type { LayoutIntelligenceModel, ObjectMeasurement } from './layout-intelligence'
 
 export type FidelityMetric = { score: number; issues: string[] }
 
@@ -46,8 +46,10 @@ function normalizedColor(value: string | null) {
   return (value || '').trim().toLowerCase()
 }
 
-function objectMap(document: DesignDocument) {
-  return new Map(document.objects.map(object => [object.id, object]))
+function objectMap(document: DesignDocument): Map<string, DesignObject> {
+  const objects = new Map<string, DesignObject>()
+  for (const object of document.objects as DesignObject[]) objects.set(object.id, object)
+  return objects
 }
 
 function geometryMetrics(reference: DesignObject[], candidates: Map<string, DesignObject>) {
@@ -111,8 +113,16 @@ function colorMetric(reference: DesignDocument, candidate: DesignDocument): Fide
     scores.push(score)
     if (score < 100) issues.push(`${object.name} color treatment changed.`)
   })
-  const sourcePalette = Object.values(reference.styleTokens.palette).map(color => color.toLowerCase())
-  const candidatePalette = Object.values(candidate.styleTokens.palette).map(color => color.toLowerCase())
+  const sourcePalette: string[] = [
+    reference.styleTokens.palette.primary,
+    reference.styleTokens.palette.secondary,
+    reference.styleTokens.palette.accent,
+  ].map(color => color.toLowerCase())
+  const candidatePalette: string[] = [
+    candidate.styleTokens.palette.primary,
+    candidate.styleTokens.palette.secondary,
+    candidate.styleTokens.palette.accent,
+  ].map(color => color.toLowerCase())
   scores.push(sourcePalette.filter(color => candidatePalette.includes(color)).length / sourcePalette.length * 100)
   return { score: clampScore(average(scores)), issues }
 }
@@ -121,12 +131,13 @@ function alignmentMetric(referenceLayout?: LayoutIntelligenceModel, candidateLay
   if (!referenceLayout || !candidateLayout) return { score: 100, issues: [] }
   const scores: number[] = []
   const issues: string[] = []
-  Object.values(referenceLayout.measurements).forEach(measurement => {
+  const referenceMeasurements: ObjectMeasurement[] = Object.values(referenceLayout.measurements) as ObjectMeasurement[]
+  referenceMeasurements.forEach(measurement => {
     const candidate = candidateLayout.measurements[measurement.objectId]
     if (!candidate) return
-    const expectedPeers = new Set(measurement.alignmentPeers)
-    const actualPeers = new Set(candidate.alignmentPeers)
-    const union = new Set([...expectedPeers, ...actualPeers])
+    const expectedPeers = new Set<string>(measurement.alignmentPeers)
+    const actualPeers = new Set<string>(candidate.alignmentPeers)
+    const union = new Set<string>([...expectedPeers, ...actualPeers])
     const intersection = [...expectedPeers].filter(peer => actualPeers.has(peer)).length
     const score = union.size ? intersection / union.size * 100 : 100
     scores.push(score)
@@ -143,16 +154,18 @@ export function validateDesignFidelity(
 ): FidelityReport {
   const reference = parseDesignDocument(referenceInput)
   const candidate = parseDesignDocument(candidateInput)
-  const candidates = objectMap(candidate)
-  const referenceIds = new Set(reference.objects.map(object => object.id))
-  const candidateIds = new Set(candidate.objects.map(object => object.id))
-  const missingObjectIds = [...referenceIds].filter(id => !candidateIds.has(id))
-  const unexpectedObjectIds = [...candidateIds].filter(id => !referenceIds.has(id))
-  const geometry = geometryMetrics(reference.objects, candidates)
-  const typography = typographyMetric(reference.objects, candidates)
+  const referenceObjects: DesignObject[] = reference.objects as DesignObject[]
+  const candidateObjects: DesignObject[] = candidate.objects as DesignObject[]
+  const candidates: Map<string, DesignObject> = objectMap(candidate)
+  const referenceIds = new Set<string>(referenceObjects.map((object: DesignObject) => object.id))
+  const candidateIds = new Set<string>(candidateObjects.map((object: DesignObject) => object.id))
+  const missingObjectIds: string[] = [...referenceIds].filter((id: string) => !candidateIds.has(id))
+  const unexpectedObjectIds: string[] = [...candidateIds].filter((id: string) => !referenceIds.has(id))
+  const geometry = geometryMetrics(referenceObjects, candidates)
+  const typography = typographyMetric(referenceObjects, candidates)
   const color = colorMetric(reference, candidate)
   const alignment = alignmentMetric(referenceLayout, candidateLayout)
-  const layerScores = reference.objects.flatMap(object => {
+  const layerScores: number[] = referenceObjects.flatMap((object: DesignObject): number[] => {
     const candidateObject = candidates.get(object.id)
     return candidateObject ? [candidateObject.zIndex === object.zIndex ? 100 : 0] : []
   })
