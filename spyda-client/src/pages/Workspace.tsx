@@ -266,48 +266,58 @@ async function dataUrlToBlob(dataUrl: string) {
   return response.blob()
 }
 
-function imageSourceToBlob(imageSrc: string, maxWidth = 1024, maxHeight = 1024, quality = 0.82, mimeType = 'image/jpeg'): Promise<Blob> {
+function imageSourceToBlob(imageSrc: string, maxWidth = 1024, maxHeight = 1024, quality = 0.7): Promise<Blob> {
   return new Promise((resolve, reject) => {
     const img = new window.Image()
-    img.crossOrigin = 'anonymous'
+    if (!imageSrc.startsWith('data:') && !imageSrc.startsWith('blob:')) {
+      img.crossOrigin = 'anonymous'
+    }
+    img.src = imageSrc
     img.onload = () => {
       const canvas = document.createElement('canvas')
-      let width = img.naturalWidth || img.width
-      let height = img.naturalHeight || img.height
+      let width = img.width
+      let height = img.height
 
-      if (width > maxWidth || height > maxHeight) {
-        const scale = Math.min(maxWidth / width, maxHeight / height)
-        width *= scale
-        height *= scale
+      if (width > maxWidth) {
+        height = Math.round((height * maxWidth) / width)
+        width = maxWidth
+      }
+      if (height > maxHeight) {
+        width = Math.round((width * maxHeight) / height)
+        height = maxHeight
       }
 
-      canvas.width = Math.max(1, Math.round(width))
-      canvas.height = Math.max(1, Math.round(height))
+      canvas.width = width
+      canvas.height = height
       const ctx = canvas.getContext('2d')
       if (!ctx) {
-        reject(new Error('Could not prepare image for generation.'))
+        reject(new Error('Could not initialize canvas context.'))
         return
       }
 
       ctx.fillStyle = '#ffffff'
       ctx.fillRect(0, 0, canvas.width, canvas.height)
       ctx.drawImage(img, 0, 0, canvas.width, canvas.height)
+      
+      const mimeType = imageSrc.startsWith('data:image/png') || imageSrc.includes('.png') ? 'image/png' : 'image/webp'
       canvas.toBlob(blob => {
         if (blob) resolve(blob)
         else reject(new Error('Could not prepare image for generation.'))
       }, mimeType, quality)
     }
     img.onerror = () => reject(new Error('Spyda could not prepare one of the selected images. Re-upload that asset and try again.'))
-    img.src = imageSrc
   })
 }
 
 function getImageDimensionsFromSrc(imageSrc: string): Promise<{ width: number; height: number }> {
   return new Promise((resolve, reject) => {
     const img = new window.Image()
+    if (!imageSrc.startsWith('data:') && !imageSrc.startsWith('blob:')) {
+      img.crossOrigin = 'anonymous'
+    }
     img.src = imageSrc
     img.onload = () => resolve({ width: img.naturalWidth || img.width, height: img.naturalHeight || img.height })
-    img.onerror = () => reject(new Error('Spyda could not read the uploaded reference dimensions. Re-upload the reference and try again.'))
+    img.onerror = () => reject(new Error('Spyda could not read the uploaded reference. Re-upload it and try again.'))
   })
 }
 
@@ -1007,7 +1017,7 @@ export default function Workspace() {
       </div>
 
       {/* Main */}
-      <div className="flex-1 flex flex-col min-w-0">
+      <div className="flex-1 flex flex-col min-w-0 min-h-0">
         {/* Top Bar */}
         <div className="relative z-50 h-14 shrink-0 border-b border-white/[0.06] bg-[#060608]/80 backdrop-blur-xl flex items-center justify-between px-4">
           <div className="flex min-w-0 items-center gap-2 sm:gap-3">
@@ -1596,7 +1606,7 @@ function StudioView({
   return (
     <div className="flex-1 min-h-0 h-full w-full flex flex-col lg:flex-row lg:items-stretch">
       {/* Left: Source + Child Source */}
-      <div className="min-h-0 w-full flex-1 shrink-0 overflow-y-auto border-r border-white/[0.06] flex flex-col lg:w-[45%] lg:flex-none">
+      <div className="min-h-0 w-full flex-1 shrink-0 overflow-y-auto overscroll-contain border-r border-white/[0.06] flex flex-col lg:w-[45%] lg:flex-none">
         {/* Active Source Image */}
         <div className="p-6 border-b border-white/[0.06]">
           <div className="flex items-center justify-between mb-4">

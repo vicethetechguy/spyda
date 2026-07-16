@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react'
-import { Link, Navigate } from 'react-router-dom'
+import { Link, Navigate, useLocation } from 'react-router-dom'
 import {
   ArrowLeft,
   ArrowRight,
@@ -17,7 +17,8 @@ import { useAuth } from '../lib/AuthContext'
 
 export default function Auth() {
   const { session, signIn } = useAuth()
-  const [isSignUp, setIsSignUp] = useState(false)
+  const location = useLocation()
+  const [isSignUp, setIsSignUp] = useState(location.state?.mode === 'signup')
   const [email, setEmail] = useState('')
   const [password, setPassword] = useState('')
   const [showPassword, setShowPassword] = useState(false)
