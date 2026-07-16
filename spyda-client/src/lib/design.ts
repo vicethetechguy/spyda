@@ -104,6 +104,114 @@ export type CompositeLayer = {
   box: AtomBox
   /** Replacement asset data URL (PNG alpha preserved). */
   src: string
+  /** Trim transparent or flat whitespace before fitting, primarily for logos. */
+  trimWhitespace?: boolean
+}
+
+export type PixelBounds = { x: number; y: number; width: number; height: number }
+
+/** Finds visible artwork inside transparent or flat-background image pixels. */
+export function findVisiblePixelBounds(
+  pixels: Uint8ClampedArray,
+  width: number,
+  height: number,
+): PixelBounds | null {
+  if (!width || !height || pixels.length < width * height * 4) return null
+
+  let hasTransparency = false
+  for (let offset = 3; offset < pixels.length; offset += 4) {
+    if (pixels[offset] < 245) { hasTransparency = true; break }
+  }
+
+  const cornerPoints = [
+    [0, 0], [width - 1, 0], [0, height - 1], [width - 1, height - 1],
+  ]
+  const background = [0, 1, 2].map(channel => (
+    cornerPoints.reduce((sum, [x, y]) => sum + pixels[(y * width + x) * 4 + channel], 0) / cornerPoints.length
+  ))
+
+  let minX = width
+  let minY = height
+  let maxX = -1
+  let maxY = -1
+  let visiblePixels = 0
+  for (let y = 0; y < height; y += 1) {
+    for (let x = 0; x < width; x += 1) {
+      const offset = (y * width + x) * 4
+      const alpha = pixels[offset + 3]
+      const distance = Math.hypot(
+        pixels[offset] - background[0],
+        pixels[offset + 1] - background[1],
+        pixels[offset + 2] - background[2],
+      )
+      const visible = hasTransparency ? alpha > 16 : alpha > 16 && distance > 32
+      if (!visible) continue
+      visiblePixels += 1
+      minX = Math.min(minX, x)
+      minY = Math.min(minY, y)
+      maxX = Math.max(maxX, x)
+      maxY = Math.max(maxY, y)
+    }
+  }
+
+  if (visiblePixels < Math.max(4, width * height * 0.001) || maxX < minX || maxY < minY) return null
+  const pad = Math.max(1, Math.round(Math.min(maxX - minX + 1, maxY - minY + 1) * 0.04))
+  minX = Math.max(0, minX - pad)
+  minY = Math.max(0, minY - pad)
+  maxX = Math.min(width - 1, maxX + pad)
+  maxY = Math.min(height - 1, maxY + pad)
+  return { x: minX, y: minY, width: maxX - minX + 1, height: maxY - minY + 1 }
+}
+
+export async function trimImageWhitespace(src: string): Promise<string> {
+  const asset = await loadImage(src)
+  const width = asset.naturalWidth || asset.width
+  const height = asset.naturalHeight || asset.height
+  const canvas = document.createElement('canvas')
+  canvas.width = width
+  canvas.height = height
+  const ctx = canvas.getContext('2d', { willReadFrequently: true })
+  if (!ctx) return src
+  ctx.drawImage(asset, 0, 0, width, height)
+  const bounds = findVisiblePixelBounds(ctx.getImageData(0, 0, width, height).data, width, height)
+  if (!bounds || (bounds.width >= width * 0.96 && bounds.height >= height * 0.96)) return src
+
+  const output = document.createElement('canvas')
+  output.width = bounds.width
+  output.height = bounds.height
+  const outputContext = output.getContext('2d')
+  if (!outputContext) return src
+  outputContext.drawImage(asset, bounds.x, bounds.y, bounds.width, bounds.height, 0, 0, bounds.width, bounds.height)
+  return output.toDataURL('image/png')
+}
+
+/** Tightens a loose detected logo region to the visible logo pixels in the parent. */
+export async function refineLogoBox(baseSrc: string, rawBox: AtomBox): Promise<AtomBox> {
+  const base = await loadImage(baseSrc)
+  const width = base.naturalWidth || base.width
+  const height = base.naturalHeight || base.height
+  const box = clampBox(rawBox)
+  const x = Math.max(0, Math.round((box.x / 100) * width))
+  const y = Math.max(0, Math.round((box.y / 100) * height))
+  const slotWidth = Math.max(1, Math.min(width - x, Math.round((box.width / 100) * width)))
+  const slotHeight = Math.max(1, Math.min(height - y, Math.round((box.height / 100) * height)))
+  const canvas = document.createElement('canvas')
+  canvas.width = slotWidth
+  canvas.height = slotHeight
+  const ctx = canvas.getContext('2d', { willReadFrequently: true })
+  if (!ctx) return box
+  ctx.drawImage(base, x, y, slotWidth, slotHeight, 0, 0, slotWidth, slotHeight)
+  const bounds = findVisiblePixelBounds(ctx.getImageData(0, 0, slotWidth, slotHeight).data, slotWidth, slotHeight)
+  if (!bounds) return box
+  const coverage = (bounds.width * bounds.height) / (slotWidth * slotHeight)
+  if (coverage < 0.01 || coverage > 0.92) return box
+
+  return clampBox({
+    x: box.x + (bounds.x / slotWidth) * box.width,
+    y: box.y + (bounds.y / slotHeight) * box.height,
+    width: (bounds.width / slotWidth) * box.width,
+    height: (bounds.height / slotHeight) * box.height,
+  })
 }
 
 /**
@@ -166,13 +274,24 @@ export async function compositeReplacements(baseSrc: string, layers: CompositeLa
 
     const assetW = asset.naturalWidth || asset.width
     const assetH = asset.naturalHeight || asset.height
-    const scale = Math.min(slotW / assetW, slotH / assetH)
-    const drawW = assetW * scale
-    const drawH = assetH * scale
+    let sourceBounds: PixelBounds = { x: 0, y: 0, width: assetW, height: assetH }
+    if (layer.trimWhitespace) {
+      const assetCanvas = document.createElement('canvas')
+      assetCanvas.width = assetW
+      assetCanvas.height = assetH
+      const assetContext = assetCanvas.getContext('2d', { willReadFrequently: true })
+      if (assetContext) {
+        assetContext.drawImage(asset, 0, 0, assetW, assetH)
+        sourceBounds = findVisiblePixelBounds(assetContext.getImageData(0, 0, assetW, assetH).data, assetW, assetH) || sourceBounds
+      }
+    }
+    const scale = Math.min(slotW / sourceBounds.width, slotH / sourceBounds.height)
+    const drawW = sourceBounds.width * scale
+    const drawH = sourceBounds.height * scale
     const drawX = slotX + (slotW - drawW) / 2
     const drawY = slotY + (slotH - drawH) / 2
 
-    ctx.drawImage(asset, drawX, drawY, drawW, drawH)
+    ctx.drawImage(asset, sourceBounds.x, sourceBounds.y, sourceBounds.width, sourceBounds.height, drawX, drawY, drawW, drawH)
   }
 
   return canvas.toDataURL('image/png')

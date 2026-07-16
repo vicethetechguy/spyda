@@ -1,7 +1,7 @@
 import { useState, useRef, useCallback, useEffect, useMemo } from 'react'
 import { useAuth } from '../lib/AuthContext'
 import { supabase } from '../lib/supabase'
-import { parseAtomBox, clampBox, compositeReplacements, getImageSize, type AtomBox } from '../lib/design'
+import { parseAtomBox, clampBox, compositeReplacements, getImageSize, refineLogoBox, trimImageWhitespace, type AtomBox } from '../lib/design'
 import type { LegacyBreakdown as BreakdownResult, LegacyEditableComponent as EditableComponent } from '../core/design-document'
 import { usePaystackPayment } from 'react-paystack'
 import SidebarNav from '../components/ui/dashboard-sidebar'
@@ -688,8 +688,17 @@ export default function Workspace() {
   /* ── Generate handler ── */
   const handleAtomImageUpload = useCallback(async (section: EditableComponent, file: File) => {
     // PNG keeps logo/asset transparency intact for exact-size compositing
-    const assetDataUrl = await imageFileToDataUrl(file, 1024, 1024, 0.92, 'image/png')
+    const uploadedDataUrl = await imageFileToDataUrl(file, 1024, 1024, 0.92, 'image/png')
+    const isLogo = /logo|brand mark|wordmark/i.test(`${section.type} ${section.name} ${section.content || ''}`)
+    const assetDataUrl = isLogo ? await trimImageWhitespace(uploadedDataUrl) : uploadedDataUrl
     const assetName = file.name
+    let measuredBox: AtomBox | undefined
+    const activeParent = generatedImage || uploadedPreview
+    if (activeParent) {
+      const parentSize = await getImageSize(activeParent)
+      const detectedBox = parseAtomBox(section.boundingBox, parentSize)
+      if (detectedBox) measuredBox = isLogo ? await refineLogoBox(activeParent, detectedBox) : detectedBox
+    }
     setAtomEdits(prev => ({
       ...prev,
       [section.id]: {
@@ -698,9 +707,10 @@ export default function Workspace() {
         value: prev[section.id]?.value || '',
         assetName,
         assetDataUrl,
+        box: measuredBox || prev[section.id]?.box,
       },
     }))
-  }, [])
+  }, [generatedImage, uploadedPreview])
 
   const handleEssentialsImageUpload = useCallback(async (file: File) => {
     const dataUrl = await imageFileToDataUrl(file, 768, 768, 0.78)
@@ -805,7 +815,11 @@ export default function Workspace() {
       // ── Deterministic placement: bake replacements into the parent ──
       setGenerationStage(placedSwaps.length ? 'Placing replacements at exact size' : 'Preparing design')
       const compositeDataUrl = placedSwaps.length
-        ? await compositeReplacements(activeSourcePreview, placedSwaps.map(swap => ({ box: swap.box, src: swap.edit.assetDataUrl! })))
+        ? await compositeReplacements(activeSourcePreview, placedSwaps.map(swap => ({
+            box: swap.box,
+            src: swap.edit.assetDataUrl!,
+            trimWhitespace: /logo|brand mark|wordmark/i.test(`${swap.section.type} ${swap.section.name} ${swap.section.content || ''}`),
+          })))
         : activeSourcePreview
 
       const finalizeRound = async (imageSrc: string, qa: GenerationQaReport | null) => {
@@ -1433,7 +1447,7 @@ function QaGateView({ qa, generatedImage, uploadedPreview, onBack, onApplyEssent
    Placement Canvas — deterministic replacement placement
    Shows detected atom regions over the parent design and
    live-previews replacement assets at their exact final
-   footprint. Drag to move, corner handle to resize — what
+   footprint. The measured size stays locked; drag only moves it — what
    you see here is pixel-for-pixel what gets baked in.
    ═══════════════════════════════════════════════ */
 
@@ -1452,7 +1466,6 @@ function PlacementCanvas({
   const [showAtomMap, setShowAtomMap] = useState(false)
   const dragRef = useRef<{
     id: string
-    mode: 'move' | 'resize'
     startX: number
     startY: number
     box: AtomBox
@@ -1472,13 +1485,13 @@ function PlacementCanvas({
     return edit?.mode === 'customize' && edit.assetDataUrl
   })
 
-  const startDrag = (event: React.PointerEvent, id: string, mode: 'move' | 'resize', box: AtomBox) => {
+  const startDrag = (event: React.PointerEvent, id: string, box: AtomBox) => {
     const rect = wrapperRef.current?.getBoundingClientRect()
     if (!rect) return
     event.preventDefault()
     event.stopPropagation()
     ;(event.target as HTMLElement).setPointerCapture(event.pointerId)
-    dragRef.current = { id, mode, startX: event.clientX, startY: event.clientY, box, rectW: rect.width, rectH: rect.height }
+    dragRef.current = { id, startX: event.clientX, startY: event.clientY, box, rectW: rect.width, rectH: rect.height }
   }
 
   const moveDrag = (event: React.PointerEvent) => {
@@ -1486,9 +1499,7 @@ function PlacementCanvas({
     if (!drag) return
     const dx = ((event.clientX - drag.startX) / drag.rectW) * 100
     const dy = ((event.clientY - drag.startY) / drag.rectH) * 100
-    onBoxChange(drag.id, clampBox(drag.mode === 'move'
-      ? { ...drag.box, x: drag.box.x + dx, y: drag.box.y + dy }
-      : { ...drag.box, width: drag.box.width + dx, height: drag.box.height + dy }))
+    onBoxChange(drag.id, clampBox({ ...drag.box, x: drag.box.x + dx, y: drag.box.y + dy }))
   }
 
   const endDrag = () => { dragRef.current = null }
@@ -1525,7 +1536,7 @@ function PlacementCanvas({
             key={`placed-${atom.id}`}
             className="absolute cursor-move rounded-[3px] border-2 border-primary/80 bg-black/10 shadow-[0_0_0_1px_rgba(0,0,0,0.4)]"
             style={{ left: `${box.x}%`, top: `${box.y}%`, width: `${box.width}%`, height: `${box.height}%`, touchAction: 'none' }}
-            onPointerDown={event => startDrag(event, atom.id, 'move', box)}
+            onPointerDown={event => startDrag(event, atom.id, box)}
             onPointerMove={moveDrag}
             onPointerUp={endDrag}
             onPointerCancel={endDrag}
@@ -1537,16 +1548,8 @@ function PlacementCanvas({
               draggable={false}
             />
             <span className="pointer-events-none absolute -top-5 left-0 whitespace-nowrap rounded bg-primary px-1.5 py-0.5 text-[9px] font-bold text-primary-foreground">
-              {atom.name} — exact size
+              {atom.name} — locked footprint
             </span>
-            <span
-              className="absolute -bottom-1.5 -right-1.5 h-3.5 w-3.5 cursor-nwse-resize rounded-sm border border-black/40 bg-primary"
-              style={{ touchAction: 'none' }}
-              onPointerDown={event => startDrag(event, atom.id, 'resize', box)}
-              onPointerMove={moveDrag}
-              onPointerUp={endDrag}
-              onPointerCancel={endDrag}
-            />
           </div>
         ))}
       </div>
@@ -1737,7 +1740,7 @@ function StudioView({
           />
           {placedSwapCount > 0 && (
             <p className="mt-2 text-[11px] leading-relaxed text-muted-foreground/70">
-              Replacements are shown at their exact final size, baked in by Spyda before the AI ever sees the design. Drag to reposition, use the corner handle to resize.
+              Spyda trims empty logo padding and fits the visible asset to the parent's measured footprint. Drag only to reposition; the footprint stays locked so the flyer cannot expand.
             </p>
           )}
           {analyzeError && (
@@ -1751,20 +1754,24 @@ function StudioView({
         <div className="flex-1 p-6 flex flex-col">
           <div className="mb-4 flex items-center justify-between gap-3">
             <span className="text-[11px] font-bold tracking-[0.12em] uppercase text-primary">Child Source</span>
-            <span className="rounded-full border border-white/[0.08] bg-white/[0.03] px-2.5 py-1 text-[10px] font-bold text-muted-foreground">
-              {totalChangeCount}/3 changes ready
-            </span>
+            <div className="flex items-center gap-2">
+              <span className="rounded-full border border-white/[0.08] bg-white/[0.03] px-2.5 py-1 text-[10px] font-bold text-muted-foreground">
+                {totalChangeCount}/3 changes ready
+              </span>
+              {generatedImage && (
+                <a
+                  href={generatedImage}
+                  download={`spyda-output-${Date.now()}.png`}
+                  className="inline-flex h-8 items-center gap-1.5 rounded-lg bg-primary px-3 text-[11px] font-bold text-primary-foreground transition-colors hover:bg-primary/90"
+                >
+                  <Download className="h-3.5 w-3.5" /> Download
+                </a>
+              )}
+            </div>
           </div>
           {generatedImage || uploadedPreview ? (
-            <div className="relative flex h-[340px] w-full items-center justify-center rounded-xl overflow-hidden border border-primary/20 bg-white/[0.02]">
-              <img src={generatedImage || uploadedPreview || ''} alt="Child source design" className="h-full w-full object-contain" />
-              {generatedImage && <a
-                href={generatedImage}
-                download={`spyda-output-${Date.now()}.png`}
-                className="absolute bottom-4 right-4 inline-flex h-10 items-center gap-2 rounded-lg bg-gradient-to-r from-[#22c55e] to-[#16a34a] px-4 text-xs font-bold text-primary-foreground shadow-lg shadow-primary/20 hover:brightness-110 transition-all"
-              >
-                <Download className="w-4 h-4" /> Download 4K
-              </a>}
+            <div className="relative flex h-[min(72vh,760px)] min-h-[440px] w-full items-center justify-center overflow-hidden rounded-xl border border-primary/20 bg-white/[0.02] p-3">
+              <img src={generatedImage || uploadedPreview || ''} alt="Child source design" className="max-h-full max-w-full object-contain" />
               {isGenerating && (
                 <div className="absolute inset-0 flex flex-col items-center justify-center bg-background/80 backdrop-blur-sm">
                   <Loader2 className="w-8 h-8 text-primary animate-spin mb-3" />
@@ -2230,13 +2237,13 @@ function AtomCard({
                   }}
                 />
                 {edit?.assetDataUrl && (
-                  <img src={edit.assetDataUrl} alt="Replacement asset" className="w-9 h-9 rounded-lg object-cover border border-white/[0.1]" />
+                  <img src={edit.assetDataUrl} alt="Replacement asset" className="h-9 w-9 rounded-lg border border-white/[0.1] bg-white object-contain p-1" />
                 )}
                 <span className="text-xs text-muted-foreground">{edit?.assetName || 'No asset selected'}</span>
               </div>
               {edit?.assetDataUrl && (
                 <p className="rounded-lg border border-primary/15 bg-primary/[0.04] px-3 py-2 text-[11px] leading-relaxed text-primary/90">
-                  Placed on the Source preview at the original atom's exact size. Drag it there to reposition, or use the corner handle to resize.
+                  Empty logo padding is removed and the visible asset is fitted to the parent's measured footprint. Drag only to reposition; its size stays locked.
                 </p>
               )}
               <textarea
