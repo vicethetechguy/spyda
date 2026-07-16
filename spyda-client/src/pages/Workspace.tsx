@@ -2,6 +2,7 @@ import { useState, useRef, useCallback, useEffect, useMemo } from 'react'
 import { useAuth } from '../lib/AuthContext'
 import { supabase } from '../lib/supabase'
 import { parseAtomBox, clampBox, compositeReplacements, getImageSize, refineLogoBox, trimImageWhitespace, type AtomBox } from '../lib/design'
+import { buildLayoutGridGuide, type LayoutGridGuide } from '../lib/layout-grid'
 import type { LegacyBreakdown as BreakdownResult, LegacyEditableComponent as EditableComponent } from '../core/design-document'
 import { usePaystackPayment } from 'react-paystack'
 import SidebarNav from '../components/ui/dashboard-sidebar'
@@ -799,6 +800,17 @@ export default function Workspace() {
       const sourceImageSize = await getImageSizeChoice(uploadedPreview || '')
       const chosenOutputSize = brandEdits.outputSize === 'match-reference' ? sourceImageSize : brandEdits.outputSize
       const previewSize = await getImageSize(activeSourcePreview)
+      const layoutGridGuide = buildLayoutGridGuide(
+        (breakdown.design?.editableComponents || []).map(section => ({
+          id: section.id,
+          name: section.name,
+          type: section.type,
+          boundingBox: section.boundingBox,
+          deleted: section.deleted,
+          box: atomEdits[section.id]?.box,
+        })),
+        previewSize,
+      )
 
       // ── Partition the selected changes ──
       // Replacement images with a numeric atom box get placed deterministically
@@ -947,6 +959,16 @@ export default function Workspace() {
         designDocument: breakdown.designDocument,
         layoutIntelligence: breakdown.layoutIntelligence,
         constraintProfile: breakdown.constraintProfile,
+        layoutGridGuide,
+        layoutLock: {
+          atoms: layoutGridGuide.atoms.map(atom => ({
+            id: atom.id,
+            name: atom.name,
+            type: atom.type,
+            boundingBox: atom.bounds,
+            gridCell: atom.gridCell,
+          })),
+        },
         editableComponents: (breakdown.design?.editableComponents || []).filter(component => !component.deleted),
         aiProvider: aiModel.provider,
         imageSize: chosenOutputSize,
@@ -1107,7 +1129,7 @@ export default function Workspace() {
   }, [])
 
   return (
-    <div className="flex h-screen bg-background text-foreground font-sans overflow-hidden">
+    <div className="flex h-[100dvh] bg-background text-foreground font-sans overflow-hidden">
       {/* Mobile Sidebar Backdrop */}
       {sidebarOpen && (
         <div 
@@ -1215,7 +1237,7 @@ export default function Workspace() {
         </div>
 
         {/* Page Content */}
-        <div className={`flex-1 flex flex-col ${activeId === 'canvas' ? 'overflow-hidden' : 'overflow-y-auto'}`}>
+        <div className={`min-h-0 flex-1 flex flex-col ${activeId === 'canvas' ? 'overflow-hidden' : 'overflow-y-auto'}`}>
           {activeId === 'canvas' && (
             <StudioView
               uploadedFile={uploadedFile}
@@ -1480,25 +1502,72 @@ function QaGateView({ qa, generatedImage, uploadedPreview, onBack, onApplyEssent
 
 /* ═══════════════════════════════════════════════
    Placement Canvas — deterministic replacement placement
-   Shows detected atom regions over the parent design and
-   live-previews replacement assets at their exact final
-   footprint. The measured size stays locked; drag only moves it — what
-   you see here is pixel-for-pixel what gets baked in.
+   Shows a normalized layout grid over the parent design and
+   live-previews replacement assets at their exact final footprint.
+   The measured size stays locked; drag only moves it.
    ═══════════════════════════════════════════════ */
 
+function LayoutGridOverlay({ guide }: { guide: LayoutGridGuide }) {
+  const safeWidth = Math.max(0, 100 - guide.safeArea.left - guide.safeArea.right)
+  const safeHeight = Math.max(0, 100 - guide.safeArea.top - guide.safeArea.bottom)
+
+  return (
+    <div className="pointer-events-none absolute inset-0 z-10 overflow-hidden" aria-hidden="true">
+      {Array.from({ length: Math.max(0, guide.columns - 1) }, (_, index) => {
+        const line = index + 1
+        const major = line % 4 === 0
+        return (
+          <span
+            key={`grid-column-${line}`}
+            className={`absolute inset-y-0 w-px ${major ? 'bg-primary/45' : 'bg-white/20'}`}
+            style={{ left: `${line / guide.columns * 100}%` }}
+          />
+        )
+      })}
+      {Array.from({ length: Math.max(0, guide.rows - 1) }, (_, index) => {
+        const line = index + 1
+        const major = line % 4 === 0
+        return (
+          <span
+            key={`grid-row-${line}`}
+            className={`absolute inset-x-0 h-px ${major ? 'bg-primary/45' : 'bg-white/20'}`}
+            style={{ top: `${line / guide.rows * 100}%` }}
+          />
+        )
+      })}
+      <span
+        className="absolute border border-dashed border-primary/55 shadow-[inset_0_0_0_1px_rgba(0,0,0,0.28)]"
+        style={{
+          left: `${guide.safeArea.left}%`,
+          top: `${guide.safeArea.top}%`,
+          width: `${safeWidth}%`,
+          height: `${safeHeight}%`,
+        }}
+      />
+      <span className="absolute bottom-2 left-2 rounded-md border border-white/10 bg-black/70 px-2 py-1 text-[9px] font-semibold uppercase tracking-[0.12em] text-white/75 backdrop-blur-sm">
+        {guide.columns} x {guide.rows} layout grid
+      </span>
+    </div>
+  )
+}
+
 function PlacementCanvas({
-  src, atoms, atomEdits, isAnalyzing, analysisStage, onBoxChange,
+  src, atoms, atomEdits, isAnalyzing, analysisStage, gridGuide, showGridSystem,
+  onBoxChange, onToggleGridSystem, onNaturalSizeChange,
 }: {
   src: string
   atoms: EditableComponent[]
   atomEdits: Record<string, AtomEdit>
   isAnalyzing: boolean
   analysisStage: string
+  gridGuide: LayoutGridGuide
+  showGridSystem: boolean
   onBoxChange: (id: string, box: AtomBox) => void
+  onToggleGridSystem: () => void
+  onNaturalSizeChange: (size: { width: number; height: number }) => void
 }) {
   const wrapperRef = useRef<HTMLDivElement>(null)
   const [naturalSize, setNaturalSize] = useState<{ width: number; height: number } | null>(null)
-  const [showAtomMap, setShowAtomMap] = useState(false)
   const dragRef = useRef<{
     id: string
     startX: number
@@ -1554,30 +1623,23 @@ function PlacementCanvas({
           alt="Active parent source flyer"
           className="block max-w-full object-contain"
           style={{ maxHeight: `calc(${DESIGN_PREVIEW_HEIGHT} - 24px)` }}
-          onLoad={event => setNaturalSize({
-            width: event.currentTarget.naturalWidth || event.currentTarget.width,
-            height: event.currentTarget.naturalHeight || event.currentTarget.height,
-          })}
+          onLoad={event => {
+            const size = {
+              width: event.currentTarget.naturalWidth || event.currentTarget.width,
+              height: event.currentTarget.naturalHeight || event.currentTarget.height,
+            }
+            setNaturalSize(size)
+            onNaturalSizeChange(size)
+          }}
         />
 
-        {/* Detected atom map */}
-        {showAtomMap && mappedAtoms.map(({ atom, box }) => (
-          <div
-            key={`map-${atom.id}`}
-            className="group absolute rounded-[3px] border border-cyan-300/40 bg-cyan-300/[0.04] hover:border-cyan-300/80 hover:bg-cyan-300/10 transition-colors"
-            style={{ left: `${box.x}%`, top: `${box.y}%`, width: `${box.width}%`, height: `${box.height}%` }}
-          >
-            <span className="pointer-events-none absolute -top-5 left-0 hidden whitespace-nowrap rounded bg-black/80 px-1.5 py-0.5 text-[9px] font-semibold text-cyan-200 group-hover:block">
-              {atom.name}
-            </span>
-          </div>
-        ))}
+        {showGridSystem && <LayoutGridOverlay guide={gridGuide} />}
 
         {/* Live replacement placement — draggable + resizable */}
         {placedReplacements.map(({ atom, box }) => (
           <div
             key={`placed-${atom.id}`}
-            className="absolute cursor-move rounded-[3px] border-2 border-primary/80 bg-black/10 shadow-[0_0_0_1px_rgba(0,0,0,0.4)]"
+            className="absolute z-20 cursor-move rounded-[3px] border-2 border-primary/80 bg-black/10 shadow-[0_0_0_1px_rgba(0,0,0,0.4)]"
             style={{ left: `${box.x}%`, top: `${box.y}%`, width: `${box.width}%`, height: `${box.height}%`, touchAction: 'none' }}
             onPointerDown={event => startDrag(event, atom.id, box)}
             onPointerMove={moveDrag}
@@ -1597,14 +1659,14 @@ function PlacementCanvas({
         ))}
       </div>
 
-      {/* Atom map toggle */}
-      {!isAnalyzing && mappedAtoms.length > 0 && (
+      {!isAnalyzing && gridGuide.atoms.length > 0 && (
         <button
           type="button"
-          onClick={() => setShowAtomMap(prev => !prev)}
-          className={`absolute top-3 right-3 inline-flex h-7 items-center gap-1.5 rounded-full border px-3 text-[10px] font-bold uppercase tracking-wider transition-colors ${showAtomMap ? 'border-cyan-300/40 bg-cyan-300/10 text-cyan-200' : 'border-white/[0.1] bg-black/50 text-muted-foreground hover:text-foreground'}`}
+          onClick={onToggleGridSystem}
+          className={`absolute right-3 top-3 z-30 inline-flex h-8 items-center gap-1.5 rounded-lg border px-3 text-[10px] font-bold uppercase tracking-wider backdrop-blur-sm transition-colors ${showGridSystem ? 'border-primary/45 bg-primary/15 text-primary' : 'border-white/[0.1] bg-black/65 text-muted-foreground hover:text-foreground'}`}
         >
-          {showAtomMap ? 'Hide atom map' : 'Show atom map'}
+          <Grid2X2 className="h-3.5 w-3.5" />
+          {showGridSystem ? 'Hide Grid System' : 'Show Grid System'}
         </button>
       )}
 
@@ -1676,6 +1738,8 @@ function StudioView({
   const [isDragging, setIsDragging] = useState(false)
   const [atomsDrawerOpen, setAtomsDrawerOpen] = useState(false)
   const [desktopAtomsPanel, setDesktopAtomsPanel] = useState(() => typeof window === 'undefined' || window.innerWidth >= 1024)
+  const [showGridSystem, setShowGridSystem] = useState(false)
+  const [sourceCanvasSize, setSourceCanvasSize] = useState<{ width: number; height: number } | null>(null)
 
   useEffect(() => {
     const desktopQuery = window.matchMedia('(min-width: 1024px)')
@@ -1699,6 +1763,11 @@ function StudioView({
   useEffect(() => {
     if (!uploadedFile || !breakdown) setAtomsDrawerOpen(false)
   }, [breakdown, uploadedFile])
+
+  useEffect(() => {
+    setSourceCanvasSize(null)
+    setShowGridSystem(false)
+  }, [uploadedPreview])
 
   const handleDrop = useCallback((e: React.DragEvent) => {
     e.preventDefault()
@@ -1743,6 +1812,16 @@ function StudioView({
 
   // ── Phase 2+: Analyzing / Editing / Generating ──
   const visibleSections = breakdown?.design?.editableComponents?.filter(s => !s.deleted) || []
+  const layoutGridGuide = buildLayoutGridGuide(
+    visibleSections.map(section => ({
+      id: section.id,
+      name: section.name,
+      type: section.type,
+      boundingBox: section.boundingBox,
+      box: atomEdits[section.id]?.box,
+    })),
+    sourceCanvasSize,
+  )
   const selectedSections = visibleSections.filter(section => atomEdits[section.id]?.mode === 'customize')
   const selectedAtomCount = selectedSections.length
   const essentialCount = essentialPrompts.filter(prompt => prompt.trim()).length
@@ -1761,9 +1840,9 @@ function StudioView({
     && !essentialsImage
 
   return (
-    <div className="flex-1 min-h-0 h-full w-full flex flex-col lg:flex-row lg:items-stretch">
+    <div className="flex min-h-0 h-full w-full flex-1 flex-col lg:flex-row lg:items-stretch">
       {/* Left: Source + Child Source */}
-      <div className="min-h-0 w-full flex-1 shrink-0 overflow-y-auto overscroll-contain border-r border-white/[0.06] flex flex-col lg:w-[45%] lg:flex-none">
+      <div className="min-h-0 w-full flex-1 shrink-0 overflow-y-auto overscroll-y-auto border-r border-white/[0.06] flex flex-col [-webkit-overflow-scrolling:touch] lg:w-[45%] lg:flex-none">
         {/* Active Source Image */}
         <div className="p-6 border-b border-white/[0.06]">
           <div className="flex items-center justify-between mb-4">
@@ -1779,7 +1858,11 @@ function StudioView({
             atomEdits={atomEdits}
             isAnalyzing={isAnalyzing}
             analysisStage={analysisStage}
+            gridGuide={layoutGridGuide}
+            showGridSystem={showGridSystem}
             onBoxChange={onAtomBoxChange}
+            onToggleGridSystem={() => setShowGridSystem(previous => !previous)}
+            onNaturalSizeChange={setSourceCanvasSize}
           />
           {placedSwapCount > 0 && (
             <p className="mt-2 text-[11px] leading-relaxed text-muted-foreground/70">
@@ -1794,7 +1877,7 @@ function StudioView({
         </div>
 
         {/* Child Source */}
-        <div className="flex-1 p-6 flex flex-col">
+        <div className="flex flex-1 flex-col px-4 pb-[calc(7rem+env(safe-area-inset-bottom))] pt-6 sm:px-6 lg:pb-6">
           <div className="mb-4 flex items-center justify-between gap-3">
             <span className="text-[11px] font-bold tracking-[0.12em] uppercase text-primary">Child Source</span>
             <div className="flex items-center gap-2">
@@ -1817,7 +1900,18 @@ function StudioView({
               className="relative flex w-full items-center justify-center overflow-hidden rounded-xl border border-primary/20 bg-white/[0.02] p-3"
               style={{ height: DESIGN_PREVIEW_HEIGHT }}
             >
-              <img src={generatedImage || uploadedPreview || ''} alt="Child source design" className="max-h-full max-w-full object-contain" />
+              <div
+                className="relative flex max-w-full items-center justify-center"
+                style={{ maxHeight: `calc(${DESIGN_PREVIEW_HEIGHT} - 24px)` }}
+              >
+                <img
+                  src={generatedImage || uploadedPreview || ''}
+                  alt="Child source design"
+                  className="block max-w-full object-contain"
+                  style={{ maxHeight: `calc(${DESIGN_PREVIEW_HEIGHT} - 24px)` }}
+                />
+                {showGridSystem && <LayoutGridOverlay guide={layoutGridGuide} />}
+              </div>
               {isGenerating && (
                 <div className="absolute inset-0 flex flex-col items-center justify-center bg-background/80 backdrop-blur-sm">
                   <Loader2 className="w-8 h-8 text-primary animate-spin mb-3" />

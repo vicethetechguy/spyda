@@ -129,6 +129,7 @@ export function findMissingRequiredText(contract: ApprovedDifferenceContract, de
 
 export function buildGenerationQaPrompt(recipe: any) {
   const contract = buildApprovedDifferenceContract(recipe);
+  const layoutGrid = recipe?.layoutGridGuide;
   const compositeNote = recipe?.compositeMode
     ? "Image 1 already contains deterministically pasted replacement assets at their approved final position and size. Preserve those exact footprints."
     : "Image 1 is the active parent source for this edit round.";
@@ -145,6 +146,11 @@ ${brandRule}
 
 APPROVED DIFFERENCE CONTRACT:
 ${JSON.stringify(contract, null, 2)}
+
+LAYOUT GRID CONTRACT:
+${layoutGrid?.columns && layoutGrid?.rows
+    ? `${layoutGrid.columns} columns x ${layoutGrid.rows} rows; measured safe area ${JSON.stringify(layoutGrid.safeArea || {})}. Every unchanged atom must remain in the same cells and exact normalized bounds. Every replacement must remain inside the footprint it replaces. Nothing important may extend beyond the canvas. The grid itself must not appear in the generated design.\n${JSON.stringify((Array.isArray(layoutGrid.atoms) ? layoutGrid.atoms : []).slice(0, 45), null, 2)}`
+    : "No explicit layout grid was supplied; use the parent image geometry as the grid truth."}
 
 HARD GATES — fail the result when any one occurs:
 1. GEOMETRY: an unchanged region, subject, headline block, CTA, footer, logo, or decorative structure moved, resized, stretched, compressed, reflowed, or changed visual footprint.

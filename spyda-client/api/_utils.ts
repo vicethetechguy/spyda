@@ -688,10 +688,22 @@ function buildCompositePrompt(recipe: any) {
   const unplacedAssets = getReferenceImages(recipe);
   const qaViolations = Array.isArray(recipe?.qaCorrections?.violations) ? recipe.qaCorrections.violations : [];
   const approvalContract = buildApprovedDifferenceContract(recipe);
+  const layoutGrid = recipe?.layoutGridGuide;
 
   const sections: string[] = [];
 
   sections.push(`You are refining an existing flyer design. The first attached image is the flyer to finish — it is the layout ground truth. Work like a careful photo retoucher, not a designer: do not recompose, restructure, or reinterpret anything.`);
+
+  if (layoutGrid?.columns && layoutGrid?.rows) {
+    const gridAtoms = Array.isArray(layoutGrid.atoms) ? layoutGrid.atoms.slice(0, 45) : [];
+    sections.push(`LAYOUT GRID LOCK (MANDATORY):
+- The parent is measured on a ${layoutGrid.columns}-column by ${layoutGrid.rows}-row normalized grid. Use this grid as a geometry constraint, but do not draw the grid in the output.
+- Canvas coordinates run from 0 to 100. No atom, replacement, shadow, badge, footer detail, or important content may extend outside that canvas.
+- Measured safe area: ${JSON.stringify(layoutGrid.safeArea || {})}.
+- Keep unchanged atoms in their exact normalized bounds. Keep changed atoms inside the exact footprint they replace.
+${gridAtoms.map((atom: any) => `- "${atom.name}" (${atom.type}) occupies columns ${atom.gridCell?.columnStart}-${atom.gridCell?.columnEnd}, rows ${atom.gridCell?.rowStart}-${atom.gridCell?.rowEnd}, exact bounds ${JSON.stringify(atom.bounds)}.`).join("\n")}
+Do not enlarge the internal composition, compress it, shift it, or allow any element to escape its measured cells. The grid is a hidden reconstruction guide, never a visible design element.`);
+  }
 
   if (approvalContract.unchangedText.length) {
     sections.push(`COPY LOCK — KEEP THIS WORDING EXACTLY:

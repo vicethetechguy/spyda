@@ -15,6 +15,18 @@ const recipe = {
   }],
   brandOverrides: { primaryColor: '#0055FF', headingFont: 'Space Grotesk' },
   essentials: ['Keep the phone mockup unchanged.'],
+  layoutGridGuide: {
+    columns: 8,
+    rows: 12,
+    safeArea: { left: 4, right: 4, top: 3, bottom: 3 },
+    atoms: [{
+      id: 'headline',
+      name: 'Headline',
+      type: 'text',
+      bounds: { x: 12, y: 20, width: 76, height: 18 },
+      gridCell: { columnStart: 1, columnEnd: 8, rowStart: 3, rowEnd: 5 },
+    }],
+  },
   editableComponents: [
     { id: 'headline', name: 'Headline', type: 'text', content: 'Old offer', boundingBox: 'top center' },
     { id: 'tagline', name: 'Tagline', type: 'text', content: 'Fast and reliable', boundingBox: 'below headline' },
@@ -75,6 +87,8 @@ describe('approved difference QA contract', () => {
     expect(prompt).toContain('global brand restyle IS APPROVED')
     expect(prompt).toContain('#0055FF')
     expect(prompt).toContain('irrelevant or hallucinated copy')
+    expect(prompt).toContain('8 columns x 12 rows')
+    expect(prompt).toContain('same cells and exact normalized bounds')
   })
 
   it('locks unchanged copy without contradicting an approved brand restyle', () => {
@@ -86,6 +100,8 @@ describe('approved difference QA contract', () => {
     expect(prompt).not.toContain('same colors, same background')
     expect(prompt).toContain('REPLACES "Original logo"')
     expect(prompt).toContain('old and new assets must never coexist')
+    expect(prompt).toContain('LAYOUT GRID LOCK')
+    expect(prompt).toContain('columns 1-8, rows 3-5')
   })
 
   it('fails QA when an original and replacement asset both remain', () => {
