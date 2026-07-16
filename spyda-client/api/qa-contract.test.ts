@@ -6,12 +6,20 @@ import { buildGenerationPrompt } from './_utils.js'
 const recipe = {
   compositeMode: true,
   textEdits: [{ objectId: 'headline', atomName: 'Headline', from: 'Old offer', to: 'New offer' }],
+  pastedAssets: [{
+    objectId: 'logo',
+    atomName: 'Brand logo',
+    originalContent: 'Original logo',
+    name: 'Replacement logo',
+    box: { x: 10, y: 8, width: 12, height: 8 },
+  }],
   brandOverrides: { primaryColor: '#0055FF', headingFont: 'Space Grotesk' },
   essentials: ['Keep the phone mockup unchanged.'],
   editableComponents: [
     { id: 'headline', name: 'Headline', type: 'text', content: 'Old offer', boundingBox: 'top center' },
     { id: 'tagline', name: 'Tagline', type: 'text', content: 'Fast and reliable', boundingBox: 'below headline' },
     { id: 'logo', name: 'Brand logo', type: 'image', content: 'Original logo', boundingBox: 'top left' },
+    { id: 'qr', name: 'QR code', type: 'image', content: 'Original QR code', boundingBox: 'bottom right' },
   ],
 }
 
@@ -25,6 +33,21 @@ describe('approved difference QA contract', () => {
       expect.objectContaining({ objectId: 'tagline', requiredText: 'Fast and reliable' }),
     ]))
     expect(contract.protectedAssets).toEqual(expect.arrayContaining([
+      expect.objectContaining({ objectId: 'qr' }),
+    ]))
+  })
+
+  it('records the original identity for a true asset replacement', () => {
+    const contract = buildApprovedDifferenceContract(recipe)
+
+    expect(contract.assetChanges).toEqual(expect.arrayContaining([
+      expect.objectContaining({
+        objectId: 'logo',
+        replaces: 'Original logo',
+        replacement: 'Replacement logo',
+      }),
+    ]))
+    expect(contract.protectedAssets).not.toEqual(expect.arrayContaining([
       expect.objectContaining({ objectId: 'logo' }),
     ]))
   })
@@ -44,6 +67,16 @@ describe('approved difference QA contract', () => {
     expect(prompt).toContain('Fast and reliable')
     expect(prompt).toContain('approved Brand Style Overrides')
     expect(prompt).not.toContain('same colors, same background')
+    expect(prompt).toContain('REPLACES "Original logo"')
+    expect(prompt).toContain('old and new assets must never coexist')
+  })
+
+  it('fails QA when an original and replacement asset both remain', () => {
+    const prompt = buildGenerationQaPrompt(recipe)
+
+    expect(prompt).toContain('TRUE ASSET SWAP')
+    expect(prompt).toContain('previous asset identity must be completely absent')
+    expect(prompt).toContain('Replacement logo')
   })
 
   it('cannot pass or score above 89 when a hard gate fails', () => {

@@ -106,6 +106,8 @@ export type CompositeLayer = {
   src: string
   /** Trim transparent or flat whitespace before fitting, primarily for logos. */
   trimWhitespace?: boolean
+  /** Remove the original atom pixels before drawing the replacement. */
+  clearUnderlying?: boolean
 }
 
 export type PixelBounds = { x: number; y: number; width: number; height: number }
@@ -239,7 +241,7 @@ export async function compositeReplacements(baseSrc: string, layers: CompositeLa
   // contain-fitting leaves slivers of the old asset visible. If the pixels
   // ringing the box are near-uniform (flat background — the common case for
   // logos), patch the whole footprint with that background before pasting.
-  const patchSlotBackground = (slotX: number, slotY: number, slotW: number, slotH: number) => {
+  const patchSlotBackground = (slotX: number, slotY: number, slotW: number, slotH: number, forceClear = false) => {
     const pad = Math.max(2, Math.round(Math.min(width, height) * 0.004))
     const samples: Array<[number, number]> = []
     const steps = 12
@@ -259,7 +261,41 @@ export async function compositeReplacements(baseSrc: string, layers: CompositeLa
     if (maxDeviation <= 26) {
       ctx.fillStyle = `rgb(${Math.round(mean[0])}, ${Math.round(mean[1])}, ${Math.round(mean[2])})`
       ctx.fillRect(slotX, slotY, slotW, slotH)
+      return
     }
+
+    if (!forceClear) return
+
+    // Rebuild a non-uniform background by interpolating pixels sampled just
+    // outside the four corners. This removes the previous identity object
+    // without enlarging the replacement region or leaving the old logo behind.
+    const sample = (sampleX: number, sampleY: number) => {
+      const x = Math.round(Math.min(width - 1, Math.max(0, sampleX)))
+      const y = Math.round(Math.min(height - 1, Math.max(0, sampleY)))
+      return [...ctx.getImageData(x, y, 1, 1).data.slice(0, 4)]
+    }
+    const topLeft = sample(slotX - pad, slotY - pad)
+    const topRight = sample(slotX + slotW + pad, slotY - pad)
+    const bottomLeft = sample(slotX - pad, slotY + slotH + pad)
+    const bottomRight = sample(slotX + slotW + pad, slotY + slotH + pad)
+    const patchX = Math.max(0, Math.floor(slotX))
+    const patchY = Math.max(0, Math.floor(slotY))
+    const patchWidth = Math.max(1, Math.min(width - patchX, Math.ceil(slotW)))
+    const patchHeight = Math.max(1, Math.min(height - patchY, Math.ceil(slotH)))
+    const patch = ctx.createImageData(patchWidth, patchHeight)
+    for (let y = 0; y < patchHeight; y += 1) {
+      const vertical = patchHeight === 1 ? 0 : y / (patchHeight - 1)
+      for (let x = 0; x < patchWidth; x += 1) {
+        const horizontal = patchWidth === 1 ? 0 : x / (patchWidth - 1)
+        const offset = (y * patchWidth + x) * 4
+        for (let channel = 0; channel < 4; channel += 1) {
+          const top = topLeft[channel] + (topRight[channel] - topLeft[channel]) * horizontal
+          const bottom = bottomLeft[channel] + (bottomRight[channel] - bottomLeft[channel]) * horizontal
+          patch.data[offset + channel] = Math.round(top + (bottom - top) * vertical)
+        }
+      }
+    }
+    ctx.putImageData(patch, patchX, patchY)
   }
 
   for (const layer of layers) {
@@ -270,7 +306,7 @@ export async function compositeReplacements(baseSrc: string, layers: CompositeLa
     const slotW = (box.width / 100) * width
     const slotH = (box.height / 100) * height
 
-    patchSlotBackground(slotX, slotY, slotW, slotH)
+    patchSlotBackground(slotX, slotY, slotW, slotH, layer.clearUnderlying)
 
     const assetW = asset.naturalWidth || asset.width
     const assetH = asset.naturalHeight || asset.height

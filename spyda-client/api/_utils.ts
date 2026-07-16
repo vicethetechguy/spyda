@@ -647,8 +647,9 @@ Keep each protected asset visually identical to the parent: same identity, intri
 
   if (pastedAssets.length) {
     sections.push(`ALREADY-PLACED REPLACEMENTS:
-${pastedAssets.map((asset: any) => `- "${asset.name || 'Replacement asset'}" already sits in the "${asset.atomName || 'replaced element'}" slot at its final, correct position and size.`).join("\n")}
-These pasted assets may look slightly cut-out. Blend each one into the design naturally — clean edges, matching lighting, and shadows consistent with the rest of the flyer — while keeping its EXACT position, EXACT size, EXACT proportions, exact colors, and exact content. Never enlarge, shrink, move, crop, restyle, recolor, or redraw them, and never add text or marks to them.`);
+${pastedAssets.map((asset: any) => `- "${asset.name || 'Replacement asset'}" REPLACES "${asset.originalContent || asset.atomName || 'the previous asset'}" in the "${asset.atomName || 'replaced element'}" slot. It already sits at its final, correct position and size.`).join("\n")}
+This is a true one-for-one replacement. Completely remove the previous asset identity from each listed slot: the old and new assets must never coexist, overlap, ghost through, or appear as duplicates. Exactly one replacement asset must be visible in each changed slot.
+These pasted assets may look slightly cut-out. Blend each one into the design naturally — clean edges, matching lighting, and shadows consistent with the rest of the flyer — while keeping its EXACT position, EXACT size, EXACT proportions, intrinsic colors, and exact content. Never enlarge, shrink, move, crop, restyle, recolor, redraw, duplicate, decorate, or add text or marks to them.`);
   }
 
   if (textEdits.length) {

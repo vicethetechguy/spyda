@@ -819,6 +819,7 @@ export default function Workspace() {
             box: swap.box,
             src: swap.edit.assetDataUrl!,
             trimWhitespace: /logo|brand mark|wordmark/i.test(`${swap.section.type} ${swap.section.name} ${swap.section.content || ''}`),
+            clearUnderlying: true,
           })))
         : activeSourcePreview
 
@@ -925,6 +926,7 @@ export default function Workspace() {
           objectId: swap.section.id,
           name: swap.edit.assetName || 'Replacement asset',
           atomName: swap.section.name,
+          originalContent: swap.section.content || swap.section.name,
           box: swap.box,
         })),
         textEdits,

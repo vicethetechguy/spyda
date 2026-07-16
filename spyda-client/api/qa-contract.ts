@@ -23,7 +23,7 @@ function isProtectedAsset(atom: QaAtom) {
 
 export type ApprovedDifferenceContract = {
   textChanges: Array<{ objectId: string; atom: string; from: string; to: string }>;
-  assetChanges: Array<{ objectId: string; atom: string; replacement: string; boundingBox: unknown }>;
+  assetChanges: Array<{ objectId: string; atom: string; replaces: string; replacement: string; boundingBox: unknown }>;
   otherChanges: Array<{ objectId: string; atom: string; instruction: string }>;
   essentials: string[];
   brandChanges: Record<string, string>;
@@ -43,12 +43,14 @@ export function buildApprovedDifferenceContract(recipe: any): ApprovedDifference
   const pastedAssets = list(recipe?.pastedAssets).map(asset => ({
     objectId: text(asset?.objectId),
     atom: text(asset?.atomName) || "Asset",
+    replaces: text(asset?.originalContent) || text(asset?.atomName) || "Previous asset",
     replacement: text(asset?.name) || "Uploaded replacement",
     boundingBox: asset?.box ?? null,
   }));
   const uploadedAssets = list(recipe?.referenceImages).map(asset => ({
     objectId: text(asset?.sectionId),
     atom: text(asset?.sectionName) || "Asset",
+    replaces: text(asset?.originalContent) || text(asset?.sectionName) || "Previous asset",
     replacement: text(asset?.name) || "Uploaded replacement",
     boundingBox: asset?.originalBoundingBox ?? null,
   }));
@@ -153,6 +155,7 @@ HARD GATES — fail the result when any one occurs:
 6. REPLACEMENT FOOTPRINT: every changed text/image/logo stays inside the original atom region at the same apparent width, height, position, crop relationship, and visual weight.
 7. CANVAS: aspect ratio and full-bleed composition match the parent; no letterboxing or internal artwork compression.
 8. BRAND: when a brand restyle is approved, apply it to style surfaces only. Never recolor identity assets. When no brand restyle is approved, preserve the parent palette.
+9. TRUE ASSET SWAP: for every approved asset change, the previous asset identity must be completely absent and exactly one requested replacement must be visible. Fail if the old and new assets coexist, overlap, ghost through, or if the replacement is duplicated, redrawn, or decorated with invented marks.
 
 SCORING:
 - Score layout, content, assets, brand compliance, and edge safety independently from 0-100.
