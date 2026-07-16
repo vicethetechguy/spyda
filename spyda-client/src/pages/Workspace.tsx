@@ -843,6 +843,17 @@ export default function Workspace() {
         }
       }
 
+      const essentialAssetInstruction = filledEssentials.join(' ').toLowerCase()
+      const hasAssetModificationVerb = /\b(generate|create|redraw|replace|change|modify|transform|restyle|recolor|remove|invent)\b/.test(essentialAssetInstruction)
+      const essentialsAssetOverrideIds = new Set(placedSwaps
+        .filter(({ section, edit }) => {
+          if (!hasAssetModificationVerb) return false
+          const signature = `${section.type} ${section.name} ${section.content || ''} ${edit.assetName || ''}`.toLowerCase()
+          const targetWords = signature.match(/[a-z0-9]{4,}/g) || []
+          return targetWords.some(word => essentialAssetInstruction.includes(word))
+        })
+        .map(({ section }) => section.id))
+
       // ── Explicit Brand Constants mode ──
       // ON applies the complete card globally; OFF keeps the active parent's
       // brand styling untouched.
@@ -991,9 +1002,9 @@ export default function Workspace() {
           originalContent: swap.section.content || swap.section.name,
           box: swap.box,
           userPlaced: true,
-          exactUploadLock: true,
-          allowModelRedraw: false,
-          allowModelReplacement: false,
+          exactUploadLock: !essentialsAssetOverrideIds.has(swap.section.id),
+          allowModelRedraw: essentialsAssetOverrideIds.has(swap.section.id),
+          allowModelReplacement: essentialsAssetOverrideIds.has(swap.section.id),
         })),
         textEdits,
         otherEdits,
@@ -1059,8 +1070,9 @@ export default function Workspace() {
         const imageSrc = data.image.startsWith('http') || data.image.startsWith('data:image/')
           ? data.image
           : `data:image/webp;base64,${data.image}`
-        const assetLockedImageSrc = placedSwaps.length
-          ? await compositeReplacements(imageSrc, placedSwaps.map(swap => ({
+        const lockedPlacedSwaps = placedSwaps.filter(swap => !essentialsAssetOverrideIds.has(swap.section.id))
+        const assetLockedImageSrc = lockedPlacedSwaps.length
+          ? await compositeReplacements(imageSrc, lockedPlacedSwaps.map(swap => ({
               box: swap.box,
               src: swap.edit.assetDataUrl!,
               trimWhitespace: /logo|brand mark|wordmark/i.test(`${swap.section.type} ${swap.section.name} ${swap.section.content || ''}`),
