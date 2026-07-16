@@ -1,7 +1,7 @@
-import { parseDesignDocument, type DesignDocument, type LegacyBreakdown } from './design-document'
-import { buildConstraintProfile, type ConstraintProfile } from './constraint-engine'
-import { inferLayoutIntelligence, type LayoutIntelligenceModel } from './layout-intelligence'
-import { createVisionAdapter, type VisionAnalysis, type VisionOcrWord } from './vision-adapter'
+import { parseDesignDocument, type DesignDocument, type LegacyBreakdown } from './design-document.js'
+import { buildConstraintProfile, type ConstraintProfile } from './constraint-engine.js'
+import { inferLayoutIntelligence, type LayoutIntelligenceModel } from './layout-intelligence.js'
+import { createVisionAdapter, type VisionAnalysis, type VisionOcrWord } from './vision-adapter.js'
 
 export type DesignIntelligenceBundle = {
   architectureVersion: 'spyda-v2'

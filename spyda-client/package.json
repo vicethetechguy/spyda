@@ -8,7 +8,8 @@
   },
   "scripts": {
     "dev": "vite",
-    "build": "tsc -b && vite build",
+    "build": "npm run typecheck:api && tsc -b && vite build",
+    "typecheck:api": "tsc -p tsconfig.api.json",
     "lint": "oxlint",
     "test": "vitest run",
     "test:watch": "vitest",

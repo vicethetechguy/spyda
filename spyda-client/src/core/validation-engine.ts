@@ -1,5 +1,5 @@
-import { parseDesignDocument, type DesignDocument, type DesignObject, type PercentBox } from './design-document'
-import type { LayoutIntelligenceModel, ObjectMeasurement } from './layout-intelligence'
+import { parseDesignDocument, type DesignDocument, type DesignObject, type PercentBox } from './design-document.js'
+import type { LayoutIntelligenceModel, ObjectMeasurement } from './layout-intelligence.js'
 
 export type FidelityMetric = { score: number; issues: string[] }
 

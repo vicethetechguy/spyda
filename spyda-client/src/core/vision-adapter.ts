@@ -1,4 +1,4 @@
-import type { DesignDocument, DesignObject, PercentBox } from './design-document'
+import type { DesignDocument, DesignObject, PercentBox } from './design-document.js'
 
 export type VisionOcrWord = {
   text: string

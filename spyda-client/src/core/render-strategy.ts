@@ -1,4 +1,4 @@
-import type { DesignDocument } from './design-document'
+import type { DesignDocument } from './design-document.js'
 
 export type RenderOperation = {
   objectId: string | null

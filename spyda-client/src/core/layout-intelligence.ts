@@ -1,5 +1,5 @@
-import type { DesignDocument, DesignObject, PercentBox } from './design-document'
-import type { VisionAnalysis } from './vision-adapter'
+import type { DesignDocument, DesignObject, PercentBox } from './design-document.js'
+import type { VisionAnalysis, VisionDetection } from './vision-adapter.js'
 
 export type LayoutLine = {
   position: number
@@ -51,6 +51,7 @@ export type LayoutIntelligenceModel = {
 }
 
 type AxisPoint = { position: number; objectId: string }
+type MeasuredObject = { object: DesignObject; bounds: PercentBox; confidence: number | null }
 
 const ALIGNMENT_TOLERANCE = 1.5
 
@@ -84,13 +85,13 @@ function clusterAxisPoints(points: AxisPoint[], tolerance = ALIGNMENT_TOLERANCE)
     .sort((a, b) => a.position - b.position)
 }
 
-function resolveObjectBounds(document: DesignDocument, vision: VisionAnalysis) {
-  const detections = new Map(
-    vision.detections
-      .filter(detection => detection.sourceObjectId)
-      .map(detection => [detection.sourceObjectId as string, detection]),
-  )
-  return document.objects.flatMap(object => {
+function resolveObjectBounds(document: DesignDocument, vision: VisionAnalysis): MeasuredObject[] {
+  const detections = new Map<string, VisionDetection>()
+  for (const detection of vision.detections) {
+    if (detection.sourceObjectId) detections.set(detection.sourceObjectId, detection)
+  }
+  const objects: DesignObject[] = document.objects as DesignObject[]
+  return objects.flatMap((object: DesignObject): MeasuredObject[] => {
     const detection = detections.get(object.id)
     const bounds = detection?.bounds || object.transform.bounds
     return bounds ? [{ object, bounds, confidence: detection?.confidence ?? object.source.confidence }] : []
@@ -184,20 +185,23 @@ export function inferLayoutIntelligence(document: DesignDocument, vision: Vision
 
   const columns = clusterAxisPoints(horizontalPoints)
   const rows = clusterAxisPoints(verticalPoints)
-  const objectBounds = new Map(measured.map(item => [item.object.id, item.bounds]))
+  const objectBounds = new Map<string, PercentBox>()
+  measured.forEach((item: MeasuredObject) => objectBounds.set(item.object.id, item.bounds))
   const hierarchy = [...measured]
     .sort((a, b) => hierarchyWeight(b.object, b.bounds) - hierarchyWeight(a.object, a.bounds))
     .map(item => item.object.id)
 
-  const groups = document.sections.flatMap(section => {
-    const boxes = section.objectIds.map(id => objectBounds.get(id)).filter(Boolean) as PercentBox[]
+  const groups: LayoutIntelligenceModel['groups'] = document.sections.flatMap(section => {
+    const boxes: PercentBox[] = section.objectIds
+      .map((id: string) => objectBounds.get(id))
+      .filter((box: PercentBox | undefined): box is PercentBox => Boolean(box))
     if (!boxes.length) return []
     return [{ id: `section:${section.id}`, objectIds: section.objectIds.filter(id => objectBounds.has(id)), bounds: boxUnion(boxes), reason: 'shared-section' }]
   })
 
   const measurements: Record<string, ObjectMeasurement> = {}
   measured.forEach(({ object, bounds, confidence }) => {
-    const parentBounds = object.relationships.parentId ? objectBounds.get(object.relationships.parentId) : null
+    const parentBounds: PercentBox | null = object.relationships.parentId ? objectBounds.get(object.relationships.parentId) || null : null
     const anchors = {
       left: round(bounds.x),
       centerX: round(bounds.x + bounds.width / 2),

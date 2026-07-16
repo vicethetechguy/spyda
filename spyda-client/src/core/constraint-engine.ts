@@ -1,5 +1,5 @@
-import { parseDesignDocument, type DesignDocument, type DesignObject } from './design-document'
-import type { LayoutIntelligenceModel } from './layout-intelligence'
+import { parseDesignDocument, type DesignDocument, type DesignObject } from './design-document.js'
+import type { LayoutIntelligenceModel } from './layout-intelligence.js'
 
 export type ConstraintViolation = {
   code: string
