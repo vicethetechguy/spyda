@@ -18,6 +18,12 @@ function localVercelApi(): Plugin {
     configureServer(server) {
       server.middlewares.use(async (req, res, next) => {
         const url = req.url || ''
+        if (url.split('?')[0] === '/favicon.ico') {
+          res.statusCode = 302
+          res.setHeader('location', '/favicon.svg')
+          res.end()
+          return
+        }
         if (!url.startsWith('/api/')) return next()
 
         const endpoint = url.slice('/api/'.length).split('?')[0].replace(/\/+$/, '')
