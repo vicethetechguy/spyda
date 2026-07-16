@@ -1,9 +1,10 @@
-import { useState } from 'react'
+import { useEffect, useState } from 'react'
 import { Link } from 'react-router-dom'
 import {
   ArrowRight,
   Check,
   ChevronDown,
+  Download,
   GitCompareArrows,
   Layers3,
   Library,
@@ -15,7 +16,13 @@ import {
   SlidersHorizontal,
   Upload,
   WandSparkles,
+  X,
 } from 'lucide-react'
+
+type PwaInstallPrompt = Event & {
+  prompt: () => Promise<void>
+  userChoice: Promise<{ outcome: 'accepted' | 'dismissed' }>
+}
 
 function SectionLabel({ children }: { children: React.ReactNode }) {
   return (
@@ -92,6 +99,48 @@ const samples = [
 ]
 
 export default function Landing() {
+  const [installPrompt, setInstallPrompt] = useState<PwaInstallPrompt | null>(null)
+  const [installHint, setInstallHint] = useState<string | null>(null)
+  const [isInstalled, setIsInstalled] = useState(false)
+
+  useEffect(() => {
+    const standalone = window.matchMedia('(display-mode: standalone)').matches
+      || Boolean((window.navigator as Navigator & { standalone?: boolean }).standalone)
+    setIsInstalled(standalone)
+
+    const capturePrompt = (event: Event) => {
+      event.preventDefault()
+      setInstallPrompt(event as PwaInstallPrompt)
+    }
+    const markInstalled = () => {
+      setInstallPrompt(null)
+      setInstallHint(null)
+      setIsInstalled(true)
+    }
+
+    window.addEventListener('beforeinstallprompt', capturePrompt)
+    window.addEventListener('appinstalled', markInstalled)
+    return () => {
+      window.removeEventListener('beforeinstallprompt', capturePrompt)
+      window.removeEventListener('appinstalled', markInstalled)
+    }
+  }, [])
+
+  const handleInstall = async () => {
+    if (installPrompt) {
+      await installPrompt.prompt()
+      await installPrompt.userChoice
+      setInstallPrompt(null)
+      return
+    }
+
+    const isIos = /iphone|ipad|ipod/i.test(navigator.userAgent)
+      || (navigator.platform === 'MacIntel' && navigator.maxTouchPoints > 1)
+    setInstallHint(isIos
+      ? 'In Safari, tap the Share button, choose Add to Home Screen, then confirm Add.'
+      : 'Open your browser menu and choose Install app or Add to Home screen. In Chrome, you may also see an install icon beside the address bar.')
+  }
+
   return (
     <div className="min-h-screen overflow-x-hidden bg-background font-sans text-foreground">
       <header className="fixed left-1/2 top-3 z-50 w-[min(1120px,calc(100%-1.25rem))] -translate-x-1/2">
@@ -107,6 +156,17 @@ export default function Landing() {
             <a href="#pricing" className="text-xs font-normal text-muted-foreground transition-colors hover:text-foreground">Pricing</a>
           </nav>
           <div className="flex items-center gap-2">
+            {!isInstalled && (
+              <button
+                type="button"
+                onClick={handleInstall}
+                title="Install Spyda"
+                className="inline-flex h-9 items-center gap-2 rounded-lg border border-white/[0.1] bg-white/[0.025] px-2.5 text-xs font-medium text-muted-foreground transition-colors hover:bg-white/[0.06] hover:text-foreground lg:px-3"
+              >
+                <Download className="h-3.5 w-3.5" />
+                <span className="hidden lg:inline">Install</span>
+              </button>
+            )}
             <Link to="/auth" className="hidden h-9 items-center px-3 text-xs font-medium text-muted-foreground transition-colors hover:text-foreground sm:inline-flex">Sign in</Link>
             <Link to="/auth" state={{ mode: 'signup' }} className="inline-flex h-9 items-center gap-2 rounded-lg bg-primary px-3.5 text-xs font-semibold text-primary-foreground transition-colors hover:bg-primary/90 sm:px-4">
               Open Spyda <ArrowRight className="h-3.5 w-3.5" />
@@ -298,6 +358,27 @@ export default function Landing() {
           </div>
         </section>
       </main>
+
+      {installHint && (
+        <div className="fixed inset-0 z-[100] flex items-end justify-center bg-black/70 p-3 backdrop-blur-sm sm:items-center" role="presentation" onClick={() => setInstallHint(null)}>
+          <div className="w-full max-w-md rounded-lg border border-white/[0.1] bg-[#0b0d0c] p-5 shadow-[0_24px_80px_rgba(0,0,0,0.55)]" role="dialog" aria-modal="true" aria-labelledby="install-spyda-title" onClick={event => event.stopPropagation()}>
+            <div className="flex items-start justify-between gap-4">
+              <div className="flex items-center gap-3">
+                <img src="/assets/spyda-icon-192.png" alt="" className="h-11 w-11 object-contain" />
+                <div>
+                  <h2 id="install-spyda-title" className="font-heading text-base font-semibold">Install Spyda</h2>
+                  <p className="mt-0.5 text-xs text-primary">Open as a full-screen app</p>
+                </div>
+              </div>
+              <button type="button" onClick={() => setInstallHint(null)} aria-label="Close install instructions" className="inline-flex h-8 w-8 items-center justify-center rounded-lg border border-white/[0.08] text-muted-foreground hover:bg-white/[0.05] hover:text-foreground">
+                <X className="h-4 w-4" />
+              </button>
+            </div>
+            <p className="mt-5 text-sm leading-6 text-muted-foreground">{installHint}</p>
+            <button type="button" onClick={() => setInstallHint(null)} className="mt-5 inline-flex h-10 w-full items-center justify-center rounded-lg bg-primary text-sm font-semibold text-primary-foreground hover:bg-primary/90">Got it</button>
+          </div>
+        </div>
+      )}
 
       <footer className="border-t border-white/[0.07] px-4 py-9">
         <div className="mx-auto flex max-w-6xl flex-col gap-6 sm:flex-row sm:items-center sm:justify-between">
