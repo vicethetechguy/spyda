@@ -16,7 +16,7 @@ import { supabase } from '../lib/supabase'
 import { useAuth } from '../lib/AuthContext'
 
 export default function Auth() {
-  const { session } = useAuth()
+  const { session, signIn } = useAuth()
   const [isSignUp, setIsSignUp] = useState(false)
   const [email, setEmail] = useState('')
   const [password, setPassword] = useState('')
@@ -81,8 +81,7 @@ export default function Auth() {
         setPassword('')
       } else {
         setMfaStatus('checking')
-        const { error: signInError } = await supabase.auth.signInWithPassword({ email, password })
-        if (signInError) throw signInError
+        await signIn(email, password)
       }
     } catch (caught) {
       setError(caught instanceof Error ? caught.message : 'Spyda could not complete authentication. Try again.')
