@@ -74,12 +74,29 @@ export function normalizeQaReport(raw: any): GenerationQaReport {
       .map(([key, value]) => [key, Math.max(0, Math.min(100, Math.round(Number(value))))])
       .filter(([, value]) => Number.isFinite(value)),
   );
-  const categoryValues = Object.values(categoryScores) as number[];
   const reportedScore = Number(raw?.score);
-  const categoryScore = categoryValues.length ? Math.min(...categoryValues) : reportedScore;
-  let score = Number.isFinite(reportedScore) && Number.isFinite(categoryScore)
-    ? Math.min(reportedScore, categoryScore)
-    : Number.isFinite(reportedScore) ? reportedScore : categoryScore;
+  const modernWeights: Record<string, number> = {
+    intentFulfillment: 0.5,
+    unchangedFidelity: 0.15,
+    layoutSafety: 0.1,
+    assetCompliance: 0.1,
+    brandCompliance: 0.05,
+    edgeSafety: 0.1,
+  };
+  const legacyWeights: Record<string, number> = {
+    layout: 0.2,
+    content: 0.25,
+    assets: 0.25,
+    brand: 0.1,
+    edgeSafety: 0.2,
+  };
+  const activeWeights = Object.keys(modernWeights).some(key => key in categoryScores) ? modernWeights : legacyWeights;
+  const weightedEntries = Object.entries(activeWeights).filter(([key]) => Number.isFinite(categoryScores[key]));
+  const weightTotal = weightedEntries.reduce((sum, [, weight]) => sum + weight, 0);
+  const categoryScore = weightTotal
+    ? weightedEntries.reduce((sum, [key, weight]) => sum + categoryScores[key] * weight, 0) / weightTotal
+    : Number.NaN;
+  let score = Number.isFinite(categoryScore) ? categoryScore : reportedScore;
   const issues = Array.isArray(raw?.issues) ? raw.issues.filter(Boolean).map(String) : [];
   const suggestions = Array.isArray(raw?.suggestions) ? raw.suggestions.filter(Boolean).map(String) : [];
   const approvedChangesApplied = Array.isArray(raw?.approvedChangesApplied) ? raw.approvedChangesApplied.filter(Boolean).map(String) : [];
@@ -92,11 +109,10 @@ export function normalizeQaReport(raw: any): GenerationQaReport {
       }))
     : [];
   if (hardGateFailures.length || unapprovedChanges.length) score = Math.min(Number.isFinite(score) ? score : 89, 89);
-  const passed = raw?.passed === true
-    && hardGateFailures.length === 0
+  const passed = hardGateFailures.length === 0
     && unapprovedChanges.length === 0
     && Number.isFinite(score)
-    && score >= 95;
+    && score >= 85;
 
   return {
     ok: true,

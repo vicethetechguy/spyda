@@ -685,6 +685,7 @@ function buildCompositePrompt(recipe: any) {
   const essentialsEditableAssets = pastedAssets.filter((asset: any) => asset?.exactUploadLock === false);
   const textEdits = Array.isArray(recipe?.textEdits) ? recipe.textEdits : [];
   const otherEdits = Array.isArray(recipe?.otherEdits) ? recipe.otherEdits : [];
+  const removedAtoms = Array.isArray(recipe?.removedAtoms) ? recipe.removedAtoms : [];
   const essentials = Array.isArray(recipe?.essentials) ? recipe.essentials.filter(Boolean) : [];
   const brand = recipe?.brandOverrides || null;
   const unplacedAssets = getReferenceImages(recipe);
@@ -702,7 +703,7 @@ function buildCompositePrompt(recipe: any) {
 - The parent is measured on a ${layoutGrid.columns}-column by ${layoutGrid.rows}-row normalized grid. Use this grid as a geometry constraint, but do not draw the grid in the output.
 - Canvas coordinates run from 0 to 100. No atom, replacement, shadow, badge, footer detail, or important content may extend outside that canvas.
 - Measured safe area: ${JSON.stringify(layoutGrid.safeArea || {})}.
-- Keep unchanged atoms in their exact normalized bounds. Keep changed atoms inside the exact footprint they replace.
+- Keep unchanged atoms in their exact normalized bounds. Keep changed atoms inside their approved footprint. Atoms explicitly listed for removal must disappear from their former cells without moving neighboring atoms.
 ${gridAtoms.map((atom: any) => `- "${atom.name}" (${atom.type}) occupies columns ${atom.gridCell?.columnStart}-${atom.gridCell?.columnEnd}, rows ${atom.gridCell?.rowStart}-${atom.gridCell?.rowEnd}, exact bounds ${JSON.stringify(atom.bounds)}.`).join("\n")}
 Do not enlarge the internal composition, compress it, shift it, or allow any element to escape its measured cells. The grid is a hidden reconstruction guide, never a visible design element.`);
   }
@@ -757,6 +758,12 @@ Render each new text with the same font style, size, color, alignment, and posit
   if (otherEdits.length) {
     sections.push(`OTHER EDITS:
 ${otherEdits.map((edit: any) => `- "${edit.atomName || 'element'}": ${edit.instruction || ''} (keep this element in its current region at its current size unless the instruction explicitly says otherwise)`).join("\n")}`);
+  }
+
+  if (removedAtoms.length) {
+    sections.push(`REMOVE THESE ELEMENTS COMPLETELY:
+${removedAtoms.map((atom: any) => `- Remove "${atom.atomName || atom.content || 'selected element'}" (${atom.type || 'element'}) from ${JSON.stringify(atom.boundingBox || {})}.`).join("\n")}
+For each removal, erase the selected element completely and reconstruct only the background, texture, lighting, shadow continuity, or artwork that naturally belongs underneath it. Do not leave a ghost, silhouette, fragment, placeholder, empty card, substitute icon, substitute text, or newly invented replacement. Everything outside the listed removal regions remains unchanged.`);
   }
 
   if (unplacedAssets.length) {

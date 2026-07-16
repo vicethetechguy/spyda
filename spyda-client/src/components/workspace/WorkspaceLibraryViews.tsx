@@ -19,7 +19,7 @@ import type { LegacyBreakdown as BreakdownResult } from '../../core/design-docum
 import type { AtomBox } from '../../lib/design'
 
 export type WorkspaceAtomEdit = {
-  mode: 'same' | 'customize'
+  mode: 'same' | 'customize' | 'delete'
   value: string
   assetName?: string
   assetDataUrl?: string

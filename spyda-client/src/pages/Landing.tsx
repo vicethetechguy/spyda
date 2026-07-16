@@ -109,7 +109,8 @@ export default function Landing() {
     setIsInstalled(standalone)
 
     const capturePrompt = (event: Event) => {
-      event.preventDefault()
+      // Keep Chrome's native Install/Add to Home Screen entry available.
+      // Spyda also retains the event so the in-app Install button can use it.
       setInstallPrompt(event as PwaInstallPrompt)
     }
     const markInstalled = () => {

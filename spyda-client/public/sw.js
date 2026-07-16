@@ -1,4 +1,4 @@
-const CACHE_NAME = "spyda-shell-v4";
+const CACHE_NAME = "spyda-shell-v5";
 const APP_SHELL = [
   "/",
   "/workspace",
@@ -16,7 +16,7 @@ self.addEventListener("install", (event) => {
   event.waitUntil(
     caches
       .open(CACHE_NAME)
-      .then((cache) => cache.addAll(APP_SHELL))
+      .then((cache) => Promise.allSettled(APP_SHELL.map((url) => cache.add(url))))
       .then(() => self.skipWaiting())
   );
 });

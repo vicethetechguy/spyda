@@ -134,7 +134,7 @@ type SavedSpydaProject = {
    ═══════════════════════════════════════════════ */
 
 type AtomEdit = {
-  mode: 'same' | 'customize'
+  mode: 'same' | 'customize' | 'delete'
   value: string
   assetName?: string
   assetDataUrl?: string
@@ -759,29 +759,22 @@ export default function Workspace() {
   }, [])
 
   const handleDeleteAtom = useCallback((sectionId: string) => {
-    setBreakdown(prev => {
-      if (!prev) return prev
-      return {
-        ...prev,
-        design: {
-          ...prev.design,
-          editableComponents: (prev.design.editableComponents || []).map(section =>
-            section.id === sectionId ? { ...section, deleted: true } : section
-          ),
-        }
-      }
-    })
-    setAtomEdits(prev => {
-      const next = { ...prev }
-      delete next[sectionId]
-      return next
-    })
+    setAtomEdits(prev => ({
+      ...prev,
+      [sectionId]: {
+        ...prev[sectionId],
+        mode: 'delete',
+        value: 'Remove this element and reconstruct the background beneath it.',
+        assetName: undefined,
+        assetDataUrl: undefined,
+      },
+    }))
   }, [])
 
   const handleGenerate = useCallback(async (options?: { instant?: boolean }) => {
     if (!uploadedFile || !breakdown) return
     const selectedAtoms = (breakdown.design?.editableComponents || [])
-      .filter(s => !s.deleted && atomEdits[s.id]?.mode === 'customize')
+      .filter(s => !s.deleted && (atomEdits[s.id]?.mode === 'customize' || atomEdits[s.id]?.mode === 'delete'))
     const filledEssentials = essentialPrompts.map(prompt => prompt.trim()).filter(Boolean)
     const essentialVisualSlots = essentialsImage && filledEssentials.length === 0 ? 1 : 0
     const totalChanges = selectedAtoms.length + filledEssentials.length + essentialVisualSlots
@@ -826,11 +819,20 @@ export default function Workspace() {
       const unplacedAssets: Array<{ section: EditableComponent; edit: AtomEdit }> = []
       const textEdits: Array<{ objectId: string; atomName: string; from: string; to: string }> = []
       const otherEdits: Array<{ objectId: string; atomName: string; instruction: string }> = []
+      const removedAtoms: Array<{ objectId: string; atomName: string; type: string; content: string; boundingBox: unknown }> = []
 
       for (const section of selectedAtoms) {
         const edit = atomEdits[section.id]
         if (!edit) continue
-        if (edit.assetDataUrl) {
+        if (edit.mode === 'delete') {
+          removedAtoms.push({
+            objectId: section.id,
+            atomName: section.name,
+            type: section.type,
+            content: section.content || section.name,
+            boundingBox: edit.box || section.boundingBox,
+          })
+        } else if (edit.assetDataUrl) {
           const box = edit.box || parseAtomBox(section.boundingBox, previewSize)
           if (box) placedSwaps.push({ section, edit, box: clampBox(box) })
           else unplacedAssets.push({ section, edit })
@@ -912,7 +914,7 @@ export default function Workspace() {
         return normalizedImageSrc
       }
 
-      const needsAi = Boolean(textEdits.length || otherEdits.length || filledEssentials.length || hasBrandOverrides || unplacedAssets.length || essentialsImage)
+      const needsAi = Boolean(textEdits.length || otherEdits.length || removedAtoms.length || filledEssentials.length || hasBrandOverrides || unplacedAssets.length || essentialsImage)
       const measuredEditBoxes = selectedAtoms
         .map(section => atomEdits[section.id]?.box || parseAtomBox(section.boundingBox, previewSize))
         .filter((box): box is AtomBox => box !== null)
@@ -1008,6 +1010,7 @@ export default function Workspace() {
         })),
         textEdits,
         otherEdits,
+        removedAtoms,
         brandOverrides: hasBrandOverrides ? brandOverrides : null,
         brandConstantsMode: hasBrandOverrides ? 'apply' : 'preserve-parent',
         essentials: filledEssentials,
@@ -1297,7 +1300,7 @@ export default function Workspace() {
             <QaGateView
               qa={generationQa}
               generatedImage={generatedImage}
-              uploadedPreview={uploadedPreview}
+              uploadedPreview={qaParentPreview || uploadedPreview}
               onBack={() => setActiveId('canvas')}
               onApplyEssentials={(essentials) => {
                 setEssentialPrompts([essentials[0] || '', essentials[1] || '', essentials[2] || ''])
@@ -1370,7 +1373,7 @@ function QaGateView({ qa, generatedImage, uploadedPreview, onBack, onApplyEssent
           <Loader2 className="mb-4 h-10 w-10 animate-spin text-primary" strokeWidth={1.5} />
           <h2 className="text-lg font-semibold">Design ready, checking fidelity</h2>
           <p className="mt-2 max-w-md text-sm text-muted-foreground">
-            Your flyer is already available on the Canvas. Spyda is comparing layout, text, assets, and replacement sizing in the background.
+             Your flyer is already available on the Canvas. Spyda is checking whether the approved changes were delivered and whether untouched regions remained stable.
           </p>
         </div>
       ) : !hasReport ? (
@@ -1378,7 +1381,7 @@ function QaGateView({ qa, generatedImage, uploadedPreview, onBack, onApplyEssent
           <ShieldCheck className="w-10 h-10 text-muted-foreground/30 mb-4" strokeWidth={1.25} />
           <h2 className="text-lg font-semibold">No QA report yet</h2>
           <p className="mt-2 max-w-md text-sm text-muted-foreground">
-            Generate a design on the Canvas and Spyda will automatically compare it against the parent design — layout, text, assets, and replacement sizing — then report the results here.
+             Generate a design on the Canvas and Spyda will check the requested outcome, unchanged regions, layout safety, assets, brand compliance, and edges.
           </p>
           {qa?.error && <p className="mt-3 text-xs text-amber-500">Last QA attempt failed: {qa.error}</p>}
         </div>
@@ -1400,7 +1403,7 @@ function QaGateView({ qa, generatedImage, uploadedPreview, onBack, onApplyEssent
             </div>
             {failed && (
               <p className="mt-2 text-xs text-amber-600">
-                The generated design did not fully match the parent design. Apply the suggested Essentials below, then regenerate.
+                 One or more requested changes were missed, or an unapproved part of the parent changed. Review the specific QA findings below.
               </p>
             )}
           </div>
@@ -1425,12 +1428,12 @@ function QaGateView({ qa, generatedImage, uploadedPreview, onBack, onApplyEssent
 
           {!!qa?.categoryScores && Object.keys(qa.categoryScores).length > 0 && (
             <div>
-              <p className="mb-3 text-[11px] font-bold uppercase tracking-[0.12em] text-muted-foreground">Fidelity Gates</p>
-              <div className="grid grid-cols-2 gap-2 sm:grid-cols-5">
+              <p className="mb-3 text-[11px] font-bold uppercase tracking-[0.12em] text-muted-foreground">Intent &amp; Fidelity Gates</p>
+              <div className="grid grid-cols-2 gap-2 sm:grid-cols-3 lg:grid-cols-6">
                 {Object.entries(qa.categoryScores).map(([category, score]) => (
                   <div key={category} className="rounded-xl border border-white/[0.06] bg-white/[0.02] px-3 py-3">
                     <p className="truncate text-[10px] font-semibold capitalize text-muted-foreground">{category.replace(/([A-Z])/g, ' $1')}</p>
-                    <p className={`mt-1 text-lg font-bold ${score === 100 ? 'text-primary' : score >= 95 ? 'text-foreground' : 'text-amber-500'}`}>{score}</p>
+                    <p className={`mt-1 text-lg font-bold ${score >= 95 ? 'text-primary' : score >= 85 ? 'text-foreground' : 'text-amber-500'}`}>{score}</p>
                   </div>
                 ))}
               </div>
@@ -1856,9 +1859,10 @@ function StudioView({
   }
 
   // ── Phase 2+: Analyzing / Editing / Generating ──
-  const visibleSections = breakdown?.design?.editableComponents?.filter(s => !s.deleted) || []
+  const activeSections = breakdown?.design?.editableComponents?.filter(s => !s.deleted) || []
+  const visibleSections = activeSections.filter(section => atomEdits[section.id]?.mode !== 'delete')
   const layoutGridGuide = buildLayoutGridGuide(
-    visibleSections.map(section => ({
+    activeSections.map(section => ({
       id: section.id,
       name: section.name,
       type: section.type,
@@ -1867,7 +1871,7 @@ function StudioView({
     })),
     sourceCanvasSize,
   )
-  const selectedSections = visibleSections.filter(section => atomEdits[section.id]?.mode === 'customize')
+  const selectedSections = activeSections.filter(section => atomEdits[section.id]?.mode === 'customize' || atomEdits[section.id]?.mode === 'delete')
   const selectedAtomCount = selectedSections.length
   const essentialCount = essentialPrompts.filter(prompt => prompt.trim()).length
   const essentialVisualSlots = essentialsImage && essentialCount === 0 ? 1 : 0
@@ -1876,7 +1880,7 @@ function StudioView({
   const canApplyRound = totalChangeCount >= 1 && totalChangeCount <= 3
   const activeSourcePreview = generatedImage || uploadedPreview
   const activeSourceName = generatedImage ? 'Latest generated parent' : uploadedFile.name
-  const placedSwapCount = selectedSections.filter(section => atomEdits[section.id]?.assetDataUrl).length
+  const placedSwapCount = selectedSections.filter(section => atomEdits[section.id]?.mode === 'customize' && atomEdits[section.id]?.assetDataUrl).length
   // Instant paste: every selected change is an image swap and nothing needs the AI pass
   const instantPasteAvailable = placedSwapCount > 0
     && placedSwapCount === selectedAtomCount

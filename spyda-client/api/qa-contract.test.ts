@@ -112,6 +112,45 @@ describe('approved difference QA contract', () => {
     expect(prompt).toContain('Replacement logo')
   })
 
+  it('treats a requested deletion as an approved successful difference', () => {
+    const deletionRecipe = {
+      ...recipe,
+      removedAtoms: [{ objectId: 'qr', atomName: 'QR code', type: 'image', content: 'Original QR code', boundingBox: 'bottom right' }],
+    }
+    const contract = buildApprovedDifferenceContract(deletionRecipe)
+    const prompt = buildGenerationPrompt(deletionRecipe)
+
+    expect(contract.removedAtoms).toEqual(expect.arrayContaining([
+      expect.objectContaining({ objectId: 'qr', atom: 'QR code' }),
+    ]))
+    expect(contract.protectedAssets).not.toEqual(expect.arrayContaining([
+      expect.objectContaining({ objectId: 'qr' }),
+    ]))
+    expect(prompt).toContain('REMOVE THESE ELEMENTS COMPLETELY')
+    expect(prompt).toContain('Do not leave a ghost')
+  })
+
+  it('weights successful user intent above approved visual differences', () => {
+    const report = normalizeQaReport({
+      passed: true,
+      score: 72,
+      categoryScores: {
+        intentFulfillment: 100,
+        unchangedFidelity: 90,
+        layoutSafety: 90,
+        assetCompliance: 100,
+        brandCompliance: 100,
+        edgeSafety: 100,
+      },
+      approvedChangesApplied: ['Headline replaced', 'Logo replaced'],
+      hardGateFailures: [],
+      unapprovedChanges: [],
+    })
+
+    expect(report.passed).toBe(true)
+    expect(report.score).toBe(98)
+  })
+
   it('cannot pass or score above 89 when a hard gate fails', () => {
     const report = normalizeQaReport({
       passed: true,
