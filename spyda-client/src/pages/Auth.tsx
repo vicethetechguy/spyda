@@ -25,7 +25,7 @@ export default function Auth() {
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const [message, setMessage] = useState<string | null>(null)
-  const [mfaStatus, setMfaStatus] = useState<'checking' | 'required' | 'clear'>('checking')
+  const [mfaStatus, setMfaStatus] = useState<'checking' | 'required' | 'clear' | 'error'>('checking')
   const [mfaFactorId, setMfaFactorId] = useState('')
   const [mfaCode, setMfaCode] = useState('')
 
@@ -44,15 +44,21 @@ export default function Auth() {
     ]).then(([assurance, factorResult]) => {
       if (!active) return
       const verifiedFactor = factorResult.data?.totp?.find(factor => factor.status === 'verified')
-      const needsMfa = assurance.data?.nextLevel === 'aal2' && assurance.data?.currentLevel !== 'aal2' && verifiedFactor
+      const needsMfa = assurance.data?.nextLevel === 'aal2' && assurance.data?.currentLevel !== 'aal2'
       if (needsMfa) {
-        setMfaFactorId(verifiedFactor.id)
-        setMfaStatus('required')
+        if (verifiedFactor) {
+          setMfaFactorId(verifiedFactor.id)
+          setMfaStatus('required')
+        } else {
+          console.error('MFA required but no verified TOTP factor found.')
+          setMfaStatus('error')
+        }
       } else {
         setMfaStatus('clear')
       }
-    }).catch(() => {
-      if (active) setMfaStatus('clear')
+    }).catch((err) => {
+      console.error('MFA check failed:', err)
+      if (active) setMfaStatus('error')
     })
 
     return () => { active = false }
@@ -179,50 +185,61 @@ export default function Auth() {
 
             <div className="mb-8">
               <div className="mb-3 flex items-center gap-2 text-[10px] font-semibold uppercase tracking-[0.16em] text-primary">
-                {isMfa ? <ShieldCheck className="h-3.5 w-3.5" /> : <span className="h-1.5 w-1.5 rounded-full bg-primary" />}
-                {isMfa ? 'Two-factor verification' : isSignUp ? 'Create your Spyda account' : 'Welcome back'}
+                {mfaStatus === 'error' ? <ShieldCheck className="h-3.5 w-3.5 text-red-500" /> : isMfa ? <ShieldCheck className="h-3.5 w-3.5" /> : <span className="h-1.5 w-1.5 rounded-full bg-primary" />}
+                {mfaStatus === 'error' ? <span className="text-red-500">Security Error</span> : isMfa ? 'Two-factor verification' : isSignUp ? 'Create your Spyda account' : 'Welcome back'}
               </div>
-              <h2 className="font-heading text-3xl font-semibold sm:text-4xl">{isMfa ? 'Confirm it is you.' : isSignUp ? 'Build from your next reference.' : 'Continue your design work.'}</h2>
-              <p className="mt-3 text-sm leading-6 text-muted-foreground">{isMfa ? 'Enter the current code from the authenticator app connected to your Spyda account.' : isSignUp ? 'Create an account to save projects, brand assets, history, and generated designs.' : 'Sign in to open your projects, design atoms, and latest child versions.'}</p>
+              <h2 className="font-heading text-3xl font-semibold sm:text-4xl">{mfaStatus === 'error' ? 'Authentication failed.' : isMfa ? 'Confirm it is you.' : isSignUp ? 'Build from your next reference.' : 'Continue your design work.'}</h2>
+              <p className="mt-3 text-sm leading-6 text-muted-foreground">{mfaStatus === 'error' ? 'We could not load your security settings or verified authenticator factors. This might be a temporary issue or an incomplete enrollment.' : isMfa ? 'Enter the current code from the authenticator app connected to your Spyda account.' : isSignUp ? 'Create an account to save projects, brand assets, history, and generated designs.' : 'Sign in to open your projects, design atoms, and latest child versions.'}</p>
             </div>
 
-            <form onSubmit={isMfa ? handleMfa : handleAuth} className="space-y-5">
-              {error && <div role="alert" className="rounded-lg border border-red-500/25 bg-red-500/[0.07] p-3 text-sm leading-5 text-red-300">{error}</div>}
-              {message && <div className="rounded-lg border border-primary/25 bg-primary/[0.07] p-3 text-sm leading-5 text-primary">{message}</div>}
+            {mfaStatus === 'error' ? (
+              <div className="space-y-4">
+                <button type="button" onClick={() => window.location.reload()} className="group inline-flex h-12 w-full items-center justify-center gap-2 rounded-lg bg-white/[0.05] border border-white/[0.1] text-sm font-semibold text-foreground transition-all hover:bg-white/[0.1]">
+                  Try again
+                </button>
+                <button type="button" onClick={() => { supabase.auth.signOut(); window.location.assign('/') }} className="group inline-flex h-12 w-full items-center justify-center gap-2 rounded-lg bg-red-500 text-sm font-semibold text-white shadow-[0_14px_38px_rgba(239,68,68,0.16)] transition-all hover:-translate-y-0.5 hover:bg-red-500/90">
+                  Log out completely
+                </button>
+              </div>
+            ) : (
+              <form onSubmit={isMfa ? handleMfa : handleAuth} className="space-y-5">
+                {error && <div role="alert" className="rounded-lg border border-red-500/25 bg-red-500/[0.07] p-3 text-sm leading-5 text-red-300">{error}</div>}
+                {message && <div className="rounded-lg border border-primary/25 bg-primary/[0.07] p-3 text-sm leading-5 text-primary">{message}</div>}
 
-              {isMfa ? (
-                <div>
-                  <label htmlFor="mfa-code" className="mb-2 block text-xs font-medium text-foreground">Authenticator code</label>
-                  <div className="relative">
-                    <ShieldCheck className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-primary" />
-                    <input id="mfa-code" inputMode="numeric" autoComplete="one-time-code" required maxLength={6} value={mfaCode} onChange={event => setMfaCode(event.target.value.replace(/\D/g, ''))} placeholder="000000" className="h-12 w-full rounded-lg border border-white/[0.09] bg-white/[0.025] pl-10 pr-4 font-mono text-sm tracking-[0.28em] outline-none transition-colors placeholder:text-muted-foreground/40 focus:border-primary/50" />
-                  </div>
-                </div>
-              ) : (
-                <div className="space-y-4">
+                {isMfa ? (
                   <div>
-                    <label htmlFor="auth-email" className="mb-2 block text-xs font-medium text-foreground">Email address</label>
+                    <label htmlFor="mfa-code" className="mb-2 block text-xs font-medium text-foreground">Authenticator code</label>
                     <div className="relative">
-                      <Mail className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
-                      <input id="auth-email" type="email" autoComplete="email" required value={email} onChange={event => setEmail(event.target.value)} placeholder="you@company.com" className="h-12 w-full rounded-lg border border-white/[0.09] bg-white/[0.025] pl-10 pr-4 text-sm outline-none transition-colors placeholder:text-muted-foreground/40 focus:border-primary/50" />
+                      <ShieldCheck className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-primary" />
+                      <input id="mfa-code" inputMode="numeric" autoComplete="one-time-code" required maxLength={6} value={mfaCode} onChange={event => setMfaCode(event.target.value.replace(/\D/g, ''))} placeholder="000000" className="h-12 w-full rounded-lg border border-white/[0.09] bg-white/[0.025] pl-10 pr-4 font-mono text-sm tracking-[0.28em] outline-none transition-colors placeholder:text-muted-foreground/40 focus:border-primary/50" />
                     </div>
                   </div>
-                  <div>
-                    <div className="mb-2 flex items-center justify-between"><label htmlFor="auth-password" className="text-xs font-medium text-foreground">Password</label>{isSignUp && <span className="text-[10px] text-muted-foreground">8 characters minimum</span>}</div>
-                    <div className="relative">
-                      <Lock className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
-                      <input id="auth-password" type={showPassword ? 'text' : 'password'} autoComplete={isSignUp ? 'new-password' : 'current-password'} minLength={isSignUp ? 8 : undefined} required value={password} onChange={event => setPassword(event.target.value)} placeholder={isSignUp ? 'Create a strong password' : 'Enter your password'} className="h-12 w-full rounded-lg border border-white/[0.09] bg-white/[0.025] pl-10 pr-11 text-sm outline-none transition-colors placeholder:text-muted-foreground/40 focus:border-primary/50" />
-                      <button type="button" onClick={() => setShowPassword(previous => !previous)} aria-label={showPassword ? 'Hide password' : 'Show password'} title={showPassword ? 'Hide password' : 'Show password'} className="absolute right-2 top-1/2 flex h-8 w-8 -translate-y-1/2 items-center justify-center rounded-md text-muted-foreground transition-colors hover:bg-white/[0.05] hover:text-foreground">{showPassword ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}</button>
+                ) : (
+                  <div className="space-y-4">
+                    <div>
+                      <label htmlFor="auth-email" className="mb-2 block text-xs font-medium text-foreground">Email address</label>
+                      <div className="relative">
+                        <Mail className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
+                        <input id="auth-email" type="email" autoComplete="email" required value={email} onChange={event => setEmail(event.target.value)} placeholder="you@company.com" className="h-12 w-full rounded-lg border border-white/[0.09] bg-white/[0.025] pl-10 pr-4 text-sm outline-none transition-colors placeholder:text-muted-foreground/40 focus:border-primary/50" />
+                      </div>
+                    </div>
+                    <div>
+                      <div className="mb-2 flex items-center justify-between"><label htmlFor="auth-password" className="text-xs font-medium text-foreground">Password</label>{isSignUp && <span className="text-[10px] text-muted-foreground">8 characters minimum</span>}</div>
+                      <div className="relative">
+                        <Lock className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
+                        <input id="auth-password" type={showPassword ? 'text' : 'password'} autoComplete={isSignUp ? 'new-password' : 'current-password'} minLength={isSignUp ? 8 : undefined} required value={password} onChange={event => setPassword(event.target.value)} placeholder={isSignUp ? 'Create a strong password' : 'Enter your password'} className="h-12 w-full rounded-lg border border-white/[0.09] bg-white/[0.025] pl-10 pr-11 text-sm outline-none transition-colors placeholder:text-muted-foreground/40 focus:border-primary/50" />
+                        <button type="button" onClick={() => setShowPassword(previous => !previous)} aria-label={showPassword ? 'Hide password' : 'Show password'} title={showPassword ? 'Hide password' : 'Show password'} className="absolute right-2 top-1/2 flex h-8 w-8 -translate-y-1/2 items-center justify-center rounded-md text-muted-foreground transition-colors hover:bg-white/[0.05] hover:text-foreground">{showPassword ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}</button>
+                      </div>
                     </div>
                   </div>
-                </div>
-              )}
+                )}
 
-              <button type="submit" disabled={loading || sessionLoading || mfaStatus === 'checking'} className="group inline-flex h-12 w-full items-center justify-center gap-2 rounded-lg bg-primary text-sm font-semibold text-primary-foreground shadow-[0_14px_38px_rgba(157,250,176,0.16)] transition-all hover:-translate-y-0.5 hover:bg-primary/90 disabled:cursor-not-allowed disabled:opacity-50 disabled:hover:translate-y-0">
-                {loading || sessionLoading || mfaStatus === 'checking' ? <Loader2 className="h-5 w-5 animate-spin" /> : isMfa ? 'Verify and continue' : isSignUp ? 'Create account' : 'Sign in to Spyda'}
-                {!loading && !sessionLoading && mfaStatus !== 'checking' && <ArrowRight className="h-4 w-4 transition-transform group-hover:translate-x-0.5" />}
-              </button>
-            </form>
+                <button type="submit" disabled={loading || sessionLoading || mfaStatus === 'checking'} className="group inline-flex h-12 w-full items-center justify-center gap-2 rounded-lg bg-primary text-sm font-semibold text-primary-foreground shadow-[0_14px_38px_rgba(157,250,176,0.16)] transition-all hover:-translate-y-0.5 hover:bg-primary/90 disabled:cursor-not-allowed disabled:opacity-50 disabled:hover:translate-y-0">
+                  {loading || sessionLoading || mfaStatus === 'checking' ? <Loader2 className="h-5 w-5 animate-spin" /> : isMfa ? 'Verify and continue' : isSignUp ? 'Create account' : 'Sign in to Spyda'}
+                  {!loading && !sessionLoading && mfaStatus !== 'checking' && <ArrowRight className="h-4 w-4 transition-transform group-hover:translate-x-0.5" />}
+                </button>
+              </form>
+            )}
 
             {!isMfa && (
               <div className="mt-6 border-t border-white/[0.07] pt-5">
