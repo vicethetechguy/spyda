@@ -61,6 +61,8 @@ const AI_MODELS: AiModel[] = [
   { id: 'groq', label: 'Groq + GPT-Image 2', description: 'Groq analysis, OpenAI generation', provider: 'groq' },
 ]
 
+const SPYDA_AI_ROUND_CREDITS = 12
+
 /* ═══════════════════════════════════════════════
    Types
    ═══════════════════════════════════════════════ */
@@ -93,12 +95,18 @@ type GenerationQaReport = {
   textMatch?: string
   assetMatch?: string
   sizeMatch?: string
+  outcome?: string
+  creditsSpent?: number
   categoryScores?: Record<string, number>
   approvedChangesApplied?: string[]
+  solidFindings?: string[]
+  unchangedElementsConfirmed?: string[]
   unapprovedChanges?: string[]
   hardGateFailures?: Array<{ code: string; message: string; region?: string }>
   issues?: string[]
   suggestions?: string[]
+  detectedIssues?: string[]
+  correctiveEssentials?: string[]
   error?: string
 }
 
@@ -557,7 +565,7 @@ export default function Workspace() {
 
   const pageTitles: Record<string, string> = {
     canvas: 'Canvas',
-    'qa-gate': 'QA Gate',
+    'qa-gate': 'QA',
     gallery: 'Gallery',
     history: 'History',
     projects: 'Projects',
@@ -942,8 +950,14 @@ export default function Workspace() {
           score: 100,
           layoutMatch: 'Unchanged — parent pixels untouched',
           sizeMatch: 'Exact — placed deterministically by Spyda without an AI pass',
+          outcome: 'The selected replacement was placed exactly without an AI reconstruction pass.',
+          creditsSpent: 0,
+          solidFindings: ['The parent layout and all untouched pixels were preserved.'],
+          unchangedElementsConfirmed: ['Every unselected element remained unchanged.'],
           issues: [],
           suggestions: [],
+          detectedIssues: [],
+          correctiveEssentials: [],
         })
         return
       }
@@ -966,6 +980,7 @@ export default function Workspace() {
         clientCorrectionLoop: true,
         deferQa: true,
         quality: 'medium',
+        creditsSpent: SPYDA_AI_ROUND_CREDITS,
         architectureVersion: breakdown.architectureVersion || 'spyda-v1-compatibility',
         designDocument: breakdown.designDocument,
         layoutIntelligence: breakdown.layoutIntelligence,
@@ -1082,7 +1097,7 @@ export default function Workspace() {
               clearUnderlying: true,
             })))
           : imageSrc
-        const pendingQa: GenerationQaReport = { ok: true, skipped: true, pending: true }
+        const pendingQa: GenerationQaReport = { ok: true, skipped: true, pending: true, creditsSpent: SPYDA_AI_ROUND_CREDITS }
         const normalizedImageSrc = await finalizeRound(assetLockedImageSrc, pendingQa)
 
         void (async () => {
@@ -1094,7 +1109,9 @@ export default function Workspace() {
             qaForm.append('generatedImage', generatedBlob, 'qa-child.webp')
             const qaResponse = await fetch('/api/validate-generation', { method: 'POST', body: qaForm })
             const qaData = await readApiJson<{ ok: boolean; qa?: GenerationQaReport; error?: string }>(qaResponse)
-            const qa = qaData.qa || { ok: false, skipped: true, error: qaData.error || 'Background QA did not finish.' }
+            const qa = qaData.qa
+              ? { ...qaData.qa, creditsSpent: qaData.qa.creditsSpent ?? SPYDA_AI_ROUND_CREDITS }
+              : { ok: false, skipped: true, creditsSpent: SPYDA_AI_ROUND_CREDITS, error: qaData.error || 'Background QA did not finish.' }
             setGenerationQa(qa)
             persistCurrentProject({
               id: currentProjectId || undefined,
@@ -1103,7 +1120,7 @@ export default function Workspace() {
               qa,
             })
           } catch (qaError: any) {
-            const qa = { ok: false, skipped: true, error: String(qaError?.message || 'Background QA did not finish.') }
+            const qa = { ok: false, skipped: true, creditsSpent: SPYDA_AI_ROUND_CREDITS, error: String(qaError?.message || 'Background QA did not finish.') }
             setGenerationQa(qa)
             persistCurrentProject({ id: currentProjectId || undefined, generatedImage: normalizedImageSrc, qa })
           }
@@ -1198,7 +1215,7 @@ export default function Workspace() {
               {activeId === 'canvas' && (
                 <button
                   onClick={() => setActiveId('qa-gate')}
-                  title="Open QA Gate"
+                  title="Open QA"
                   className="relative ml-1 p-1.5 rounded-lg text-muted-foreground hover:bg-white/[0.05] hover:text-foreground transition-colors"
                 >
                   <ShieldCheck className={`w-[18px] h-[18px] ${generationQa && !generationQa.skipped ? (generationQa.passed === false ? 'text-amber-500' : 'text-primary') : ''}`} strokeWidth={1.5} />
@@ -1323,7 +1340,7 @@ export default function Workspace() {
 }
 
 /* ═══════════════════════════════════════════════
-   QA Gate View
+   QA View
    ═══════════════════════════════════════════════ */
 
 function deriveQaEssentials(qa: GenerationQaReport | null): string[] {
@@ -1337,8 +1354,11 @@ function deriveQaEssentials(qa: GenerationQaReport | null): string[] {
     if (essentials.length < 3) essentials.push(cleaned)
   }
 
-  for (const suggestion of qa.suggestions || []) push(suggestion)
-  for (const issue of qa.issues || []) push(`Fix this from the last generation: ${issue}`)
+  const detectedIssues = qa.detectedIssues || qa.issues || []
+  for (const suggestion of qa.correctiveEssentials || qa.suggestions || []) push(suggestion)
+  for (const issue of detectedIssues) push(`Fix this from the last generation: ${issue}`)
+
+  if (!essentials.length && !detectedIssues.length && qa.passed !== false) return []
 
   const fillers = [
     qa.sizeMatch && 'Render every replacement logo, image, and text at the exact visible size, position, and footprint of the original atom it replaces — scale oversized uploads down, never up.',
@@ -1358,9 +1378,23 @@ function QaGateView({ qa, generatedImage, uploadedPreview, onBack, onApplyEssent
   onBack: () => void
   onApplyEssentials: (essentials: string[]) => void
 }) {
+  const detectedIssues = Array.from(new Set([
+    ...(qa?.detectedIssues || qa?.issues || []),
+    ...(qa?.unapprovedChanges || []).map(change => `Unapproved change: ${change}`),
+    ...(qa?.hardGateFailures || []).map(failure => `${failure.message}${failure.region ? ` (${failure.region})` : ''}`),
+  ].filter(Boolean)))
   const suggestedEssentials = deriveQaEssentials(qa)
   const hasReport = Boolean(qa && !qa.skipped)
   const failed = hasReport && qa?.passed === false
+  const score = typeof qa?.score === 'number' ? qa.score : null
+  const creditsSpent = typeof qa?.creditsSpent === 'number' ? Math.max(0, qa.creditsSpent) : null
+  const solidFindings = Array.from(new Set([
+    ...(qa?.solidFindings || []),
+    ...(qa?.unchangedElementsConfirmed || []).map(item => `Preserved: ${item}`),
+  ].filter(Boolean)))
+  const outcome = qa?.outcome || (failed
+    ? 'The round needs correction because at least one requested edit was missed or an unapproved change was introduced.'
+    : 'The requested changes were delivered while the unselected parts of the parent design remained protected.')
 
   return (
     <div className="max-w-4xl mx-auto p-4 lg:p-8 animate-fade-in">
@@ -1387,26 +1421,33 @@ function QaGateView({ qa, generatedImage, uploadedPreview, onBack, onApplyEssent
         </div>
       ) : (
         <div className="space-y-6">
-          {/* Verdict */}
-          <div className={`rounded-2xl border px-5 py-4 ${failed ? 'border-amber-500/40 bg-amber-500/[0.06]' : 'border-primary/20 bg-primary/[0.04]'}`}>
-            <div className="flex items-center justify-between gap-3">
+          {/* Outcome summary */}
+          <section className={`overflow-hidden rounded-2xl border ${failed ? 'border-amber-500/35 bg-amber-500/[0.045]' : 'border-primary/20 bg-primary/[0.035]'}`}>
+            <div className="flex flex-col gap-3 border-b border-white/[0.06] px-5 py-4 sm:flex-row sm:items-center sm:justify-between">
               <div className="flex items-center gap-2.5">
-                <ShieldCheck className={`w-5 h-5 ${failed ? 'text-amber-500' : 'text-primary'}`} strokeWidth={1.75} />
-                <span className={`text-sm font-bold ${failed ? 'text-amber-600' : 'text-primary'}`}>
-                  {failed ? 'Issues Found' : 'Passed'}
-                  {qa?.retried ? ' • Auto-retried' : ''}
-                </span>
+                <ShieldCheck className={`h-5 w-5 ${failed ? 'text-amber-500' : 'text-primary'}`} strokeWidth={1.75} />
+                <div>
+                  <p className={`text-sm font-bold ${failed ? 'text-amber-500' : 'text-primary'}`}>{failed ? 'Correction needed' : 'Outcome approved'}</p>
+                  <p className="mt-0.5 text-xs text-muted-foreground">QA judges requested edits and parent fidelity together.</p>
+                </div>
               </div>
-              {typeof qa?.score === 'number' && (
-                <span className={`rounded-full px-3 py-1 text-sm font-bold ${failed ? 'bg-amber-500/10 text-amber-600' : 'bg-primary/10 text-primary'}`}>{qa.score}/100</span>
-              )}
+              {qa?.retried && <span className="text-xs font-semibold text-muted-foreground">Auto-retried</span>}
             </div>
-            {failed && (
-              <p className="mt-2 text-xs text-amber-600">
-                 One or more requested changes were missed, or an unapproved part of the parent changed. Review the specific QA findings below.
-              </p>
-            )}
-          </div>
+            <div className="grid grid-cols-3 divide-x divide-white/[0.06]">
+              <div className="px-3 py-4 sm:px-5">
+                <p className="text-[10px] font-bold uppercase tracking-[0.12em] text-muted-foreground">Intent &amp; Fidelity</p>
+                <p className={`mt-1 font-heading text-2xl font-semibold ${failed ? 'text-amber-500' : 'text-primary'}`}>{score ?? '--'}{score !== null && <span className="text-xs text-muted-foreground">/100</span>}</p>
+              </div>
+              <div className="px-3 py-4 sm:px-5">
+                <p className="text-[10px] font-bold uppercase tracking-[0.12em] text-muted-foreground">Issues found</p>
+                <p className={`mt-1 font-heading text-2xl font-semibold ${detectedIssues.length ? 'text-amber-500' : 'text-primary'}`}>{detectedIssues.length}</p>
+              </div>
+              <div className="px-3 py-4 sm:px-5">
+                <p className="text-[10px] font-bold uppercase tracking-[0.12em] text-muted-foreground">Credits spent</p>
+                <p className="mt-1 font-heading text-2xl font-semibold">{creditsSpent ?? '--'}{creditsSpent !== null && <span className="ml-1 text-xs text-muted-foreground">credits</span>}</p>
+              </div>
+            </div>
+          </section>
 
           {/* Side-by-side comparison */}
           {(uploadedPreview || generatedImage) && (
@@ -1428,7 +1469,7 @@ function QaGateView({ qa, generatedImage, uploadedPreview, onBack, onApplyEssent
 
           {!!qa?.categoryScores && Object.keys(qa.categoryScores).length > 0 && (
             <div>
-              <p className="mb-3 text-[11px] font-bold uppercase tracking-[0.12em] text-muted-foreground">Intent &amp; Fidelity Gates</p>
+              <p className="mb-3 text-[11px] font-bold uppercase tracking-[0.12em] text-muted-foreground">Intent &amp; Fidelity</p>
               <div className="grid grid-cols-2 gap-2 sm:grid-cols-3 lg:grid-cols-6">
                 {Object.entries(qa.categoryScores).map(([category, score]) => (
                   <div key={category} className="rounded-xl border border-white/[0.06] bg-white/[0.02] px-3 py-3">
@@ -1455,18 +1496,34 @@ function QaGateView({ qa, generatedImage, uploadedPreview, onBack, onApplyEssent
             ))}
           </div>
 
-          {!!qa?.approvedChangesApplied?.length && (
-            <div className="rounded-xl border border-primary/20 bg-primary/[0.03] px-4 py-3">
-              <p className="mb-2 text-[11px] font-bold uppercase tracking-[0.12em] text-primary">Approved Changes Confirmed</p>
-              <ul className="space-y-1.5">
+          <section className="rounded-xl border border-primary/20 bg-primary/[0.03] px-4 py-4">
+            <p className="text-[11px] font-bold uppercase tracking-[0.12em] text-primary">Outcomes</p>
+            <p className="mt-2 text-sm leading-6 text-foreground/90">{outcome}</p>
+            {!!qa?.approvedChangesApplied?.length && (
+              <ul className="mt-3 space-y-1.5 border-t border-white/[0.06] pt-3">
                 {qa.approvedChangesApplied.map((change, index) => (
                   <li key={index} className="flex items-start gap-2 text-sm text-foreground/85">
                     <Check className="mt-0.5 h-3.5 w-3.5 shrink-0 text-primary" /> {change}
                   </li>
                 ))}
               </ul>
-            </div>
-          )}
+            )}
+          </section>
+
+          <section className="rounded-xl border border-white/[0.06] bg-white/[0.02] px-4 py-4">
+            <p className="text-[11px] font-bold uppercase tracking-[0.12em] text-muted-foreground">What was solid</p>
+            {solidFindings.length ? (
+              <ul className="mt-2 space-y-1.5">
+                {solidFindings.map((finding, index) => (
+                  <li key={index} className="flex items-start gap-2 text-sm text-foreground/85">
+                    <Check className="mt-0.5 h-3.5 w-3.5 shrink-0 text-primary" /> {finding}
+                  </li>
+                ))}
+              </ul>
+            ) : (
+              <p className="mt-2 text-sm text-muted-foreground">No positive evidence was returned for this older report. Run another round to receive the expanded QA analysis.</p>
+            )}
+          </section>
 
           {!!qa?.hardGateFailures?.length && (
             <div className="rounded-xl border border-amber-500/30 bg-amber-500/[0.04] px-4 py-3">
@@ -1482,21 +1539,23 @@ function QaGateView({ qa, generatedImage, uploadedPreview, onBack, onApplyEssent
           )}
 
           {/* Issues */}
-          {!!qa?.issues?.length && (
-            <div className="rounded-xl border border-white/[0.06] bg-white/[0.02] px-4 py-3">
-              <p className="text-[11px] font-bold tracking-[0.12em] uppercase text-muted-foreground mb-2">Detected Issues</p>
-              <ul className="space-y-1.5">
-                {qa.issues.map((issue, index) => (
+          <section className={`rounded-xl border px-4 py-4 ${detectedIssues.length ? 'border-amber-500/25 bg-amber-500/[0.035]' : 'border-white/[0.06] bg-white/[0.02]'}`}>
+            <p className="text-[11px] font-bold uppercase tracking-[0.12em] text-muted-foreground">Detected Issues</p>
+            {detectedIssues.length ? (
+              <ul className="mt-2 space-y-1.5">
+                {detectedIssues.map((issue, index) => (
                   <li key={index} className="flex items-start gap-2 text-sm text-foreground/85">
-                    <X className="w-3.5 h-3.5 mt-0.5 shrink-0 text-amber-500" /> {issue}
+                    <X className="mt-0.5 h-3.5 w-3.5 shrink-0 text-amber-500" /> {issue}
                   </li>
                 ))}
               </ul>
-            </div>
-          )}
+            ) : (
+              <p className="mt-2 flex items-start gap-2 text-sm text-foreground/80"><Check className="mt-0.5 h-3.5 w-3.5 shrink-0 text-primary" /> No genuine issues detected. Unselected elements were correctly treated as intentional, unchanged content.</p>
+            )}
+          </section>
 
           {/* Suggested corrective essentials */}
-          {!!suggestedEssentials.length && (
+          {suggestedEssentials.length ? (
             <div className="rounded-2xl border border-primary/20 bg-primary/[0.04] px-5 py-4">
               <div className="flex items-center justify-between gap-3 mb-3">
                 <div>
@@ -1520,6 +1579,11 @@ function QaGateView({ qa, generatedImage, uploadedPreview, onBack, onApplyEssent
               </button>
               <p className="mt-2 text-[11px] text-muted-foreground">This fills the 3 Essential prompt slots on the Canvas (replacing anything typed there) and counts as your 3 changes for the next round.</p>
             </div>
+          ) : (
+            <section className="rounded-xl border border-white/[0.06] bg-white/[0.02] px-4 py-4">
+              <p className="text-[11px] font-bold uppercase tracking-[0.12em] text-muted-foreground">Suggested Corrective Essentials</p>
+              <p className="mt-2 text-sm text-muted-foreground">No corrective Essential is needed for this round.</p>
+            </section>
           )}
         </div>
       )}
@@ -2646,7 +2710,7 @@ function WalletView() {
   }, [user])
 
   const USD_TO_NGN = 1500
-  const CREDITS_PER_GENERATION = 12
+  const CREDITS_PER_GENERATION = SPYDA_AI_ROUND_CREDITS
   const generationsRemaining = Math.floor(balance / CREDITS_PER_GENERATION)
   const selectedGenerations = Math.floor(selectedTier.credits / CREDITS_PER_GENERATION)
   const localPrice = new Intl.NumberFormat('en-NG', { style: 'currency', currency: 'NGN', maximumFractionDigits: 0 }).format(selectedTier.amountUSD * USD_TO_NGN)

@@ -151,6 +151,41 @@ describe('approved difference QA contract', () => {
     expect(report.score).toBe(98)
   })
 
+  it('keeps positive evidence and genuine issues separate', () => {
+    const report = normalizeQaReport({
+      categoryScores: {
+        intentFulfillment: 100,
+        unchangedFidelity: 95,
+        layoutSafety: 100,
+        assetCompliance: 100,
+        brandCompliance: 100,
+        edgeSafety: 100,
+      },
+      outcome: 'The requested headline was replaced and the remaining design stayed stable.',
+      solidFindings: ['The requested headline was applied.'],
+      unchangedElementsConfirmed: ['The QR code remained unchanged.'],
+      detectedIssues: [],
+      correctiveEssentials: [],
+      creditsSpent: 12,
+    })
+
+    expect(report.passed).toBe(true)
+    expect(report.outcome).toContain('headline')
+    expect(report.solidFindings).toEqual(['The requested headline was applied.'])
+    expect(report.unchangedElementsConfirmed).toEqual(['The QR code remained unchanged.'])
+    expect(report.detectedIssues).toEqual([])
+    expect(report.creditsSpent).toBe(12)
+  })
+
+  it('instructs QA to treat unselected elements as intentional unchanged content', () => {
+    const prompt = buildGenerationQaPrompt(recipe)
+
+    expect(prompt).toContain('intentionally unchanged by the user')
+    expect(prompt).toContain('Never report an unchanged element as a missed opportunity')
+    expect(prompt).toContain('solidFindings')
+    expect(prompt).toContain('correctiveEssentials')
+  })
+
   it('cannot pass or score above 89 when a hard gate fails', () => {
     const report = normalizeQaReport({
       passed: true,

@@ -34,12 +34,18 @@ export type GenerationQaReport = {
   textMatch?: string;
   assetMatch?: string;
   sizeMatch?: string;
+  outcome?: string;
+  creditsSpent?: number;
   categoryScores?: Record<string, number>;
   approvedChangesApplied?: string[];
+  solidFindings?: string[];
+  unchangedElementsConfirmed?: string[];
   unapprovedChanges?: string[];
   hardGateFailures?: Array<{ code: string; message: string; region?: string }>;
   issues?: string[];
   suggestions?: string[];
+  detectedIssues?: string[];
+  correctiveEssentials?: string[];
   structural?: FidelityReport;
   dimensions?: RenderedDimensionReport;
   error?: string;
@@ -97,9 +103,15 @@ export function normalizeQaReport(raw: any): GenerationQaReport {
     ? weightedEntries.reduce((sum, [key, weight]) => sum + categoryScores[key] * weight, 0) / weightTotal
     : Number.NaN;
   let score = Number.isFinite(categoryScore) ? categoryScore : reportedScore;
-  const issues = Array.isArray(raw?.issues) ? raw.issues.filter(Boolean).map(String) : [];
-  const suggestions = Array.isArray(raw?.suggestions) ? raw.suggestions.filter(Boolean).map(String) : [];
+  const detectedIssues = Array.isArray(raw?.detectedIssues)
+    ? raw.detectedIssues.filter(Boolean).map(String)
+    : Array.isArray(raw?.issues) ? raw.issues.filter(Boolean).map(String) : [];
+  const correctiveEssentials = Array.isArray(raw?.correctiveEssentials)
+    ? raw.correctiveEssentials.filter(Boolean).map(String)
+    : Array.isArray(raw?.suggestions) ? raw.suggestions.filter(Boolean).map(String) : [];
   const approvedChangesApplied = Array.isArray(raw?.approvedChangesApplied) ? raw.approvedChangesApplied.filter(Boolean).map(String) : [];
+  const solidFindings = Array.isArray(raw?.solidFindings) ? raw.solidFindings.filter(Boolean).map(String) : [];
+  const unchangedElementsConfirmed = Array.isArray(raw?.unchangedElementsConfirmed) ? raw.unchangedElementsConfirmed.filter(Boolean).map(String) : [];
   const unapprovedChanges = Array.isArray(raw?.unapprovedChanges) ? raw.unapprovedChanges.filter(Boolean).map(String) : [];
   const hardGateFailures = Array.isArray(raw?.hardGateFailures)
     ? raw.hardGateFailures.filter(Boolean).map((failure: any) => ({
@@ -127,8 +139,14 @@ export function normalizeQaReport(raw: any): GenerationQaReport {
     textMatch: raw?.textMatch ? String(raw.textMatch) : undefined,
     assetMatch: raw?.assetMatch ? String(raw.assetMatch) : undefined,
     sizeMatch: raw?.sizeMatch ? String(raw.sizeMatch) : undefined,
-    issues,
-    suggestions,
+    outcome: raw?.outcome ? String(raw.outcome) : undefined,
+    creditsSpent: Number.isFinite(Number(raw?.creditsSpent)) ? Math.max(0, Math.round(Number(raw.creditsSpent))) : undefined,
+    solidFindings,
+    unchangedElementsConfirmed,
+    issues: detectedIssues,
+    suggestions: correctiveEssentials,
+    detectedIssues,
+    correctiveEssentials,
   };
 }
 
@@ -142,7 +160,7 @@ export async function runGenerationQa({ recipe, generatedImage }: { recipe: any;
     : recipe?.sourceReferenceImage?.dataUrl;
 
   if (!openaiKey || !sourceImage || !generatedImage || process.env.SPYDA_QA_ENABLED === "false") {
-    return { ok: false, skipped: true, structural: deterministic.structural, dimensions: deterministic.dimensions };
+    return { ok: false, skipped: true, creditsSpent: Number(recipe?.creditsSpent) || 0, structural: deterministic.structural, dimensions: deterministic.dimensions };
   }
 
   const expectedAtoms = Array.isArray(recipe?.editableComponents)
@@ -171,7 +189,7 @@ export async function runGenerationQa({ recipe, generatedImage }: { recipe: any;
     ? `Image 1 is the expected-output baseline: it ALREADY contains every replacement asset pasted at its final, correct position and size. The generated flyer must keep each of those assets at exactly that position and size — any pasted asset that moved, grew, or shrank relative to image 1 is a FAIL.\n`
     : "";
 
-  const legacyPrompt = `You are Spyda's generation QA gate.
+  const legacyPrompt = `You are Spyda's generation QA evaluator.
 Compare image 1 (the parent Source flyer) with image 2 (the newly generated flyer).
 ${compositeNote}The generated flyer must preserve the Source layout exactly, with only the requested replacements applied IN PLACE at the SAME SIZE.
 
@@ -215,7 +233,7 @@ Set "passed" to false when any checklist item fails. Score 0-100 for overall ref
         model: analysisModel,
         temperature: 0,
         response_format: { type: "json_object" },
-        max_tokens: 800,
+        max_tokens: 1200,
         messages: [{
           role: "user",
           content: [
@@ -250,19 +268,27 @@ Set "passed" to false when any checklist item fails. Score 0-100 for overall ref
     const hardGateFailures = [...(report.hardGateFailures || []), ...textGateFailures];
     return {
       ...report,
+      creditsSpent: Number(recipe?.creditsSpent) || report.creditsSpent || 0,
       passed: Boolean(report.passed && deterministic.dimensions?.passed !== false && textGateFailures.length === 0),
       score: textGateFailures.length ? Math.min(report.score ?? 89, 89) : report.score,
       hardGateFailures,
       structural: deterministic.structural,
       dimensions: deterministic.dimensions,
       issues: [
-        ...(report.issues || []),
+        ...(report.detectedIssues || report.issues || []),
         ...(report.unapprovedChanges || []).map(change => `Unapproved change: ${change}`),
         ...hardGateFailures.map(failure => `${failure.message}${failure.region ? ` (${failure.region})` : ""}`),
         ...(dimensionIssue ? [dimensionIssue] : []),
       ],
+      detectedIssues: [
+        ...(report.detectedIssues || report.issues || []),
+        ...(report.unapprovedChanges || []).map(change => `Unapproved change: ${change}`),
+        ...hardGateFailures.map(failure => `${failure.message}${failure.region ? ` (${failure.region})` : ""}`),
+        ...(dimensionIssue ? [dimensionIssue] : []),
+      ],
+      correctiveEssentials: report.correctiveEssentials || report.suggestions || [],
     };
   } catch (error: any) {
-    return { ok: false, skipped: true, structural: deterministic.structural, dimensions: deterministic.dimensions, error: error?.message || "QA failed." };
+    return { ok: false, skipped: true, creditsSpent: Number(recipe?.creditsSpent) || 0, structural: deterministic.structural, dimensions: deterministic.dimensions, error: error?.message || "QA failed." };
   }
 }

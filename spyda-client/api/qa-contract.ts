@@ -150,7 +150,7 @@ export function buildGenerationQaPrompt(recipe: any) {
     ? `A global brand restyle IS APPROVED. Do not penalize intentional color, gradient, or font changes that use these exact Brand Constants: ${JSON.stringify(contract.brandChanges)}. Still fail any geometry drift, protected-asset recoloring, clipping, invented content, or use of colors outside the approved direction.`
     : "No global brand restyle was approved. Unchanged colors, gradients, and typography must remain faithful to the parent.";
 
-  return `You are Spyda's strict, instruction-aware generation QA gate.
+  return `You are Spyda's strict, instruction-aware generation QA evaluator.
 
 Compare image 1 (the active parent) with image 2 (the generated child). Judge the child against BOTH the parent and the APPROVED DIFFERENCE CONTRACT below. An intentional approved change is a success, not an error. The generated child is not expected to be pixel-identical to the parent inside approved edit regions. Any difference outside the approved contract is an error.
 
@@ -179,6 +179,8 @@ HARD GATES — fail the result when any one occurs:
 
 SCORING:
 - Score user intent fulfillment first. An approved text, asset, Brand Constant, Essential instruction, or deletion that was delivered correctly must raise the score, not lower it for differing from the parent.
+- Treat every element outside the approved difference contract as intentionally unchanged by the user. Preserving it is positive fidelity evidence. Never report an unchanged element as a missed opportunity, incomplete edit, or issue merely because the user did not select it.
+- Identify what is solid as well as what failed. Confirm successful requested changes, preserved unchanged elements, stable layout regions, protected assets, and safe edges before calculating the score.
 - Weight the overall result as: intent fulfillment 50%, unchanged-region fidelity 15%, layout safety 10%, asset compliance 10%, brand compliance 5%, and edge safety 10%.
 - Overall 100 is allowed when every approved change is delivered, unchanged regions remain faithful, and there are no hard-gate failures or unapproved changes.
 - A result may score 90-100 even though approved edit regions look different from the parent. A visually attractive result still fails if it misses the user's request, invents copy, mutates a protected asset, clips content, or changes an unapproved region.
@@ -192,10 +194,13 @@ Return ONLY valid JSON:
   "textMatch": "specific note",
   "assetMatch": "specific note",
   "sizeMatch": "specific note",
+  "outcome": "one-sentence verdict focused on whether the user's requested outcome was delivered",
   "approvedChangesApplied": ["confirmed approved changes"],
+  "solidFindings": ["specific things that were executed or preserved correctly"],
+  "unchangedElementsConfirmed": ["important unselected elements that correctly stayed unchanged"],
   "unapprovedChanges": ["differences not authorized by the contract"],
   "hardGateFailures": [{ "code": "short-code", "message": "specific failure", "region": "atom or area" }],
-  "issues": ["most important defects, worst first"],
-  "suggestions": ["precise correction that preserves approved changes"]
+  "detectedIssues": ["only genuine defects: missed requested edits, unauthorized drift, clipping, or technical failures; worst first"],
+  "correctiveEssentials": ["precise correction that preserves approved changes and untouched elements"]
 }`;
 }
