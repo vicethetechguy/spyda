@@ -44,7 +44,7 @@ The live Vercel app should use `spyda-client` as the project root directory.
 Current production app:
 
 ```text
-https://spyda-client.vercel.app
+https://spydadesigns.vercel.app
 ```
 
 ## Required Environment Variables
