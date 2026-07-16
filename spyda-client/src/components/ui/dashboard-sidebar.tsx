@@ -10,6 +10,7 @@ import {
   Settings,
   LogOut,
   Hash,
+  BookOpen,
   ChevronDown,
   ChevronRight,
 } from 'lucide-react';
@@ -50,6 +51,12 @@ const spydaNavGroups: NavGroupData[] = [
       },
       { id: 'templates', title: 'Templates', icon: Blocks },
       { id: 'brand-assets', title: 'Brand Assets', icon: Palette },
+    ],
+  },
+  {
+    heading: 'Documentation',
+    items: [
+      { id: 'whitepaper', title: 'Whitepaper', icon: BookOpen },
     ],
   },
 ];

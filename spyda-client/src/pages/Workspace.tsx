@@ -15,6 +15,7 @@ import {
   type WorkspaceProject,
 } from '../components/workspace/WorkspaceLibraryViews'
 import { SecurityPanel, SubscriptionView } from '../components/workspace/WorkspaceAccountViews'
+import { WhitepaperView } from '../components/workspace/WorkspaceDocumentationViews'
 import {
   PanelLeftClose,
   PanelLeftOpen,
@@ -38,10 +39,16 @@ import {
   Search,
   Grid2X2,
   Clock3,
-  CreditCard,
   ArrowUpRight,
   CircleCheck,
-  ReceiptText
+  ReceiptText,
+  Wallet,
+  Send,
+  ArrowDownToLine,
+  LockKeyhole,
+  DollarSign,
+  Radio,
+  ChevronRight
 } from 'lucide-react'
 
 /* ═══════════════════════════════════════════════
@@ -609,6 +616,7 @@ export default function Workspace() {
     'p-archived': 'Archived Projects',
     templates: 'Templates',
     'brand-assets': 'Brand Assets',
+    whitepaper: 'Whitepaper',
     wallet: 'Wallet',
     subscription: 'Subscription',
     settings: 'Settings',
@@ -1377,6 +1385,7 @@ export default function Workspace() {
           {['projects', 'p-active', 'p-archived'].includes(activeId) && <ProjectsView initialFilter={activeId === 'p-archived' ? 'archived' : 'active'} onOpenProject={handleOpenProject} onNewDesign={() => setActiveId('canvas')} />}
           {activeId === 'templates' && <TemplatesView onUseTemplate={handleUseTemplate} />}
           {activeId === 'brand-assets' && <BrandAssetsView onUseAsset={handleUseBrandAsset} />}
+          {activeId === 'whitepaper' && <WhitepaperView />}
           {activeId === 'wallet' && <WalletView />}
           {activeId === 'subscription' && <SubscriptionView onBack={() => setActiveId('settings')} onOpenWallet={() => setActiveId('wallet')} onOpenSettings={() => setActiveId('settings')} />}
           {activeId === 'settings' && <SettingsView profilePic={profilePic} setProfilePic={setProfilePic} onManageSubscription={() => setActiveId('subscription')} />}
@@ -2736,6 +2745,10 @@ function WalletView() {
   const [balanceError, setBalanceError] = useState('')
   const [selectedTier, setSelectedTier] = useState<CreditTier>(CREDIT_TIERS[1])
   const [customAmount, setCustomAmount] = useState('15')
+  const [activeAsset, setActiveAsset] = useState<'credits' | 'usd' | 'token'>('credits')
+  const [walletNotice, setWalletNotice] = useState('')
+  const [fundingOpen, setFundingOpen] = useState(false)
+  const fundingRef = useRef<HTMLDivElement>(null)
 
   useEffect(() => {
     async function fetchBalance() {
@@ -2768,35 +2781,155 @@ function WalletView() {
   const generationsRemaining = Math.floor(balance / CREDITS_PER_GENERATION)
   const selectedGenerations = Math.floor(selectedTier.credits / CREDITS_PER_GENERATION)
   const localPrice = new Intl.NumberFormat('en-NG', { style: 'currency', currency: 'NGN', maximumFractionDigits: 0 }).format(selectedTier.amountUSD * USD_TO_NGN)
+  const fiatBalance = Number(user?.user_metadata?.spyda_fiat_balance || 0)
+  const tokenBalance = Number(user?.user_metadata?.spyda_token_balance || 0)
+  const walletId = user?.id ? `SPY-${user.id.slice(0, 4).toUpperCase()}-${user.id.slice(-4).toUpperCase()}` : 'SPY-GUEST'
+
+  const assets = {
+    credits: {
+      id: 'credits' as const,
+      name: 'Spyda Credits',
+      shortName: 'Credits',
+      value: balance.toLocaleString(),
+      suffix: 'credits',
+      status: 'Live',
+      detail: 'Used for reconstruction, AI rounds, and design QA.',
+      icon: <SpydaCreditIcon className="h-5 w-5" />,
+    },
+    usd: {
+      id: 'usd' as const,
+      name: 'USD Wallet',
+      shortName: 'US Dollar',
+      value: fiatBalance.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 }),
+      suffix: 'USD',
+      status: 'Staged',
+      detail: 'Web2 settlement balance for funding and payouts.',
+      icon: <DollarSign className="h-5 w-5" />,
+    },
+    token: {
+      id: 'token' as const,
+      name: 'Spyda Token',
+      shortName: 'Token',
+      value: tokenBalance.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 }),
+      suffix: 'tokens',
+      status: 'Locked',
+      detail: 'Future Web3 utility and participation layer.',
+      icon: <SpydaCreditIcon className="h-5 w-5" />,
+    },
+  }
+  const selectedAsset = assets[activeAsset]
+
+  const showFunding = () => {
+    setActiveAsset('credits')
+    setWalletNotice('')
+    setFundingOpen(true)
+    window.setTimeout(() => fundingRef.current?.scrollIntoView({ behavior: 'smooth', block: 'start' }), 80)
+  }
+
+  const handleWalletAction = (action: 'fund' | 'send' | 'withdraw') => {
+    if (action === 'fund') {
+      showFunding()
+      return
+    }
+    if (action === 'send') {
+      setWalletNotice(activeAsset === 'token'
+        ? 'Spyda Token transfers will unlock with the Web3 network activation.'
+        : `${selectedAsset.name} transfers are being connected to Spyda's verified transfer rails.`)
+      return
+    }
+    setWalletNotice(activeAsset === 'token'
+      ? 'Spyda Token withdrawals are locked until the network, custody, and compliance rails are active.'
+      : activeAsset === 'usd'
+        ? 'USD withdrawals will activate after payout verification and settlement rails are live.'
+        : 'Spyda Credits are platform utility credits and cannot be withdrawn as cash.')
+  }
 
   return (
-    <div className="mx-auto w-full max-w-[1180px] px-4 py-6 sm:px-6 lg:px-8 lg:py-8">
-      <div className="border-b border-white/[0.07] pb-6">
-        <div className="mb-2 flex items-center gap-2 text-[11px] font-semibold uppercase text-muted-foreground"><SpydaCreditIcon className="h-4 w-4" /> Spyda credits</div>
-        <h2 className="font-heading text-2xl font-semibold sm:text-[28px]">Wallet and billing</h2>
-        <p className="mt-1.5 text-sm text-muted-foreground">Keep your design workflow moving and top up only when you need to.</p>
+    <div className="mx-auto w-full max-w-[1240px] px-4 py-6 sm:px-6 lg:px-8 lg:py-8">
+      <header className="flex flex-col gap-4 border-b border-white/[0.07] pb-6 sm:flex-row sm:items-end sm:justify-between">
+        <div>
+          <div className="mb-2 flex items-center gap-2 text-[11px] font-semibold uppercase text-primary"><Radio className="h-3.5 w-3.5" /> Hybrid value layer</div>
+          <h2 className="font-heading text-2xl font-semibold sm:text-[28px]">Spyda Wallet</h2>
+          <p className="mt-1.5 max-w-xl text-sm text-muted-foreground">One place for design credits, fiat settlement, and Spyda's future Web3 economy.</p>
+        </div>
+        <div className="inline-flex w-fit items-center gap-2 rounded-lg border border-white/[0.08] bg-white/[0.03] px-3 py-2 text-xs text-muted-foreground"><Wallet className="h-4 w-4 text-primary" /> Web2 + Web3 infrastructure</div>
+      </header>
+
+      <div className="grid gap-5 py-6 lg:grid-cols-[minmax(0,1.45fr)_minmax(280px,.72fr)] lg:py-8">
+        <section className="min-w-0">
+          <div className="relative min-h-[288px] overflow-hidden rounded-lg border border-white/10 bg-[linear-gradient(128deg,#111315_0%,#16324a_36%,#50ef7b_70%,#d8e3ff_100%)] p-5 text-white shadow-[0_22px_65px_rgba(0,0,0,.28)] sm:p-7">
+            <div className="absolute inset-0 bg-[linear-gradient(90deg,rgba(0,0,0,.72),rgba(0,0,0,.1)_68%,rgba(0,0,0,.28))]" />
+            <div className="relative flex h-full min-h-[238px] flex-col justify-between">
+              <div className="flex items-start justify-between gap-4">
+                <div>
+                  <p className="text-[10px] font-semibold uppercase text-white/60">{selectedAsset.name}</p>
+                  <div className="mt-2 flex items-center gap-2 text-sm text-white/75">{selectedAsset.icon}<span>{selectedAsset.shortName}</span></div>
+                </div>
+                <span className={`inline-flex items-center gap-1.5 rounded-md border px-2.5 py-1 text-[10px] font-semibold uppercase ${selectedAsset.status === 'Live' ? 'border-white/25 bg-black/20 text-[#9dfab0]' : 'border-white/15 bg-black/25 text-white/70'}`}>
+                  {selectedAsset.status === 'Locked' && <LockKeyhole className="h-3 w-3" />}{selectedAsset.status}
+                </span>
+              </div>
+              <div className="my-7">
+                <p className="font-heading text-4xl font-semibold leading-none sm:text-5xl">{loading && activeAsset === 'credits' ? <Loader2 className="h-9 w-9 animate-spin" /> : selectedAsset.value}</p>
+                <p className="mt-2 text-sm font-medium text-white/70">{selectedAsset.suffix}</p>
+              </div>
+              <div className="flex flex-col gap-3 text-[11px] text-white/65 sm:flex-row sm:items-end sm:justify-between">
+                <div><p className="uppercase">Wallet ID</p><p className="mt-1 font-medium tracking-wide text-white/90">{walletId}</p></div>
+                <div className="sm:text-right"><p className="uppercase">Account</p><p className="mt-1 max-w-[230px] truncate font-medium text-white/90">{user?.email || 'Signed out'}</p></div>
+              </div>
+            </div>
+          </div>
+
+          <div className="mt-3 grid grid-cols-3 gap-2">
+            <button type="button" onClick={() => handleWalletAction('fund')} className="inline-flex h-12 items-center justify-center gap-2 rounded-lg border border-primary/30 bg-primary/10 text-sm font-semibold text-primary transition-colors hover:bg-primary/15"><ArrowDownToLine className="h-4 w-4" /> Fund</button>
+            <button type="button" onClick={() => handleWalletAction('send')} className="inline-flex h-12 items-center justify-center gap-2 rounded-lg border border-white/[0.09] bg-white/[0.035] text-sm font-semibold transition-colors hover:bg-white/[0.07]"><Send className="h-4 w-4" /> Send</button>
+            <button type="button" onClick={() => handleWalletAction('withdraw')} aria-disabled={activeAsset === 'token'} className={`inline-flex h-12 items-center justify-center gap-2 rounded-lg border text-sm font-semibold transition-colors ${activeAsset === 'token' ? 'cursor-not-allowed border-white/[0.06] bg-white/[0.02] text-muted-foreground' : 'border-white/[0.09] bg-white/[0.035] hover:bg-white/[0.07]'}`}>
+              {activeAsset === 'token' ? <LockKeyhole className="h-4 w-4" /> : <ArrowUpRight className="h-4 w-4" />} Withdraw
+            </button>
+          </div>
+
+          {walletNotice && <div role="status" className="mt-3 flex items-start gap-3 rounded-lg border border-primary/20 bg-primary/[0.055] p-4 text-sm leading-6 text-muted-foreground"><LockKeyhole className="mt-0.5 h-4 w-4 shrink-0 text-primary" /><span>{walletNotice}</span><button type="button" aria-label="Dismiss wallet notice" onClick={() => setWalletNotice('')} className="ml-auto text-muted-foreground hover:text-foreground"><X className="h-4 w-4" /></button></div>}
+
+          <div className="mt-6">
+            <div className="mb-3 flex items-center justify-between"><h3 className="font-heading text-base font-semibold">Your assets</h3><span className="text-[10px] font-semibold uppercase text-muted-foreground">Select to inspect</span></div>
+            <div className="grid gap-2 md:grid-cols-3">
+              {Object.values(assets).map(asset => (
+                <button key={asset.id} type="button" onClick={() => { setActiveAsset(asset.id); setWalletNotice('') }} aria-pressed={activeAsset === asset.id} className={`min-h-[146px] rounded-lg border p-4 text-left transition-colors ${activeAsset === asset.id ? 'border-primary/45 bg-primary/[0.06]' : 'border-white/[0.08] bg-white/[0.025] hover:border-white/[0.16]'}`}>
+                  <div className="flex items-center justify-between gap-3"><span className="inline-flex h-9 w-9 items-center justify-center rounded-full border border-white/10 bg-black/20 text-primary">{asset.icon}</span><span className="text-[9px] font-semibold uppercase text-muted-foreground">{asset.status}</span></div>
+                  <p className="mt-4 text-sm font-semibold">{asset.name}</p>
+                  <p className="mt-1 text-xs leading-5 text-muted-foreground">{asset.detail}</p>
+                </button>
+              ))}
+            </div>
+          </div>
+        </section>
+
+        <aside className="space-y-3">
+          <section className="rounded-lg border border-white/[0.08] bg-white/[0.025] p-5">
+            <div className="flex items-center justify-between"><h3 className="font-heading text-base font-semibold">Wallet activity</h3><ReceiptText className="h-4 w-4 text-muted-foreground" /></div>
+            <div className="mt-7 border-b border-dashed border-white/[0.1] pb-7 text-center"><div className="mx-auto flex h-10 w-10 items-center justify-center rounded-full border border-white/10 bg-white/[0.03]"><Wallet className="h-4 w-4 text-primary" /></div><p className="mt-3 text-sm font-semibold">No recent movement</p><p className="mt-1 text-xs leading-5 text-muted-foreground">Completed funding and transfers will appear here.</p></div>
+            <button type="button" onClick={showFunding} className="mt-4 flex w-full items-center justify-between text-sm font-semibold text-primary">Fund your credit balance <ChevronRight className="h-4 w-4" /></button>
+          </section>
+
+          <section className="rounded-lg border border-white/[0.08] bg-white/[0.025] p-5">
+            <div className="flex items-center justify-between"><h3 className="font-heading text-base font-semibold">Usage economics</h3><Zap className="h-4 w-4 text-primary" /></div>
+            <div className="mt-5 space-y-4">
+              <div className="flex items-end justify-between gap-3 border-b border-white/[0.07] pb-4"><div><p className="text-xs text-muted-foreground">Managed generation</p><p className="mt-1 text-sm font-semibold">20 credits</p></div><span className="text-[10px] uppercase text-muted-foreground">per round</span></div>
+              <div className="flex items-end justify-between gap-3"><div><p className="text-xs text-muted-foreground">Bring your own key</p><p className="mt-1 text-sm font-semibold">5 credits</p></div><span className="text-[10px] uppercase text-muted-foreground">per round</span></div>
+            </div>
+            <p className="mt-5 text-xs leading-5 text-muted-foreground">Your current balance supports about {generationsRemaining.toLocaleString()} generation{generationsRemaining !== 1 ? 's' : ''} at the active {byokEnabled ? 'BYOK' : 'managed'} rate.</p>
+          </section>
+
+          <section className="rounded-lg border border-white/[0.08] bg-white/[0.025] p-5">
+            <div className="flex items-start gap-3"><div className="mt-0.5 flex h-8 w-8 shrink-0 items-center justify-center rounded-full border border-primary/20 bg-primary/10"><LockKeyhole className="h-4 w-4 text-primary" /></div><div><p className="text-sm font-semibold">Token withdrawal locked</p><p className="mt-1 text-xs leading-5 text-muted-foreground">Unlocking depends on network, custody, security, and jurisdiction readiness. Spyda will never imply token liquidity before those gates pass.</p></div></div>
+          </section>
+        </aside>
       </div>
 
-      <section className="grid gap-5 border-b border-white/[0.07] py-6 md:grid-cols-[1.35fr_1fr] md:items-end lg:py-8">
-        <div>
-          <p className="text-xs font-semibold uppercase text-muted-foreground">Available balance</p>
-          <div className="mt-3 flex min-h-14 items-end gap-3">
-            {!loading && <SpydaCreditIcon className="mb-1 h-10 w-10 sm:mb-1.5 sm:h-12 sm:w-12" />}
-            {loading ? <Loader2 className="mb-2 h-8 w-8 animate-spin text-primary" /> : <span className="font-heading text-5xl font-semibold leading-none sm:text-6xl">{balance.toLocaleString()}</span>}
-            <span className="mb-1 text-sm font-medium text-primary sm:mb-2">credits</span>
-          </div>
-          {balanceError ? <p className="mt-3 text-sm text-amber-400">{balanceError}</p> : <p className="mt-3 text-sm text-muted-foreground">Enough for approximately {generationsRemaining.toLocaleString()} design generation{generationsRemaining !== 1 ? 's' : ''}.</p>}
-        </div>
-        <div className="grid grid-cols-2 gap-px overflow-hidden rounded-lg border border-white/[0.08] bg-white/[0.08]">
-          <div className="bg-background p-4"><Zap className="mb-3 h-4 w-4 text-primary" /><p className="text-[11px] uppercase text-muted-foreground">{byokEnabled ? 'BYOK generation rate' : 'Generation rate'}</p><p className="mt-1 font-heading text-lg font-semibold">{CREDITS_PER_GENERATION} credits</p></div>
-          <div className="bg-background p-4"><ReceiptText className="mb-3 h-4 w-4 text-primary" /><p className="text-[11px] uppercase text-muted-foreground">Billing account</p><p className="mt-1 truncate text-sm font-semibold" title={user?.email || ''}>{user?.email || 'Signed out'}</p></div>
-        </div>
-      </section>
-
-      <section className="py-6 lg:py-8">
+      {fundingOpen && <section ref={fundingRef} className="scroll-mt-6 border-t border-white/[0.07] py-7 lg:py-9">
         <div className="flex items-end justify-between gap-4">
-          <div><h3 className="font-heading text-lg font-semibold">Choose a credit pack</h3><p className="mt-1 text-sm text-muted-foreground">Credits stay available in your Spyda account.</p></div>
-          <CreditCard className="hidden h-5 w-5 text-muted-foreground sm:block" />
+          <div><div className="mb-1 flex items-center gap-2 text-[10px] font-semibold uppercase text-primary"><SpydaCreditIcon className="h-3.5 w-3.5" /> Live funding rail</div><h3 className="font-heading text-lg font-semibold">Fund Spyda Credits</h3><p className="mt-1 text-sm text-muted-foreground">Choose a pack or enter any amount. Every $1 adds 100 credits.</p></div>
+          <button type="button" onClick={() => setFundingOpen(false)} aria-label="Close funding options" className="inline-flex h-9 w-9 items-center justify-center rounded-lg border border-white/[0.08] text-muted-foreground hover:text-foreground"><X className="h-4 w-4" /></button>
         </div>
         <div className="mt-5 grid gap-3 md:grid-cols-2 xl:grid-cols-4">
           {CREDIT_TIERS.map(tier => {
@@ -2852,7 +2985,8 @@ function WalletView() {
           <PaystackTopUpButton tier={selectedTier} user={user} balance={balance} setBalance={setBalance} usdToNgn={USD_TO_NGN} />
         </div>
         <div className="mt-6 flex items-start gap-3 border-t border-white/[0.07] pt-5 text-xs leading-5 text-muted-foreground"><ShieldCheck className="mt-0.5 h-4 w-4 shrink-0 text-primary" />Payments are processed securely by Paystack. Your card details are never stored by Spyda.</div>
-      </section>
+      </section>}
+      {balanceError && <p className="pb-8 text-sm text-amber-400">{balanceError}</p>}
     </div>
   )
 }
