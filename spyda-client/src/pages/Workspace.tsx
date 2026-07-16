@@ -743,8 +743,8 @@ export default function Workspace() {
       // becomes a short, focused instruction for the AI pass.
       const placedSwaps: Array<{ section: EditableComponent; edit: AtomEdit; box: AtomBox }> = []
       const unplacedAssets: Array<{ section: EditableComponent; edit: AtomEdit }> = []
-      const textEdits: Array<{ atomName: string; from: string; to: string }> = []
-      const otherEdits: Array<{ atomName: string; instruction: string }> = []
+      const textEdits: Array<{ objectId: string; atomName: string; from: string; to: string }> = []
+      const otherEdits: Array<{ objectId: string; atomName: string; instruction: string }> = []
 
       for (const section of selectedAtoms) {
         const edit = atomEdits[section.id]
@@ -755,9 +755,9 @@ export default function Workspace() {
           else unplacedAssets.push({ section, edit })
         } else if (edit.value.trim()) {
           if (section.type === 'text' || section.type === 'action') {
-            textEdits.push({ atomName: section.name, from: section.content, to: edit.value.trim() })
+            textEdits.push({ objectId: section.id, atomName: section.name, from: section.content, to: edit.value.trim() })
           } else {
-            otherEdits.push({ atomName: section.name, instruction: edit.value.trim() })
+            otherEdits.push({ objectId: section.id, atomName: section.name, instruction: edit.value.trim() })
           }
         }
       }
@@ -865,6 +865,10 @@ export default function Workspace() {
 
       const recipe: Record<string, any> = {
         compositeMode: true,
+        architectureVersion: breakdown.architectureVersion || 'spyda-v1-compatibility',
+        designDocument: breakdown.designDocument,
+        layoutIntelligence: breakdown.layoutIntelligence,
+        constraintProfile: breakdown.constraintProfile,
         aiProvider: aiModel.provider,
         imageSize: chosenOutputSize,
         sourceImageSize,
@@ -881,6 +885,7 @@ export default function Workspace() {
           role: 'user-provided essentials reference',
         } : undefined,
         pastedAssets: placedSwaps.map(swap => ({
+          objectId: swap.section.id,
           name: swap.edit.assetName || 'Replacement asset',
           atomName: swap.section.name,
           box: swap.box,

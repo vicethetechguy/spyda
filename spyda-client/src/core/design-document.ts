@@ -253,6 +253,10 @@ export type LegacyBreakdown = {
     editableComponents: LegacyEditableComponent[]
   }
   designDocument?: DesignDocument
+  architectureVersion?: 'spyda-v2'
+  visionAnalysis?: unknown
+  layoutIntelligence?: unknown
+  constraintProfile?: unknown
   notes?: string
   [key: string]: unknown
 }

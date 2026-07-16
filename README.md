@@ -30,6 +30,10 @@ The current workspace remains compatible while new engines adopt the shared,
 validated Design Document.
 
 - [Design Document decision](docs/architecture/ADR-001-design-document.md)
+- [Vision Adapter decision](docs/architecture/ADR-002-vision-adapter.md)
+- [Layout, constraints, and rendering decision](docs/architecture/ADR-003-layout-constraints-rendering.md)
+- [V2 reconstruction architecture](docs/architecture/spyda-v2-reconstruction.md)
+- [V2 migration plan](docs/upgrade/spyda-v2-migration-plan.md)
 - [Phase 0 baseline and protected behavior](docs/upgrade/phase-0-baseline.md)
 - [Product requirements](PRD.md)
 
@@ -55,4 +59,7 @@ GROQ_API_KEY=
 OPENAI_IMAGE_MODEL=gpt-image-2
 OPENAI_ANALYSIS_MODEL=gpt-4o
 GROQ_ANALYSIS_MODEL=llama-3.2-90b-vision-preview
+# Optional Roboflow Supervision geometry service
+SPYDA_VISION_SERVICE_URL=
+SPYDA_VISION_SERVICE_TOKEN=
 ```

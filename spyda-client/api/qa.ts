@@ -1,5 +1,8 @@
 import { extractJson } from "./_utils.js";
 import { analysisModel } from "./models.js";
+import { applyDesignEdits, enforceDesignConstraints, type DesignEditIntent } from "../src/core/constraint-engine.js";
+import { parseDesignDocument } from "../src/core/design-document.js";
+import { validateDesignFidelity, validateRenderedDimensions, type FidelityReport, type RenderedDimensionReport } from "../src/core/validation-engine.js";
 
 declare const process: {
   env: Record<string, string | undefined>;
@@ -23,8 +26,33 @@ export type GenerationQaReport = {
   sizeMatch?: string;
   issues?: string[];
   suggestions?: string[];
+  structural?: FidelityReport;
+  dimensions?: RenderedDimensionReport;
   error?: string;
 };
+
+function runDeterministicValidation(recipe: any, generatedImage: string | null) {
+  if (!recipe?.designDocument || !generatedImage) return {};
+  try {
+    const reference = parseDesignDocument(recipe.designDocument);
+    const intents: DesignEditIntent[] = [];
+    for (const edit of Array.isArray(recipe.textEdits) ? recipe.textEdits : []) {
+      if (edit?.objectId) intents.push({ objectId: String(edit.objectId), property: "text", value: edit.to || "" });
+    }
+    for (const asset of Array.isArray(recipe.pastedAssets) ? recipe.pastedAssets : []) {
+      if (asset?.objectId) intents.push({ objectId: String(asset.objectId), property: "assetRef", value: asset.name || "replacement-asset" });
+    }
+    const edited = applyDesignEdits(reference, intents);
+    const constrained = enforceDesignConstraints(reference, edited.document);
+    return {
+      structural: validateDesignFidelity(reference, constrained.document),
+      dimensions: validateRenderedDimensions(reference.canvas, generatedImage),
+      constraintIssues: [...edited.violations, ...constrained.violations],
+    };
+  } catch {
+    return {};
+  }
+}
 
 function normalizeQaReport(raw: any): GenerationQaReport {
   const score = Number(raw?.score);
@@ -52,6 +80,7 @@ function normalizeQaReport(raw: any): GenerationQaReport {
 
 export async function runGenerationQa({ recipe, generatedImage }: { recipe: any; generatedImage: string | null }): Promise<GenerationQaReport> {
   const openaiKey = process.env.OPENAI_API_KEY || "";
+  const deterministic = runDeterministicValidation(recipe, generatedImage);
   // In composite mode the child source already contains every replacement at
   // its final position/size, so it is the expected-output baseline.
   const sourceImage = recipe?.compositeMode
@@ -59,7 +88,7 @@ export async function runGenerationQa({ recipe, generatedImage }: { recipe: any;
     : recipe?.sourceReferenceImage?.dataUrl;
 
   if (!openaiKey || !sourceImage || !generatedImage || process.env.SPYDA_QA_ENABLED === "false") {
-    return { ok: false, skipped: true };
+    return { ok: false, skipped: true, structural: deterministic.structural, dimensions: deterministic.dimensions };
   }
 
   const expectedAtoms = Array.isArray(recipe?.editableComponents)
@@ -149,8 +178,16 @@ Set "passed" to false when any checklist item fails. Score 0-100 for overall ref
     }
 
     const payload = await response.json();
-    return normalizeQaReport(extractJson(payload.choices?.[0]?.message?.content || "{}"));
+    const report = normalizeQaReport(extractJson(payload.choices?.[0]?.message?.content || "{}"));
+    const dimensionIssue = deterministic.dimensions?.passed === false ? deterministic.dimensions.issue : null;
+    return {
+      ...report,
+      passed: Boolean(report.passed && deterministic.structural?.passed !== false && deterministic.dimensions?.passed !== false),
+      structural: deterministic.structural,
+      dimensions: deterministic.dimensions,
+      issues: [...(report.issues || []), ...(dimensionIssue ? [dimensionIssue] : [])],
+    };
   } catch (error: any) {
-    return { ok: false, skipped: true, error: error?.message || "QA failed." };
+    return { ok: false, skipped: true, structural: deterministic.structural, dimensions: deterministic.dimensions, error: error?.message || "QA failed." };
   }
 }

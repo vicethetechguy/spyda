@@ -4,6 +4,8 @@ declare const process: {
 
 import { analysisModel, groqAnalysisModel, imageModel } from "./models.js";
 import { adaptBreakdownToDesignDocument, designDocumentToLegacyBreakdown } from "../src/core/design-document.js";
+import { buildDesignIntelligence } from "../src/core/analysis-pipeline.js";
+import { planRecipeRenderStrategy } from "../src/core/render-strategy.js";
 
 export { analysisModel, groqAnalysisModel, imageModel } from "./models.js";
 
@@ -320,6 +322,20 @@ export function validateDesignBreakdown(breakdown: any, options: AnalysisSourceM
   return designDocumentToLegacyBreakdown(document, normalized);
 }
 
+async function addV2DesignIntelligence(
+  breakdown: any,
+  base64Image: string,
+  ocr: OcrResult,
+) {
+  const intelligence = await buildDesignIntelligence({
+    breakdown,
+    imageDataUrl: base64Image,
+    ocrWords: ocr.words,
+    environment: process.env,
+  });
+  return { ...breakdown, ...intelligence };
+}
+
 function getLikelyJsonObject(text: string) {
   const cleaned = String(text || "")
     .trim()
@@ -521,24 +537,27 @@ export async function analyzeDesign(
   if (normalizeAiProvider(provider) === "groq") {
     const result = await analyzeDesignWithGroq(base64Image, prompt);
     const verifiedBreakdown = await verifyBreakdownWithOpenAI(base64Image, result.breakdown, ocr).catch(() => result.breakdown);
+    const normalizedBreakdown = validateDesignBreakdown(enrichBreakdownWithOcrTextAtoms(verifiedBreakdown, ocr), { ...sourceMetadata, provider: "groq+openai" });
     return {
       ...result,
       mode: "groq+openai-verified",
-      breakdown: validateDesignBreakdown(enrichBreakdownWithOcrTextAtoms(verifiedBreakdown, ocr), { ...sourceMetadata, provider: "groq+openai" }),
+      breakdown: await addV2DesignIntelligence(normalizedBreakdown, base64Image, ocr),
       ocr,
     };
   }
 
   const openaiKey = process.env.OPENAI_API_KEY || "";
   if (!openaiKey) {
-    return { ok: true, mode: "mock", breakdown: validateDesignBreakdown(buildMockBreakdown(), { ...sourceMetadata, provider: "mock" }) };
+    const normalizedBreakdown = validateDesignBreakdown(buildMockBreakdown(), { ...sourceMetadata, provider: "mock" });
+    return { ok: true, mode: "mock", breakdown: await addV2DesignIntelligence(normalizedBreakdown, base64Image, ocr) };
   }
 
   const breakdown = await analyzeDesignWithOpenAI(base64Image, prompt);
+  const normalizedBreakdown = validateDesignBreakdown(enrichBreakdownWithOcrTextAtoms(breakdown, ocr), { ...sourceMetadata, provider: "openai" });
   return {
     ok: true,
     mode: "openai",
-    breakdown: validateDesignBreakdown(enrichBreakdownWithOcrTextAtoms(breakdown, ocr), { ...sourceMetadata, provider: "openai" }),
+    breakdown: await addV2DesignIntelligence(normalizedBreakdown, base64Image, ocr),
     ocr,
   };
 }
@@ -930,8 +949,19 @@ async function requestOpenAiImageEdit({
 }
 
 export async function generateDesign({ recipe }: { recipe: any }) {
+  const renderPlan = planRecipeRenderStrategy(recipe || {});
+  if (!renderPlan.invokeImageModel && recipe?.childSourceImage?.dataUrl) {
+    return {
+      ok: true,
+      mode: renderPlan.mode,
+      model: "deterministic",
+      image: recipe.childSourceImage.dataUrl,
+      renderPlan,
+    };
+  }
+
   const openaiKey = process.env.OPENAI_API_KEY || "";
-  if (!openaiKey) throw new Error("OPENAI_API_KEY is not configured.");
+  if (!openaiKey) throw new Error("OPENAI_API_KEY is not configured for this AI-assisted edit.");
 
   const prompt = buildGenerationPrompt(recipe);
   const actualModel = imageModel || "gpt-image-1.5";
@@ -970,6 +1000,7 @@ export async function generateDesign({ recipe }: { recipe: any }) {
       mode: "openai-edit",
       model: actualModel,
       image: normalizeGeneratedImageOutput(payload.data?.[0]?.b64_json || payload.data?.[0]?.url),
+      renderPlan,
     };
   }
 
@@ -999,5 +1030,6 @@ export async function generateDesign({ recipe }: { recipe: any }) {
     mode: "openai",
     model: actualModel,
     image: normalizeGeneratedImageOutput(payload.data?.[0]?.b64_json || payload.data?.[0]?.url),
+    renderPlan,
   };
 }
