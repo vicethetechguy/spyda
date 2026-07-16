@@ -1,7 +1,7 @@
 import { useState, useRef, useCallback, useEffect, useMemo } from 'react'
 import { useAuth } from '../lib/AuthContext'
 import { supabase } from '../lib/supabase'
-import { parseAtomBox, clampBox, compositeReplacements, getImageSize, refineLogoBox, trimImageWhitespace, type AtomBox } from '../lib/design'
+import { parseAtomBox, clampBox, compositeReplacements, getImageSize, refineLogoBox, resizeBoxFromCorner, trimImageWhitespace, type AtomBox, type ResizeCorner } from '../lib/design'
 import { buildLayoutGridGuide, type LayoutGridGuide } from '../lib/layout-grid'
 import type { LegacyBreakdown as BreakdownResult, LegacyEditableComponent as EditableComponent } from '../core/design-document'
 import { usePaystackPayment } from 'react-paystack'
@@ -102,6 +102,18 @@ type GenerationQaReport = {
   error?: string
 }
 
+type BrandEdits = {
+  headingFont: string
+  bodyFont: string
+  primaryColor: string
+  secondaryColor: string
+  accentColor: string
+  visualStyle: string
+  essentials: string
+  outputSize: string
+  applyBrandConstants: boolean
+}
+
 type SavedSpydaProject = {
   id: string
   name: string
@@ -113,16 +125,7 @@ type SavedSpydaProject = {
   generatedImage?: string | null
   breakdown?: BreakdownResult | null
   atomEdits?: Record<string, AtomEdit>
-  brandEdits?: {
-    headingFont: string
-    bodyFont: string
-    primaryColor: string
-    secondaryColor: string
-    accentColor: string
-    visualStyle: string
-    essentials: string
-    outputSize: string
-  }
+  brandEdits?: BrandEdits
   qa?: GenerationQaReport | null
 }
 
@@ -524,16 +527,7 @@ export default function Workspace() {
   const [atomEdits, setAtomEdits] = useState<Record<string, AtomEdit>>({})
 
   // Brand card state
-  const [brandEdits, setBrandEdits] = useState<{
-    headingFont: string
-    bodyFont: string
-    primaryColor: string
-    secondaryColor: string
-    accentColor: string
-    visualStyle: string
-    essentials: string
-    outputSize: string
-  }>({
+  const [brandEdits, setBrandEdits] = useState<BrandEdits>({
     headingFont: 'Space Grotesk',
     bodyFont: 'Montserrat',
     primaryColor: '#0F172A',
@@ -542,6 +536,7 @@ export default function Workspace() {
     visualStyle: '',
     essentials: '',
     outputSize: 'match-reference',
+    applyBrandConstants: false,
   })
 
   // Populate brand edits from breakdown
@@ -549,14 +544,13 @@ export default function Workspace() {
     if (breakdown?.design?.styleTokens) {
       const c = breakdown.design.styleTokens
       setBrandEdits(prev => ({
+        ...prev,
         headingFont: c.typography?.headingFont || c.headingFont || prev.headingFont,
         bodyFont: c.typography?.bodyFont || c.bodyFont || prev.bodyFont,
         primaryColor: normalizeHexColor(c.palette?.primary || c.colors?.primary || '', prev.primaryColor),
         secondaryColor: normalizeHexColor(c.palette?.secondary || c.colors?.secondary || '', prev.secondaryColor),
         accentColor: normalizeHexColor(c.palette?.accent || c.colors?.accent || '', prev.accentColor),
         visualStyle: c.visualStyle || prev.visualStyle,
-        essentials: prev.essentials,
-        outputSize: prev.outputSize,
       }))
     }
   }, [breakdown])
@@ -611,7 +605,13 @@ export default function Workspace() {
       setGeneratedImage(project.generatedImage || null)
       setBreakdown(project.breakdown || null)
       setAtomEdits((project.atomEdits || {}) as Record<string, AtomEdit>)
-      if (project.brandEdits) setBrandEdits(project.brandEdits)
+      if (project.brandEdits) {
+        setBrandEdits(previous => ({
+          ...previous,
+          ...project.brandEdits,
+          applyBrandConstants: project.brandEdits?.applyBrandConstants ?? false,
+        }))
+      }
       setGenerationQa((project.qa || null) as GenerationQaReport | null)
       setCurrentProjectId(project.id)
       setEssentialsImage(null)
@@ -733,6 +733,12 @@ export default function Workspace() {
       const parentSize = await getImageSize(activeParent)
       const detectedBox = parseAtomBox(section.boundingBox, parentSize)
       if (detectedBox) measuredBox = isLogo ? await refineLogoBox(activeParent, detectedBox) : detectedBox
+      if (!measuredBox) {
+        const assetSize = await getImageSize(assetDataUrl)
+        const width = isLogo ? 18 : 28
+        const height = Math.min(45, Math.max(4, (width * parentSize.width * assetSize.height) / (parentSize.height * assetSize.width)))
+        measuredBox = clampBox({ x: (100 - width) / 2, y: (100 - height) / 2, width, height })
+      }
     }
     setAtomEdits(prev => ({
       ...prev,
@@ -837,26 +843,18 @@ export default function Workspace() {
         }
       }
 
-      // ── Brand overrides only when the user actually changed them ──
-      // Analyzed style tokens are the design's own DNA; forcing default brand
-      // constants onto every round is what used to recolor faithful outputs.
-      const tokens = breakdown.design?.styleTokens || {}
-      const analyzedBrand = {
-        headingFont: tokens.typography?.headingFont || tokens.headingFont || '',
-        bodyFont: tokens.typography?.bodyFont || tokens.bodyFont || '',
-        primaryColor: normalizeHexColor(tokens.palette?.primary || tokens.colors?.primary || '', ''),
-        secondaryColor: normalizeHexColor(tokens.palette?.secondary || tokens.colors?.secondary || '', ''),
-        accentColor: normalizeHexColor(tokens.palette?.accent || tokens.colors?.accent || '', ''),
-        visualStyle: tokens.visualStyle || '',
-      }
-      const brandOverrides: Record<string, string> = {}
-      if (brandEdits.headingFont && brandEdits.headingFont !== analyzedBrand.headingFont) brandOverrides.headingFont = brandEdits.headingFont
-      if (brandEdits.bodyFont && brandEdits.bodyFont !== analyzedBrand.bodyFont) brandOverrides.bodyFont = brandEdits.bodyFont
-      if (brandEdits.primaryColor && brandEdits.primaryColor.toUpperCase() !== analyzedBrand.primaryColor.toUpperCase()) brandOverrides.primaryColor = brandEdits.primaryColor
-      if (brandEdits.secondaryColor && brandEdits.secondaryColor.toUpperCase() !== analyzedBrand.secondaryColor.toUpperCase()) brandOverrides.secondaryColor = brandEdits.secondaryColor
-      if (brandEdits.accentColor && brandEdits.accentColor.toUpperCase() !== analyzedBrand.accentColor.toUpperCase()) brandOverrides.accentColor = brandEdits.accentColor
-      if (brandEdits.visualStyle.trim() && brandEdits.visualStyle.trim() !== analyzedBrand.visualStyle.trim()) brandOverrides.visualStyle = brandEdits.visualStyle.trim()
-      const hasBrandOverrides = Object.keys(brandOverrides).length > 0
+      // ── Explicit Brand Constants mode ──
+      // ON applies the complete card globally; OFF keeps the active parent's
+      // brand styling untouched.
+      const brandOverrides: Record<string, string> = brandEdits.applyBrandConstants ? {
+        headingFont: brandEdits.headingFont,
+        bodyFont: brandEdits.bodyFont,
+        primaryColor: brandEdits.primaryColor,
+        secondaryColor: brandEdits.secondaryColor,
+        accentColor: brandEdits.accentColor,
+        visualStyle: brandEdits.visualStyle.trim(),
+      } : {}
+      const hasBrandOverrides = brandEdits.applyBrandConstants
 
       // ── Deterministic placement: bake replacements into the parent ──
       setGenerationStage(placedSwaps.length ? 'Placing replacements at exact size' : 'Preparing design')
@@ -992,10 +990,15 @@ export default function Workspace() {
           atomName: swap.section.name,
           originalContent: swap.section.content || swap.section.name,
           box: swap.box,
+          userPlaced: true,
+          exactUploadLock: true,
+          allowModelRedraw: false,
+          allowModelReplacement: false,
         })),
         textEdits,
         otherEdits,
         brandOverrides: hasBrandOverrides ? brandOverrides : null,
+        brandConstantsMode: hasBrandOverrides ? 'apply' : 'preserve-parent',
         essentials: filledEssentials,
         referenceImages: referenceImages.map(image => ({
           sectionId: image.sectionId,
@@ -1052,12 +1055,20 @@ export default function Workspace() {
       const data = await readApiJson<ApiGenerateResponse>(response)
 
       if (data?.ok && data?.image) {
-        setGenerationStage('Finalizing design')
+        setGenerationStage(placedSwaps.length ? 'Locking exact uploaded assets' : 'Finalizing design')
         const imageSrc = data.image.startsWith('http') || data.image.startsWith('data:image/')
           ? data.image
           : `data:image/webp;base64,${data.image}`
+        const assetLockedImageSrc = placedSwaps.length
+          ? await compositeReplacements(imageSrc, placedSwaps.map(swap => ({
+              box: swap.box,
+              src: swap.edit.assetDataUrl!,
+              trimWhitespace: /logo|brand mark|wordmark/i.test(`${swap.section.type} ${swap.section.name} ${swap.section.content || ''}`),
+              clearUnderlying: true,
+            })))
+          : imageSrc
         const pendingQa: GenerationQaReport = { ok: true, skipped: true, pending: true }
-        const normalizedImageSrc = await finalizeRound(imageSrc, pendingQa)
+        const normalizedImageSrc = await finalizeRound(assetLockedImageSrc, pendingQa)
 
         void (async () => {
           try {
@@ -1125,6 +1136,7 @@ export default function Workspace() {
       visualStyle: '',
       essentials: '',
       outputSize: 'match-reference',
+      applyBrandConstants: false,
     })
   }, [])
 
@@ -1568,8 +1580,10 @@ function PlacementCanvas({
 }) {
   const wrapperRef = useRef<HTMLDivElement>(null)
   const [naturalSize, setNaturalSize] = useState<{ width: number; height: number } | null>(null)
-  const dragRef = useRef<{
+  const interactionRef = useRef<{
     id: string
+    mode: 'move' | 'resize'
+    corner?: ResizeCorner
     startX: number
     startY: number
     box: AtomBox
@@ -1595,18 +1609,31 @@ function PlacementCanvas({
     event.preventDefault()
     event.stopPropagation()
     ;(event.target as HTMLElement).setPointerCapture(event.pointerId)
-    dragRef.current = { id, startX: event.clientX, startY: event.clientY, box, rectW: rect.width, rectH: rect.height }
+    interactionRef.current = { id, mode: 'move', startX: event.clientX, startY: event.clientY, box, rectW: rect.width, rectH: rect.height }
   }
 
-  const moveDrag = (event: React.PointerEvent) => {
-    const drag = dragRef.current
-    if (!drag) return
-    const dx = ((event.clientX - drag.startX) / drag.rectW) * 100
-    const dy = ((event.clientY - drag.startY) / drag.rectH) * 100
-    onBoxChange(drag.id, clampBox({ ...drag.box, x: drag.box.x + dx, y: drag.box.y + dy }))
+  const startResize = (event: React.PointerEvent, id: string, box: AtomBox, corner: ResizeCorner) => {
+    const rect = wrapperRef.current?.getBoundingClientRect()
+    if (!rect) return
+    event.preventDefault()
+    event.stopPropagation()
+    ;(event.currentTarget as HTMLElement).setPointerCapture(event.pointerId)
+    interactionRef.current = { id, mode: 'resize', corner, startX: event.clientX, startY: event.clientY, box, rectW: rect.width, rectH: rect.height }
   }
 
-  const endDrag = () => { dragRef.current = null }
+  const moveInteraction = (event: React.PointerEvent) => {
+    const interaction = interactionRef.current
+    if (!interaction) return
+    event.preventDefault()
+    const dx = ((event.clientX - interaction.startX) / interaction.rectW) * 100
+    const dy = ((event.clientY - interaction.startY) / interaction.rectH) * 100
+    const nextBox = interaction.mode === 'resize' && interaction.corner
+      ? resizeBoxFromCorner(interaction.box, interaction.corner, dx, dy)
+      : clampBox({ ...interaction.box, x: interaction.box.x + dx, y: interaction.box.y + dy })
+    onBoxChange(interaction.id, nextBox)
+  }
+
+  const endInteraction = () => { interactionRef.current = null }
 
   return (
     <div
@@ -1642,9 +1669,9 @@ function PlacementCanvas({
             className="absolute z-20 cursor-move rounded-[3px] border-2 border-primary/80 bg-black/10 shadow-[0_0_0_1px_rgba(0,0,0,0.4)]"
             style={{ left: `${box.x}%`, top: `${box.y}%`, width: `${box.width}%`, height: `${box.height}%`, touchAction: 'none' }}
             onPointerDown={event => startDrag(event, atom.id, box)}
-            onPointerMove={moveDrag}
-            onPointerUp={endDrag}
-            onPointerCancel={endDrag}
+            onPointerMove={moveInteraction}
+            onPointerUp={endInteraction}
+            onPointerCancel={endInteraction}
           >
             <img
               src={atomEdits[atom.id]?.assetDataUrl}
@@ -1653,8 +1680,23 @@ function PlacementCanvas({
               draggable={false}
             />
             <span className="pointer-events-none absolute -top-5 left-0 whitespace-nowrap rounded bg-primary px-1.5 py-0.5 text-[9px] font-bold text-primary-foreground">
-              {atom.name} — locked footprint
+              {atom.name} — user-set footprint
             </span>
+            {([
+              { corner: 'nw', position: '-left-1.5 -top-1.5 cursor-nwse-resize', label: 'top left' },
+              { corner: 'ne', position: '-right-1.5 -top-1.5 cursor-nesw-resize', label: 'top right' },
+              { corner: 'sw', position: '-bottom-1.5 -left-1.5 cursor-nesw-resize', label: 'bottom left' },
+              { corner: 'se', position: '-bottom-1.5 -right-1.5 cursor-nwse-resize', label: 'bottom right' },
+            ] as const).map(handle => (
+              <button
+                key={handle.corner}
+                type="button"
+                aria-label={`Resize ${atom.name} from ${handle.label}`}
+                className={`absolute z-30 h-3 w-3 rounded-[2px] border border-black/70 bg-white shadow-[0_0_0_1px_rgba(157,250,176,0.85)] ${handle.position}`}
+                style={{ touchAction: 'none' }}
+                onPointerDown={event => startResize(event, atom.id, box, handle.corner)}
+              />
+            ))}
           </div>
         ))}
       </div>
@@ -1709,16 +1751,7 @@ function StudioView({
   atomEdits: Record<string, AtomEdit>
   essentialsImage: { name: string; dataUrl: string } | null
   essentialPrompts: string[]
-  brandEdits: {
-    headingFont: string
-    bodyFont: string
-    primaryColor: string
-    secondaryColor: string
-    accentColor: string
-    visualStyle: string
-    essentials: string
-    outputSize: string
-  }
+  brandEdits: BrandEdits
   onUpload: (file: File) => void
   onAtomImageUpload: (section: EditableComponent, file: File) => void
   onEssentialsImageUpload: (file: File) => void
@@ -1729,7 +1762,7 @@ function StudioView({
   onReset: () => void
   onAtomEdit: (id: string, mode: 'same' | 'customize', value: string) => void
   onAtomBoxChange: (id: string, box: AtomBox) => void
-  onBrandEdit: (field: string, value: string) => void
+  onBrandEdit: (field: string, value: string | boolean) => void
   onEssentialPromptChange: (index: number, value: string) => void
 }) {
   const fileInputRef = useRef<HTMLInputElement>(null)
@@ -1866,7 +1899,7 @@ function StudioView({
           />
           {placedSwapCount > 0 && (
             <p className="mt-2 text-[11px] leading-relaxed text-muted-foreground/70">
-              Spyda trims empty logo padding and fits the visible asset to the parent's measured footprint. Drag only to reposition; the footprint stays locked so the flyer cannot expand.
+              Spyda trims empty logo padding and places the exact upload in the detected slot. Drag to reposition it, then use any corner handle to scale it proportionally.
             </p>
           )}
           {analyzeError && (
@@ -2053,11 +2086,28 @@ function StudioView({
 
             {/* Brand Card */}
             <div className="rounded-xl border border-primary/20 bg-primary/[0.03] p-5">
-              <div className="flex items-center gap-2 mb-4">
-                <span className="text-[11px] font-bold tracking-[0.12em] uppercase text-primary">Brand Constants</span>
+              <div className="mb-4 flex items-start justify-between gap-4">
+                <div>
+                  <span className="text-[11px] font-bold tracking-[0.12em] uppercase text-primary">Brand Constants</span>
+                  <p className="mt-1 text-[10px] font-semibold uppercase tracking-[0.1em] text-muted-foreground/55">
+                    {brandEdits.applyBrandConstants ? 'Applied to every reconstruction' : 'Parent brand preserved'}
+                  </p>
+                </div>
+                <button
+                  type="button"
+                  role="switch"
+                  aria-checked={brandEdits.applyBrandConstants}
+                  aria-label="Apply Brand Constants to reconstructions"
+                  onClick={() => onBrandEdit('applyBrandConstants', !brandEdits.applyBrandConstants)}
+                  className={`relative h-6 w-11 shrink-0 rounded-full border transition-colors ${brandEdits.applyBrandConstants ? 'border-primary/70 bg-primary' : 'border-white/15 bg-white/[0.06]'}`}
+                >
+                  <span className={`absolute left-0 top-0.5 h-[18px] w-[18px] rounded-full bg-white shadow-sm transition-transform ${brandEdits.applyBrandConstants ? 'translate-x-5' : 'translate-x-0.5'}`} />
+                </button>
               </div>
               <p className="-mt-2 mb-4 text-[11px] leading-relaxed text-muted-foreground/70">
-                Pre-filled from the analyzed design. They only restyle the flyer when you change them — leave them untouched to keep the parent design's exact look.
+                {brandEdits.applyBrandConstants
+                  ? 'Spyda will apply these fonts, colors, and visual style while protecting uploaded logos and images.'
+                  : "Spyda will keep the active parent's fonts, colors, and visual style for this reconstruction."}
               </p>
               <div className="grid grid-cols-2 gap-4 mb-4">
                 <div>
@@ -2242,7 +2292,7 @@ function StudioView({
                 </button>
               )}
               <p className="text-[11px] leading-relaxed text-muted-foreground/60">
-                Replacement images are always placed at the original atom's exact size before generation. "Apply Round with AI" additionally blends edges, applies text changes, and any brand or Essential instructions.
+                Uploaded images use your exact position and size. "Apply Round with AI" removes the old asset, blends the new one, and locks your uploaded pixels against model redraws.
               </p>
             </div>
             </div>
@@ -2383,13 +2433,13 @@ function AtomCard({
               </div>
               {edit?.assetDataUrl && (
                 <p className="rounded-lg border border-primary/15 bg-primary/[0.04] px-3 py-2 text-[11px] leading-relaxed text-primary/90">
-                  Empty logo padding is removed and the visible asset is fitted to the parent's measured footprint. Drag only to reposition; its size stays locked.
+                  Empty logo padding is removed automatically. Move the asset on the Source, then drag any corner handle to set its exact size before reconstruction.
                 </p>
               )}
               <textarea
                 value={edit?.value || ''}
                 onChange={e => onEdit(section.id, 'customize', e.target.value)}
-                placeholder={`Optional blending note for the AI pass, e.g. "match the background lighting". Position and size are already locked.`}
+                placeholder={`Optional blending note for the AI pass, e.g. "match the background lighting". Your manual position and size remain locked.`}
                 className="w-full h-16 px-3 py-2 rounded-lg bg-white/[0.04] border border-white/[0.06] text-sm text-foreground placeholder:text-muted-foreground/40 outline-none focus:border-primary/40 transition-colors resize-none"
               />
             </div>

@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { findVisiblePixelBounds } from './design.js'
+import { findVisiblePixelBounds, resizeBoxFromCorner } from './design.js'
 
 function pixels(width: number, height: number, background: [number, number, number, number]) {
   const data = new Uint8ClampedArray(width * height * 4)
@@ -24,5 +24,32 @@ describe('visible logo bounds', () => {
     for (let y = 2; y <= 5; y += 1) for (let x = 4; x <= 8; x += 1) paint(data, 12, x, y, [10, 10, 10, 255])
 
     expect(findVisiblePixelBounds(data, 12, 8)).toEqual({ x: 3, y: 1, width: 7, height: 6 })
+  })
+})
+
+describe('placement box resizing', () => {
+  it('resizes proportionally from the bottom-right corner', () => {
+    expect(resizeBoxFromCorner({ x: 10, y: 20, width: 20, height: 10 }, 'se', 10, 2)).toEqual({
+      x: 10,
+      y: 20,
+      width: 30,
+      height: 15,
+    })
+  })
+
+  it('keeps the opposite corner fixed when resizing from the top-left', () => {
+    expect(resizeBoxFromCorner({ x: 20, y: 30, width: 20, height: 10 }, 'nw', -10, -2)).toEqual({
+      x: 10,
+      y: 25,
+      width: 30,
+      height: 15,
+    })
+  })
+
+  it('keeps resized assets inside the flyer canvas', () => {
+    const resized = resizeBoxFromCorner({ x: 80, y: 80, width: 15, height: 10 }, 'se', 80, 80)
+    expect(resized.x + resized.width).toBeLessThanOrEqual(100)
+    expect(resized.y + resized.height).toBeLessThanOrEqual(100)
+    expect(resized.width / resized.height).toBeCloseTo(1.5)
   })
 })

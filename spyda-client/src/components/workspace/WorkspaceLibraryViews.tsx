@@ -35,6 +35,7 @@ export type WorkspaceBrandEdits = {
   visualStyle: string
   essentials: string
   outputSize: string
+  applyBrandConstants?: boolean
 }
 
 export type WorkspaceProject = {

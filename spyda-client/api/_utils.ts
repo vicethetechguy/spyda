@@ -721,7 +721,13 @@ Keep each protected asset visually identical to the parent: same identity, intri
     sections.push(`ALREADY-PLACED REPLACEMENTS:
 ${pastedAssets.map((asset: any) => `- "${asset.name || 'Replacement asset'}" REPLACES "${asset.originalContent || asset.atomName || 'the previous asset'}" in the "${asset.atomName || 'replaced element'}" slot. It already sits at its final, correct position and size.`).join("\n")}
 This is a true one-for-one replacement. Completely remove the previous asset identity from each listed slot: the old and new assets must never coexist, overlap, ghost through, or appear as duplicates. Exactly one replacement asset must be visible in each changed slot.
-These pasted assets may look slightly cut-out. Blend each one into the design naturally — clean edges, matching lighting, and shadows consistent with the rest of the flyer — while keeping its EXACT position, EXACT size, EXACT proportions, intrinsic colors, and exact content. Never enlarge, shrink, move, crop, restyle, recolor, redraw, duplicate, decorate, or add text or marks to them.`);
+USER-UPLOADED ASSET LOCK: the pixels, identity, proportions, user-set size, and user-set position of every listed replacement are final. Never synthesize an alternative logo or image. Never redraw, reinterpret, regenerate, substitute, recolor, crop, resize, move, duplicate, decorate, or add text or marks to these assets. The only permitted exception is an explicit instruction in Essentials that names the exact uploaded asset and requests that exact modification.
+These pasted assets may look slightly cut-out. Blend their surrounding edges, lighting, and shadows into the flyer without changing the uploaded asset itself. The previous logo or image underneath must be fully removed, and only the exact user upload may remain in that slot.`);
+  }
+
+  if (recipe?.brandConstantsMode === 'preserve-parent') {
+    sections.push(`PARENT BRAND STYLE LOCK:
+Brand Constants are switched OFF. Preserve the active parent's fonts, palette, gradients, effects, and visual style. Do not apply default Spyda colors or fonts.`);
   }
 
   if (recipe?.editMask?.dataUrl) {

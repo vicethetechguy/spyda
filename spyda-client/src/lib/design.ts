@@ -27,6 +27,43 @@ export function clampBox(box: AtomBox): AtomBox {
   }
 }
 
+export type ResizeCorner = 'nw' | 'ne' | 'sw' | 'se'
+
+/**
+ * Proportionally resize a placement box from one corner while the opposite
+ * corner remains anchored. Deltas are percentages of the full flyer canvas.
+ */
+export function resizeBoxFromCorner(
+  box: AtomBox,
+  corner: ResizeCorner,
+  deltaX: number,
+  deltaY: number,
+  minimumSize = 1.5,
+): AtomBox {
+  const current = clampBox(box)
+  const growsRight = corner === 'ne' || corner === 'se'
+  const growsDown = corner === 'sw' || corner === 'se'
+  const widthScale = (current.width + deltaX * (growsRight ? 1 : -1)) / current.width
+  const heightScale = (current.height + deltaY * (growsDown ? 1 : -1)) / current.height
+  const requestedScale = Math.abs(widthScale - 1) >= Math.abs(heightScale - 1) ? widthScale : heightScale
+
+  const right = current.x + current.width
+  const bottom = current.y + current.height
+  const maximumScaleX = growsRight ? (100 - current.x) / current.width : right / current.width
+  const maximumScaleY = growsDown ? (100 - current.y) / current.height : bottom / current.height
+  const minimumScale = Math.max(minimumSize / current.width, minimumSize / current.height)
+  const scale = Math.min(maximumScaleX, maximumScaleY, Math.max(minimumScale, requestedScale))
+  const width = current.width * scale
+  const height = current.height * scale
+
+  return clampBox({
+    x: growsRight ? current.x : right - width,
+    y: growsDown ? current.y : bottom - height,
+    width,
+    height,
+  })
+}
+
 function toFiniteNumber(value: unknown): number | null {
   const num = typeof value === 'string' ? parseFloat(value) : Number(value)
   return Number.isFinite(num) ? num : null
