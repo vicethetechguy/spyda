@@ -60,8 +60,8 @@ const AI_MODELS: AiModel[] = [
   { id: 'groq', label: 'Groq + GPT-Image 2', description: 'Groq analysis, OpenAI generation', provider: 'groq' },
 ]
 
-const SPYDA_AI_ROUND_CREDITS = 12
-const SPYDA_BYOK_ROUND_CREDITS = 3
+const SPYDA_AI_ROUND_CREDITS = 20
+const SPYDA_BYOK_ROUND_CREDITS = 5
 
 type SpydaApiKeys = { openai: string; groq: string }
 
@@ -3109,7 +3109,7 @@ function SettingsView({ profilePic, setProfilePic, onManageSubscription }: { pro
                   placeholder="sk-..."
                   className="w-full h-11 px-4 rounded-xl bg-background border border-white/[0.08] text-sm text-foreground font-mono focus:border-primary/50 focus:ring-1 focus:ring-primary/20 transition-all"
                 />
-                <p className="text-[11px] text-muted-foreground mt-2">Connect your own OpenAI billing to activate the BYOK rate of 3 Spyda credits per AI generation.</p>
+                <p className="text-[11px] text-muted-foreground mt-2">Connect your own OpenAI billing to activate the BYOK rate of 5 Spyda credits per AI generation.</p>
               </div>
               <div>
                 <label className="text-xs font-semibold text-muted-foreground uppercase tracking-wider mb-2 block">Groq API Key (Optional)</label>
