@@ -2,6 +2,8 @@ declare const process: {
   env: Record<string, string | undefined>;
 };
 
+export type ProviderApiKeys = { openai?: string; groq?: string };
+
 import { analysisModel, groqAnalysisModel, imageModel } from "./models.js";
 import { adaptBreakdownToDesignDocument, designDocumentToLegacyBreakdown } from "../src/core/design-document.js";
 import { buildDesignIntelligence } from "../src/core/analysis-pipeline.js";
@@ -481,8 +483,8 @@ Return ONLY valid JSON with no markdown formatting matching this exact architect
 }`;
 }
 
-export async function analyzeDesignWithGroq(base64Image: string, prompt: string) {
-  const groqKey = process.env.GROQ_API_KEY || "";
+export async function analyzeDesignWithGroq(base64Image: string, prompt: string, providedKey = "") {
+  const groqKey = providedKey || process.env.GROQ_API_KEY || "";
   if (!groqKey) throw new Error("GROQ_API_KEY is not configured.");
 
   const response = await fetch("https://api.groq.com/openai/v1/chat/completions", {
@@ -503,8 +505,8 @@ export async function analyzeDesignWithGroq(base64Image: string, prompt: string)
   return { ok: true, mode: "groq", breakdown: extractJson(payload.choices?.[0]?.message?.content || "") };
 }
 
-export async function analyzeDesignWithOpenAI(base64Image: string, prompt: string) {
-  const openaiKey = process.env.OPENAI_API_KEY || "";
+export async function analyzeDesignWithOpenAI(base64Image: string, prompt: string, providedKey = "") {
+  const openaiKey = providedKey || process.env.OPENAI_API_KEY || "";
   if (!openaiKey) throw new Error("OPENAI_API_KEY is not configured.");
 
   const response = await fetch("https://api.openai.com/v1/chat/completions", {
@@ -527,8 +529,8 @@ export async function analyzeDesignWithOpenAI(base64Image: string, prompt: strin
   return extractJson(payload.choices?.[0]?.message?.content || "");
 }
 
-export async function verifyBreakdownWithOpenAI(base64Image: string, firstBreakdown: any, ocr?: OcrResult) {
-  const openaiKey = process.env.OPENAI_API_KEY || "";
+export async function verifyBreakdownWithOpenAI(base64Image: string, firstBreakdown: any, ocr?: OcrResult, providedKey = "") {
+  const openaiKey = providedKey || process.env.OPENAI_API_KEY || "";
   if (!openaiKey) return firstBreakdown;
 
   const verifierPrompt = `You are Spyda's strict design atom verifier.
@@ -576,7 +578,7 @@ Return ONLY valid JSON in this exact architecture:
   }
 }`;
 
-  return analyzeDesignWithOpenAI(base64Image, verifierPrompt);
+  return analyzeDesignWithOpenAI(base64Image, verifierPrompt, openaiKey);
 }
 
 type AnalysisSourceMetadata = {
@@ -592,12 +594,13 @@ export async function analyzeDesign(
   provider = "openai",
   ocr: OcrResult = { enabled: false, fullText: "", words: [] },
   sourceMetadata: AnalysisSourceMetadata = {},
+  apiKeys: ProviderApiKeys = {},
 ) {
   const prompt = getBreakdownPrompt(ocr);
 
   if (normalizeAiProvider(provider) === "groq") {
-    const result = await analyzeDesignWithGroq(base64Image, prompt);
-    const verifiedBreakdown = await verifyBreakdownWithOpenAI(base64Image, result.breakdown, ocr).catch(() => result.breakdown);
+    const result = await analyzeDesignWithGroq(base64Image, prompt, apiKeys.groq);
+    const verifiedBreakdown = await verifyBreakdownWithOpenAI(base64Image, result.breakdown, ocr, apiKeys.openai).catch(() => result.breakdown);
     const normalizedBreakdown = validateDesignBreakdown(enrichBreakdownWithOcrTextAtoms(verifiedBreakdown, ocr), { ...sourceMetadata, provider: "groq+openai" });
     return {
       ...result,
@@ -607,13 +610,13 @@ export async function analyzeDesign(
     };
   }
 
-  const openaiKey = process.env.OPENAI_API_KEY || "";
+  const openaiKey = apiKeys.openai || process.env.OPENAI_API_KEY || "";
   if (!openaiKey) {
     const normalizedBreakdown = validateDesignBreakdown(buildMockBreakdown(), { ...sourceMetadata, provider: "mock" });
     return { ok: true, mode: "mock", breakdown: await addV2DesignIntelligence(normalizedBreakdown, base64Image, ocr) };
   }
 
-  const breakdown = await analyzeDesignWithOpenAI(base64Image, prompt);
+  const breakdown = await analyzeDesignWithOpenAI(base64Image, prompt, openaiKey);
   const normalizedBreakdown = validateDesignBreakdown(enrichBreakdownWithOcrTextAtoms(breakdown, ocr), { ...sourceMetadata, provider: "openai" });
   return {
     ok: true,
@@ -1079,7 +1082,7 @@ async function requestOpenAiImageEdit({
   return response.json();
 }
 
-export async function generateDesign({ recipe }: { recipe: any }) {
+export async function generateDesign({ recipe, openaiKey: providedOpenAiKey = "" }: { recipe: any; openaiKey?: string }) {
   const renderPlan = planRecipeRenderStrategy(recipe || {});
   if (!renderPlan.invokeImageModel && recipe?.childSourceImage?.dataUrl) {
     return {
@@ -1091,7 +1094,7 @@ export async function generateDesign({ recipe }: { recipe: any }) {
     };
   }
 
-  const openaiKey = process.env.OPENAI_API_KEY || "";
+  const openaiKey = providedOpenAiKey || process.env.OPENAI_API_KEY || "";
   if (!openaiKey) throw new Error("OPENAI_API_KEY is not configured for this AI-assisted edit.");
 
   const prompt = buildGenerationPrompt(recipe);

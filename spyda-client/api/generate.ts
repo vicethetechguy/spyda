@@ -93,15 +93,16 @@ export default async function handler(req: any, res: any) {
     if (!recipe) {
       return res.status(400).json({ ok: false, error: 'Missing recipe data.' });
     }
+    const providedOpenAiKey = String(req.headers?.['x-spyda-openai-key'] || '').trim();
 
-    let result = await generateDesign({ recipe });
+    let result = await generateDesign({ recipe, openaiKey: providedOpenAiKey });
     if (recipe.deferQa) {
       return res.status(200).json({
         ...result,
         qa: { ok: true, skipped: true, pending: true },
       });
     }
-    let qa = await runGenerationQa({ recipe, generatedImage: result.image });
+    let qa = await runGenerationQa({ recipe, generatedImage: result.image, openaiKey: providedOpenAiKey });
 
     // QA gate: one automatic corrective retry when the output fails layout/size checks.
     // A second image generation can exceed a serverless request window.
@@ -118,9 +119,9 @@ export default async function handler(req: any, res: any) {
           },
         };
         try {
-          const retryResult = await generateDesign({ recipe: retryRecipe });
+          const retryResult = await generateDesign({ recipe: retryRecipe, openaiKey: providedOpenAiKey });
           if (retryResult.image) {
-            const retryQa = await runGenerationQa({ recipe, generatedImage: retryResult.image });
+            const retryQa = await runGenerationQa({ recipe, generatedImage: retryResult.image, openaiKey: providedOpenAiKey });
             const firstScore = qa.score ?? 0;
             const retryScore = retryQa.ok ? (retryQa.score ?? 0) : -1;
             if (retryQa.ok && (retryQa.passed || retryScore > firstScore)) {

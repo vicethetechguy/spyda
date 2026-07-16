@@ -61,6 +61,43 @@ const AI_MODELS: AiModel[] = [
 ]
 
 const SPYDA_AI_ROUND_CREDITS = 12
+const SPYDA_BYOK_ROUND_CREDITS = 3
+
+type SpydaApiKeys = { openai: string; groq: string }
+
+async function loadSpydaApiKeys(userId?: string): Promise<SpydaApiKeys> {
+  if (!userId) return { openai: '', groq: '' }
+  const { data, error } = await supabase
+    .from('profiles')
+    .select('openai_key, groq_key')
+    .eq('id', userId)
+    .single()
+  if (error) return { openai: '', groq: '' }
+  return {
+    openai: String(data?.openai_key || '').trim(),
+    groq: String(data?.groq_key || '').trim(),
+  }
+}
+
+function apiKeyRequestHeaders(keys: SpydaApiKeys): Record<string, string> {
+  return {
+    ...(keys.openai ? { 'x-spyda-openai-key': keys.openai } : {}),
+    ...(keys.groq ? { 'x-spyda-groq-key': keys.groq } : {}),
+  }
+}
+
+async function readSpydaCreditBalance(userId?: string): Promise<number | null> {
+  if (!userId) return null
+  const { data, error } = await supabase.from('profiles').select('wallet_balance').eq('id', userId).single()
+  return error ? null : Math.max(0, Number(data?.wallet_balance || 0))
+}
+
+async function spendSpydaCredits(userId: string | undefined, amount: number) {
+  if (!userId || amount <= 0) return
+  const balance = await readSpydaCreditBalance(userId)
+  if (balance === null) return
+  await supabase.from('profiles').update({ wallet_balance: Math.max(0, balance - amount) }).eq('id', userId)
+}
 
 /* ═══════════════════════════════════════════════
    Types
@@ -659,6 +696,7 @@ export default function Workspace() {
     // Auto-analyze
     setIsAnalyzing(true)
       try {
+        const apiKeys = await loadSpydaApiKeys(user?.id)
         const base64Image = await imageFileToDataUrl(file, 1024, 1024, 0.82);
         const sourceDimensions = await getImageDimensionsFromSrc(base64Image)
         setUploadedPreview(base64Image)
@@ -678,7 +716,7 @@ export default function Workspace() {
         
         const res = await fetch('/api/analyze', { 
           method: 'POST', 
-          headers: { 'Content-Type': 'application/json' },
+          headers: { 'Content-Type': 'application/json', ...apiKeyRequestHeaders(apiKeys) },
           body: JSON.stringify({
             base64Image,
             aiProvider: aiModel.provider,
@@ -717,7 +755,7 @@ export default function Workspace() {
         setAnalysisStage('')
         setIsAnalyzing(false)
       }
-  }, [aiModel, brandEdits])
+  }, [aiModel, brandEdits, user?.id])
 
   const handleUseTemplate = useCallback(async (source: string, name: string) => {
     const response = await fetch(source)
@@ -801,6 +839,13 @@ export default function Workspace() {
     setGenerateError(null)
 
     try {
+      const apiKeys = options?.instant ? { openai: '', groq: '' } : await loadSpydaApiKeys(user?.id)
+      const roundCredits = options?.instant ? 0 : apiKeys.openai ? SPYDA_BYOK_ROUND_CREDITS : SPYDA_AI_ROUND_CREDITS
+      const availableCredits = await readSpydaCreditBalance(user?.id)
+      if (roundCredits > 0 && availableCredits !== null && availableCredits < roundCredits) {
+        setGenerateError(`This round needs ${roundCredits} Spyda credits. Fund your wallet before generating.`)
+        return
+      }
       const activeSourcePreview = generatedImage || uploadedPreview || ''
       const sourceDimensions = await getImageDimensionsFromSrc(uploadedPreview || '')
       const sourceImageSize = await getImageSizeChoice(uploadedPreview || '')
@@ -979,7 +1024,8 @@ export default function Workspace() {
         clientCorrectionLoop: true,
         deferQa: true,
         quality: 'medium',
-        creditsSpent: SPYDA_AI_ROUND_CREDITS,
+        creditsSpent: roundCredits,
+        billingMode: apiKeys.openai ? 'bring-your-api-key' : 'spyda-managed-api',
         architectureVersion: breakdown.architectureVersion || 'spyda-v1-compatibility',
         designDocument: breakdown.designDocument,
         layoutIntelligence: breakdown.layoutIntelligence,
@@ -1078,6 +1124,7 @@ export default function Workspace() {
         : 'Applying one GPT-Image 2 edit')
       const response = await fetch('/api/generate', {
         method: 'POST',
+        headers: apiKeyRequestHeaders(apiKeys),
         body: buildGenerationForm(recipe),
       })
       const data = await readApiJson<ApiGenerateResponse>(response)
@@ -1096,8 +1143,9 @@ export default function Workspace() {
               clearUnderlying: true,
             })))
           : imageSrc
-        const pendingQa: GenerationQaReport = { ok: true, skipped: true, pending: true, creditsSpent: SPYDA_AI_ROUND_CREDITS }
+        const pendingQa: GenerationQaReport = { ok: true, skipped: true, pending: true, creditsSpent: roundCredits }
         const normalizedImageSrc = await finalizeRound(assetLockedImageSrc, pendingQa)
+        await spendSpydaCredits(user?.id, roundCredits)
 
         void (async () => {
           try {
@@ -1106,11 +1154,11 @@ export default function Workspace() {
             qaForm.append('recipe', JSON.stringify({ ...recipe, deferQa: false, editMask: undefined }))
             qaForm.append('childSourceImage', childSourceBlob, 'qa-parent.webp')
             qaForm.append('generatedImage', generatedBlob, 'qa-child.webp')
-            const qaResponse = await fetch('/api/validate-generation', { method: 'POST', body: qaForm })
+            const qaResponse = await fetch('/api/validate-generation', { method: 'POST', headers: apiKeyRequestHeaders(apiKeys), body: qaForm })
             const qaData = await readApiJson<{ ok: boolean; qa?: GenerationQaReport; error?: string }>(qaResponse)
             const qa = qaData.qa
-              ? { ...qaData.qa, creditsSpent: qaData.qa.creditsSpent ?? SPYDA_AI_ROUND_CREDITS }
-              : { ok: false, skipped: true, creditsSpent: SPYDA_AI_ROUND_CREDITS, error: qaData.error || 'Background QA did not finish.' }
+              ? { ...qaData.qa, creditsSpent: qaData.qa.creditsSpent ?? roundCredits }
+              : { ok: false, skipped: true, creditsSpent: roundCredits, error: qaData.error || 'Background QA did not finish.' }
             setGenerationQa(qa)
             persistCurrentProject({
               id: currentProjectId || undefined,
@@ -1119,7 +1167,7 @@ export default function Workspace() {
               qa,
             })
           } catch (qaError: any) {
-            const qa = { ok: false, skipped: true, creditsSpent: SPYDA_AI_ROUND_CREDITS, error: String(qaError?.message || 'Background QA did not finish.') }
+            const qa = { ok: false, skipped: true, creditsSpent: roundCredits, error: String(qaError?.message || 'Background QA did not finish.') }
             setGenerationQa(qa)
             persistCurrentProject({ id: currentProjectId || undefined, generatedImage: normalizedImageSrc, qa })
           }
@@ -1140,7 +1188,7 @@ export default function Workspace() {
       setGenerationStage('')
       setIsGenerating(false)
     }
-  }, [uploadedFile, breakdown, atomEdits, brandEdits, essentialsImage, aiModel, currentProjectId, uploadedPreview, generatedImage, essentialPrompts, persistCurrentProject])
+  }, [uploadedFile, breakdown, atomEdits, brandEdits, essentialsImage, aiModel, currentProjectId, uploadedPreview, generatedImage, essentialPrompts, persistCurrentProject, user?.id])
 
   /* ── Reset handler ── */
   const handleReset = useCallback(() => {
@@ -1330,7 +1378,7 @@ export default function Workspace() {
           {activeId === 'templates' && <TemplatesView onUseTemplate={handleUseTemplate} />}
           {activeId === 'brand-assets' && <BrandAssetsView onUseAsset={handleUseBrandAsset} />}
           {activeId === 'wallet' && <WalletView />}
-          {activeId === 'subscription' && <SubscriptionView onBack={() => setActiveId('settings')} />}
+          {activeId === 'subscription' && <SubscriptionView onBack={() => setActiveId('settings')} onOpenWallet={() => setActiveId('wallet')} onOpenSettings={() => setActiveId('settings')} />}
           {activeId === 'settings' && <SettingsView profilePic={profilePic} setProfilePic={setProfilePic} onManageSubscription={() => setActiveId('subscription')} />}
         </div>
       </div>
@@ -2683,9 +2731,11 @@ const CREDIT_TIERS: CreditTier[] = [
 function WalletView() {
   const { user } = useAuth()
   const [balance, setBalance] = useState(0)
+  const [byokEnabled, setByokEnabled] = useState(false)
   const [loading, setLoading] = useState(true)
   const [balanceError, setBalanceError] = useState('')
   const [selectedTier, setSelectedTier] = useState<CreditTier>(CREDIT_TIERS[1])
+  const [customAmount, setCustomAmount] = useState('15')
 
   useEffect(() => {
     async function fetchBalance() {
@@ -2696,12 +2746,13 @@ function WalletView() {
       try {
         const { data, error } = await supabase
           .from('profiles')
-          .select('wallet_balance')
+          .select('wallet_balance, openai_key')
           .eq('id', user.id)
           .single()
 
         if (error) throw error
         setBalance(Number(data?.wallet_balance || 0))
+        setByokEnabled(Boolean(String(data?.openai_key || '').trim()))
       } catch (err) {
         console.error('Error fetching balance:', err)
         setBalanceError('We could not refresh your balance. Try again shortly.')
@@ -2713,7 +2764,7 @@ function WalletView() {
   }, [user])
 
   const USD_TO_NGN = 1500
-  const CREDITS_PER_GENERATION = SPYDA_AI_ROUND_CREDITS
+  const CREDITS_PER_GENERATION = byokEnabled ? SPYDA_BYOK_ROUND_CREDITS : SPYDA_AI_ROUND_CREDITS
   const generationsRemaining = Math.floor(balance / CREDITS_PER_GENERATION)
   const selectedGenerations = Math.floor(selectedTier.credits / CREDITS_PER_GENERATION)
   const localPrice = new Intl.NumberFormat('en-NG', { style: 'currency', currency: 'NGN', maximumFractionDigits: 0 }).format(selectedTier.amountUSD * USD_TO_NGN)
@@ -2737,7 +2788,7 @@ function WalletView() {
           {balanceError ? <p className="mt-3 text-sm text-amber-400">{balanceError}</p> : <p className="mt-3 text-sm text-muted-foreground">Enough for approximately {generationsRemaining.toLocaleString()} design generation{generationsRemaining !== 1 ? 's' : ''}.</p>}
         </div>
         <div className="grid grid-cols-2 gap-px overflow-hidden rounded-lg border border-white/[0.08] bg-white/[0.08]">
-          <div className="bg-background p-4"><Zap className="mb-3 h-4 w-4 text-primary" /><p className="text-[11px] uppercase text-muted-foreground">Generation rate</p><p className="mt-1 font-heading text-lg font-semibold">{CREDITS_PER_GENERATION} credits</p></div>
+          <div className="bg-background p-4"><Zap className="mb-3 h-4 w-4 text-primary" /><p className="text-[11px] uppercase text-muted-foreground">{byokEnabled ? 'BYOK generation rate' : 'Generation rate'}</p><p className="mt-1 font-heading text-lg font-semibold">{CREDITS_PER_GENERATION} credits</p></div>
           <div className="bg-background p-4"><ReceiptText className="mb-3 h-4 w-4 text-primary" /><p className="text-[11px] uppercase text-muted-foreground">Billing account</p><p className="mt-1 truncate text-sm font-semibold" title={user?.email || ''}>{user?.email || 'Signed out'}</p></div>
         </div>
       </section>
@@ -2747,9 +2798,9 @@ function WalletView() {
           <div><h3 className="font-heading text-lg font-semibold">Choose a credit pack</h3><p className="mt-1 text-sm text-muted-foreground">Credits stay available in your Spyda account.</p></div>
           <CreditCard className="hidden h-5 w-5 text-muted-foreground sm:block" />
         </div>
-        <div className="mt-5 grid gap-3 md:grid-cols-3">
+        <div className="mt-5 grid gap-3 md:grid-cols-2 xl:grid-cols-4">
           {CREDIT_TIERS.map(tier => {
-            const selected = selectedTier.amountUSD === tier.amountUSD
+            const selected = selectedTier.amountUSD === tier.amountUSD && selectedTier.title === tier.title
             return (
               <button key={tier.amountUSD} type="button" onClick={() => setSelectedTier(tier)} aria-pressed={selected} className={`relative min-h-40 rounded-lg border p-5 text-left transition-colors ${selected ? 'border-primary/60 bg-primary/[0.07]' : 'border-white/[0.08] bg-white/[0.02] hover:border-white/[0.16]'}`}>
                 <div className="flex items-start justify-between gap-3">
@@ -2767,6 +2818,33 @@ function WalletView() {
               </button>
             )
           })}
+          <label className={`relative min-h-40 cursor-text rounded-lg border p-5 text-left transition-colors ${selectedTier.title === 'Custom' ? 'border-primary/60 bg-primary/[0.07]' : 'border-white/[0.08] bg-white/[0.02] hover:border-white/[0.16]'}`}>
+            <p className="text-xs font-semibold uppercase text-muted-foreground">Custom amount</p>
+            <div className="mt-2 flex items-center gap-2 font-heading text-3xl font-semibold">
+              <span>$</span>
+              <input
+                type="number"
+                min="1"
+                max="1000"
+                step="1"
+                value={customAmount}
+                onFocus={() => {
+                  const amount = Math.max(1, Number(customAmount) || 1)
+                  setSelectedTier({ amountUSD: amount, credits: Math.round(amount * 100), label: `$${amount}`, title: 'Custom', detail: 'Flexible wallet funding' })
+                }}
+                onChange={event => {
+                  const value = event.target.value
+                  const amount = Math.max(1, Math.min(1000, Number(value) || 1))
+                  setCustomAmount(value)
+                  setSelectedTier({ amountUSD: amount, credits: Math.round(amount * 100), label: `$${amount}`, title: 'Custom', detail: 'Flexible wallet funding' })
+                }}
+                aria-label="Custom wallet funding amount in dollars"
+                className="min-w-0 flex-1 border-0 bg-transparent p-0 font-heading text-3xl font-semibold outline-none"
+              />
+            </div>
+            <p className="mt-4 flex items-center gap-1.5 text-sm font-semibold text-primary"><SpydaCreditIcon className="h-4 w-4" /> {Math.round(Math.max(1, Math.min(1000, Number(customAmount) || 1)) * 100).toLocaleString()} credits</p>
+            <p className="mt-1 text-xs leading-5 text-muted-foreground">Fund any amount from $1. Every $1 adds 100 credits.</p>
+          </label>
         </div>
 
         <div className="mt-5 flex flex-col gap-4 border-t border-white/[0.07] pt-5 sm:flex-row sm:items-center sm:justify-between">
@@ -3031,7 +3109,7 @@ function SettingsView({ profilePic, setProfilePic, onManageSubscription }: { pro
                   placeholder="sk-..."
                   className="w-full h-11 px-4 rounded-xl bg-background border border-white/[0.08] text-sm text-foreground font-mono focus:border-primary/50 focus:ring-1 focus:ring-primary/20 transition-all"
                 />
-                <p className="text-[11px] text-muted-foreground mt-2">Required for custom image generation and design breakdown.</p>
+                <p className="text-[11px] text-muted-foreground mt-2">Connect your own OpenAI billing to activate the BYOK rate of 3 Spyda credits per AI generation.</p>
               </div>
               <div>
                 <label className="text-xs font-semibold text-muted-foreground uppercase tracking-wider mb-2 block">Groq API Key (Optional)</label>

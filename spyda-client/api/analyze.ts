@@ -20,7 +20,10 @@ export default async function handler(req: any, res: any) {
       ocr = { enabled: false, fullText: "", words: [], error: error?.message || "OCR failed." };
     }
 
-    const result = await analyzeDesign(base64Image, aiProvider, ocr, sourceMetadata);
+    const result = await analyzeDesign(base64Image, aiProvider, ocr, sourceMetadata, {
+      openai: String(req.headers?.['x-spyda-openai-key'] || '').trim(),
+      groq: String(req.headers?.['x-spyda-groq-key'] || '').trim(),
+    });
     return res.status(200).json(result);
   } catch (error: any) {
     return res.status(500).json({ ok: false, error: error.message });

@@ -46,7 +46,11 @@ export default async function handler(req: any, res: any) {
       dataUrl: await fileToDataUrl(childSourceFile),
     };
     const generatedImage = await fileToDataUrl(generatedFile);
-    const qa = await runGenerationQa({ recipe, generatedImage });
+    const qa = await runGenerationQa({
+      recipe,
+      generatedImage,
+      openaiKey: String(req.headers?.['x-spyda-openai-key'] || '').trim(),
+    });
     return res.status(200).json({ ok: true, qa });
   } catch (error: any) {
     return res.status(500).json({

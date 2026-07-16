@@ -322,12 +322,13 @@ export default function Landing() {
             <div className="mx-auto max-w-2xl text-center">
               <SectionLabel>Pricing</SectionLabel>
               <h2 className="font-heading text-3xl font-semibold sm:text-5xl">Pay for the design work you need.</h2>
-              <p className="mt-5 text-base leading-7 text-muted-foreground">Top up for occasional revisions or activate 30 days of access for a larger design workload.</p>
+              <p className="mt-5 text-base leading-7 text-muted-foreground">Fund your wallet, subscribe for a larger workload, or connect your own API key for a lower Spyda credit rate.</p>
             </div>
-            <div className="mx-auto mt-14 flex max-w-5xl snap-x snap-mandatory gap-4 overflow-x-auto px-[8vw] pb-3 md:grid md:grid-cols-3 md:overflow-visible md:px-0 md:pb-0">
-              <PricingCard name="Top-Up" price="From $5" detail="Flexible Spyda credits" desc="A simple option for occasional flyer analysis and generation." features={['Credits stay in your account', 'No recurring payment', 'Use them when a revision arrives', 'Available from your Spyda wallet']} texture="starter" />
+            <div className="mx-auto mt-14 flex max-w-7xl snap-x snap-mandatory gap-4 overflow-x-auto px-[8vw] pb-3 md:grid md:grid-cols-2 md:overflow-visible md:px-0 md:pb-0 xl:grid-cols-4">
+              <PricingCard name="Wallet Funding" price="Any amount" detail="$1 = 100 Spyda credits" desc="Fund your wallet with the amount that matches the work in front of you." features={['Credits stay in your account', 'No recurring payment', 'Standard generation rate', 'Top up again at any time']} texture="starter" />
               <PricingCard name="Creator" price="NGN 12,000" detail="30 days of access" desc="For creators handling regular campaigns, promotions, and client revisions." features={['1,200 credits per access period', 'Unlimited saved projects', 'Brand asset library', 'Premium design analysis']} texture="creator" featured />
               <PricingCard name="Studio" price="NGN 30,000" detail="30 days of access" desc="For teams and high-volume creative work that needs more room to move." features={['3,500 credits per access period', 'Everything in Creator', 'Faster processing queue', 'Advanced brand controls']} texture="pro" />
+              <PricingCard name="Bring Your API Key" price="3 credits" detail="per AI generation" desc="Use your own OpenAI API billing while Spyda provides the editing workflow and QA." features={['Connect your OpenAI API key', 'Optional Groq analysis key', '3 Spyda credits per generation', 'Manage keys from Settings']} texture="free" />
             </div>
             <p className="mt-5 text-center text-xs text-muted-foreground">Paid access does not renew automatically. Payments are handled securely through Paystack.</p>
           </div>

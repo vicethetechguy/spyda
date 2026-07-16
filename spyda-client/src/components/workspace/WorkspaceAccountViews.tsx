@@ -42,15 +42,22 @@ type SubscriptionPlan = {
   name: string
   price: number
   credits: string
+  creditAmount: number
   description: string
   features: string[]
 }
 
 const PLANS: SubscriptionPlan[] = [
-  { id: 'free', name: 'Free', price: 0, credits: 'Starter access', description: 'Explore the Spyda workflow.', features: ['3 saved projects', 'Basic design analysis', 'Community templates'] },
-  { id: 'creator', name: 'Creator', price: 12000, credits: '1,200 credits per access period', description: 'For creators producing campaigns regularly.', features: ['Unlimited saved projects', 'Premium analysis', 'Brand asset library', 'Priority generation'] },
-  { id: 'studio', name: 'Studio', price: 30000, credits: '3,500 credits per access period', description: 'For teams and high-volume design work.', features: ['Everything in Creator', 'Shared project capacity', 'Faster processing queue', 'Advanced brand controls'] },
+  { id: 'creator', name: 'Creator', price: 12000, credits: '1,200 credits per access period', creditAmount: 1200, description: 'For creators producing campaigns regularly.', features: ['Unlimited saved projects', 'Premium analysis', 'Brand asset library', 'Priority generation'] },
+  { id: 'studio', name: 'Studio', price: 30000, credits: '3,500 credits per access period', creditAmount: 3500, description: 'For teams and high-volume design work.', features: ['Everything in Creator', 'Shared project capacity', 'Faster processing queue', 'Advanced brand controls'] },
 ]
+
+const PAYMENT_OPTIONS = [
+  { id: 'wallet', name: 'Wallet Funding', price: 'Any amount', detail: '$1 = 100 Spyda credits', description: 'Fund your Spyda Wallet for pay-as-you-go design work.', features: ['Credits stay in your wallet', 'No recurring payment', 'Standard generation rate', 'Top up again at any time'], texture: 'starter' },
+  { id: 'creator', name: 'Creator', price: 'NGN 12,000', detail: '30 days of access', description: 'For creators producing campaigns regularly.', features: ['1,200 credits per access period', 'Unlimited saved projects', 'Brand asset library', 'Priority generation'], texture: 'creator' },
+  { id: 'studio', name: 'Studio', price: 'NGN 30,000', detail: '30 days of access', description: 'For teams and high-volume design work.', features: ['3,500 credits per access period', 'Everything in Creator', 'Faster processing queue', 'Advanced brand controls'], texture: 'pro' },
+  { id: 'byok', name: 'Bring Your API Key', price: '3 credits', detail: 'per AI generation', description: 'Use your own OpenAI API billing with Spyda editing and QA.', features: ['Connect your OpenAI API key', 'Optional Groq analysis key', '3 Spyda credits per generation', 'Manage keys from Settings'], texture: 'free' },
+] as const
 
 function subscriptionStorageKey(userId?: string) {
   return `spyda.subscription.v1:${userId || 'guest'}`
@@ -110,6 +117,8 @@ function PlanCheckoutButton({ plan, current, onActivated }: { plan: Subscription
           expiresAt: expiresAt.toISOString(),
           billingHistory: [{ id: crypto.randomUUID(), plan: plan.id, amount: plan.price, date: startedAt.toISOString(), reference: String(response?.reference || config.reference) }, ...existing.billingHistory].slice(0, 20),
         }
+        const { data: profile } = await supabase.from('profiles').select('wallet_balance').eq('id', user.id).single()
+        await supabase.from('profiles').update({ wallet_balance: Number(profile?.wallet_balance || 0) + plan.creditAmount }).eq('id', user.id)
         await persistSubscription(user.id, next)
         onActivated(next)
         setState('idle')
@@ -126,14 +135,22 @@ function PlanCheckoutButton({ plan, current, onActivated }: { plan: Subscription
   )
 }
 
-export function SubscriptionView({ onBack }: { onBack: () => void }) {
+export function SubscriptionView({ onBack, onOpenWallet, onOpenSettings }: { onBack: () => void; onOpenWallet: () => void; onOpenSettings: () => void }) {
   const { user } = useAuth()
   const [subscription, setSubscription] = useState<SubscriptionRecord>(() => readSubscription(user?.id, user?.user_metadata))
+  const [hasApiKey, setHasApiKey] = useState(false)
   const [message, setMessage] = useState('')
-  const currentPlan = PLANS.find(plan => plan.id === subscription.planId) || PLANS[0]
+  const currentPlan = PLANS.find(plan => plan.id === subscription.planId)
+
+  useEffect(() => {
+    if (!user) return
+    void supabase.from('profiles').select('openai_key').eq('id', user.id).single().then(({ data }) => {
+      setHasApiKey(Boolean(String(data?.openai_key || '').trim()))
+    })
+  }, [user])
 
   const cancelAccess = async () => {
-    const next = { ...subscription, planId: 'free' as const, status: 'cancelled' as const, expiresAt: null }
+    const next = { ...subscription, planId: 'free' as const, status: 'active' as const, expiresAt: null }
     await persistSubscription(user?.id, next)
     setSubscription(next)
     setMessage('Paid access has been removed from this Spyda account.')
@@ -144,30 +161,34 @@ export function SubscriptionView({ onBack }: { onBack: () => void }) {
       <button type="button" onClick={onBack} className="mb-5 inline-flex items-center gap-2 text-xs font-semibold text-muted-foreground hover:text-foreground"><ArrowLeft className="h-4 w-4" /> Back to settings</button>
       <div className="flex flex-col gap-5 border-b border-white/[0.07] pb-6 lg:flex-row lg:items-end lg:justify-between">
         <div><p className="mb-2 text-[10px] font-semibold uppercase tracking-[0.18em] text-primary">Account billing</p><h2 className="font-heading text-2xl font-semibold sm:text-3xl">Subscription</h2><p className="mt-2 max-w-2xl text-sm leading-6 text-muted-foreground">Choose the access level that fits your design workload and manage it from one place.</p></div>
-        <div className="rounded-lg border border-primary/20 bg-primary/[0.05] px-5 py-4"><p className="text-[10px] font-semibold uppercase text-muted-foreground">Current plan</p><div className="mt-1 flex items-center gap-3"><span className="font-heading text-xl font-semibold">{currentPlan.name}</span><span className="rounded bg-primary/10 px-2 py-1 text-[10px] font-semibold uppercase text-primary">{subscription.status}</span></div>{subscription.expiresAt && <p className="mt-2 text-xs text-muted-foreground">Access through {formatDate(subscription.expiresAt)}</p>}</div>
+        <div className="rounded-lg border border-primary/20 bg-primary/[0.05] px-5 py-4"><p className="text-[10px] font-semibold uppercase text-muted-foreground">Current access</p><div className="mt-1 flex items-center gap-3"><span className="font-heading text-xl font-semibold">{currentPlan?.name || (hasApiKey ? 'Bring Your API Key' : 'Pay as you go')}</span><span className="rounded bg-primary/10 px-2 py-1 text-[10px] font-semibold uppercase text-primary">{subscription.status}</span></div>{subscription.expiresAt && <p className="mt-2 text-xs text-muted-foreground">Access through {formatDate(subscription.expiresAt)}</p>}{currentPlan && <button type="button" onClick={cancelAccess} className="mt-3 text-xs font-semibold text-muted-foreground hover:text-foreground">Cancel paid access</button>}</div>
       </div>
 
       {message && <div className="mt-5 flex items-center justify-between gap-3 rounded-lg border border-primary/20 bg-primary/[0.06] p-4 text-sm text-primary"><span>{message}</span><button type="button" onClick={() => setMessage('')} aria-label="Dismiss"><X className="h-4 w-4" /></button></div>}
 
-      <div className="mt-7 flex snap-x snap-mandatory gap-4 overflow-x-auto px-[8vw] pb-3 sm:px-0 lg:grid lg:grid-cols-3 lg:overflow-visible lg:pb-0">
-        {PLANS.map(plan => (
-          <article key={plan.id} tabIndex={0} aria-label={`${plan.name} subscription plan`} className={`pricing-texture pricing-texture--${plan.id === 'free' ? 'free' : plan.id === 'creator' ? 'creator' : 'pro'} relative flex w-[84vw] max-w-[340px] shrink-0 snap-start flex-col rounded-lg border p-6 outline-none sm:w-[340px] lg:w-auto lg:max-w-none ${plan.id === 'creator' ? 'border-primary/45 bg-primary/[0.04]' : 'border-white/[0.07] bg-white/[0.02]'}`}>
-            {plan.id === 'creator' && <span className="absolute right-4 top-4 rounded bg-primary/10 px-2 py-1 text-[9px] font-semibold uppercase tracking-[0.12em] text-primary">Popular</span>}
-            <h3 className="font-heading text-lg font-semibold">{plan.name}</h3>
-            <p className="mt-4 font-heading text-3xl font-semibold">{plan.price ? `NGN ${plan.price.toLocaleString()}` : 'Free'}</p>
-            <p className="mt-1 text-xs text-primary">{plan.price ? '30 days of access' : plan.credits}</p>
-            <p className="mt-4 min-h-12 text-sm leading-6 text-muted-foreground">{plan.description}</p>
+      <div className="mt-7 flex snap-x snap-mandatory gap-4 overflow-x-auto px-[8vw] pb-3 sm:px-0 lg:grid lg:grid-cols-2 lg:overflow-visible lg:pb-0 xl:grid-cols-4">
+        {PAYMENT_OPTIONS.map(option => {
+          const plan = PLANS.find(candidate => candidate.id === option.id)
+          return (
+          <article key={option.id} tabIndex={0} aria-label={`${option.name} payment option`} className={`pricing-texture pricing-texture--${option.texture} relative flex w-[84vw] max-w-[340px] shrink-0 snap-start flex-col rounded-lg border p-6 outline-none sm:w-[340px] lg:w-auto lg:max-w-none ${option.id === 'creator' ? 'border-primary/45 bg-primary/[0.04]' : 'border-white/[0.07] bg-white/[0.02]'}`}>
+            {option.id === 'creator' && <span className="absolute right-4 top-4 rounded bg-primary/10 px-2 py-1 text-[9px] font-semibold uppercase tracking-[0.12em] text-primary">Popular</span>}
+            <h3 className="font-heading text-lg font-semibold">{option.name}</h3>
+            <p className="mt-4 font-heading text-3xl font-semibold">{option.price}</p>
+            <p className="mt-1 text-xs text-primary">{option.detail}</p>
+            <p className="mt-4 min-h-12 text-sm leading-6 text-muted-foreground">{option.description}</p>
             <ul className="mt-5 flex-1 space-y-3 border-t border-white/[0.07] pt-5">
-              {plan.features.map(feature => (
+              {option.features.map(feature => (
                 <li key={feature} className="flex items-start gap-2.5 text-xs leading-5 text-muted-foreground">
                   <Check className="mt-0.5 h-3.5 w-3.5 shrink-0 text-primary" strokeWidth={2.4} />
                   {feature}
                 </li>
               ))}
             </ul>
-            {plan.id === 'free' ? <button type="button" disabled={subscription.planId === 'free'} onClick={cancelAccess} className="mt-6 inline-flex h-11 w-full items-center justify-center rounded-lg border border-white/[0.1] bg-white/[0.03] text-sm font-semibold transition-colors hover:bg-white/[0.07] disabled:cursor-not-allowed disabled:opacity-60">{subscription.planId === 'free' ? 'Current plan' : 'Move to Free'}</button> : <PlanCheckoutButton plan={plan} current={plan.id === subscription.planId} onActivated={record => { setSubscription(record); setMessage(`${plan.name} access is now active.`) }} />}
+            {option.id === 'wallet' && <button type="button" onClick={onOpenWallet} className="mt-6 inline-flex h-11 w-full items-center justify-center rounded-lg border border-white/[0.1] bg-white/[0.03] text-sm font-semibold transition-colors hover:bg-white/[0.07]">Fund wallet</button>}
+            {option.id === 'byok' && <button type="button" onClick={onOpenSettings} className="mt-6 inline-flex h-11 w-full items-center justify-center rounded-lg border border-white/[0.1] bg-white/[0.03] text-sm font-semibold transition-colors hover:bg-white/[0.07]">{hasApiKey ? 'Manage API key' : 'Connect API key'}</button>}
+            {plan && <PlanCheckoutButton plan={plan} current={plan.id === subscription.planId} onActivated={record => { setSubscription(record); setMessage(`${plan.name} access is now active.`) }} />}
           </article>
-        ))}
+        )})}
       </div>
 
       <div className="mt-8 grid gap-5 lg:grid-cols-[1fr_320px]">

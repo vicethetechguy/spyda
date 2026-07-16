@@ -150,8 +150,8 @@ export function normalizeQaReport(raw: any): GenerationQaReport {
   };
 }
 
-export async function runGenerationQa({ recipe, generatedImage }: { recipe: any; generatedImage: string | null }): Promise<GenerationQaReport> {
-  const openaiKey = process.env.OPENAI_API_KEY || "";
+export async function runGenerationQa({ recipe, generatedImage, openaiKey: providedOpenAiKey = "" }: { recipe: any; generatedImage: string | null; openaiKey?: string }): Promise<GenerationQaReport> {
+  const openaiKey = providedOpenAiKey || process.env.OPENAI_API_KEY || "";
   const deterministic = runDeterministicValidation(recipe, generatedImage);
   // In composite mode the child source already contains every replacement at
   // its final position/size, so it is the expected-output baseline.
