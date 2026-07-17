@@ -97,15 +97,22 @@ function apiKeyRequestHeaders(keys: SpydaApiKeys): Record<string, string> {
 
 async function readSpydaCreditBalance(userId?: string): Promise<number | null> {
   if (!userId) return null
-  const { data, error } = await supabase.from('profiles').select('wallet_balance').eq('id', userId).single()
+  const { data, error } = await supabase.from('profiles').select('wallet_balance').eq('id', userId).maybeSingle()
   return error ? null : Math.max(0, Number(data?.wallet_balance || 0))
 }
 
-async function spendSpydaCredits(userId: string | undefined, amount: number) {
-  if (!userId || amount <= 0) return
-  const balance = await readSpydaCreditBalance(userId)
-  if (balance === null) return
-  await supabase.from('profiles').update({ wallet_balance: Math.max(0, balance - amount) }).eq('id', userId)
+// Spends Spyda credits atomically on the server and awards 1 Spyda token for
+// every full 1,000 credits the user has spent over their lifetime. Returns the
+// number of tokens awarded by this spend (0 if none), or null if it failed.
+async function spendSpydaCredits(userId: string | undefined, amount: number): Promise<number | null> {
+  if (!userId || amount <= 0) return 0
+  const { data, error } = await supabase.rpc('spend_credits', { p_amount: amount })
+  if (error) {
+    console.error('Error spending Spyda credits:', error)
+    return null
+  }
+  const row = Array.isArray(data) ? data[0] : data
+  return Number(row?.tokens_awarded ?? 0)
 }
 
 /* ═══════════════════════════════════════════════
@@ -2745,6 +2752,8 @@ const CREDIT_TIERS: CreditTier[] = [
 function WalletView({ onFund }: { onFund: () => void }) {
   const { user } = useAuth()
   const [balance, setBalance] = useState(0)
+  const [tokenBalance, setTokenBalance] = useState(0)
+  const [creditsSpent, setCreditsSpent] = useState(0)
   const [byokEnabled, setByokEnabled] = useState(false)
   const [loading, setLoading] = useState(true)
   const [balanceError, setBalanceError] = useState('')
@@ -2759,13 +2768,17 @@ function WalletView({ onFund }: { onFund: () => void }) {
     try {
       const { data, error } = await supabase
         .from('profiles')
-        .select('wallet_balance, openai_key')
+        .select('wallet_balance, openai_key, spyda_token_balance, credits_spent_total')
         .eq('id', user.id)
-        .single()
+        .maybeSingle()
 
       if (error) throw error
-      setBalance(Number(data?.wallet_balance || 0))
-      setByokEnabled(Boolean(String(data?.openai_key || '').trim()))
+      if (data) {
+        setBalance(Number(data.wallet_balance || 0))
+        setByokEnabled(Boolean(String(data.openai_key || '').trim()))
+        setTokenBalance(Number(data.spyda_token_balance || 0))
+        setCreditsSpent(Number(data.credits_spent_total || 0))
+      }
       setBalanceError('')
     } catch (err) {
       console.error('Error fetching balance:', err)
@@ -2791,7 +2804,7 @@ function WalletView({ onFund }: { onFund: () => void }) {
   const CREDITS_PER_GENERATION = byokEnabled ? SPYDA_BYOK_ROUND_CREDITS : SPYDA_AI_ROUND_CREDITS
   const generationsRemaining = Math.floor(balance / CREDITS_PER_GENERATION)
   const fiatBalance = Number(user?.user_metadata?.spyda_fiat_balance || 0)
-  const tokenBalance = Number(user?.user_metadata?.spyda_token_balance || 0)
+  const creditsToNextToken = 1000 - (creditsSpent % 1000)
   const walletId = user?.id ? `SPY-${user.id.slice(0, 4).toUpperCase()}-${user.id.slice(-4).toUpperCase()}` : 'SPY-GUEST'
 
   const assets = {
@@ -2819,10 +2832,10 @@ function WalletView({ onFund }: { onFund: () => void }) {
       id: 'token' as const,
       name: 'Spyda Token',
       shortName: 'Token',
-      value: tokenBalance.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 }),
+      value: tokenBalance.toLocaleString(),
       suffix: 'tokens',
-      status: 'Locked',
-      detail: 'Future Web3 utility and participation layer.',
+      status: tokenBalance > 0 ? 'Earned' : 'Locked',
+      detail: `Earn 1 Spyda Token for every 1,000 credits you spend. ${creditsToNextToken.toLocaleString()} credits until your next token.`,
       icon: <SpydaCreditIcon className="h-5 w-5" />,
     },
   }
@@ -3098,13 +3111,13 @@ function CouponRedeemCard({ onRedeemed }: { onRedeemed: (creditsAdded: number) =
           onKeyDown={event => { if (event.key === 'Enter') handleRedeem() }}
           placeholder="SPYDA-XXXX-XXXX"
           aria-label="Coupon code"
-          className="h-14 w-full flex-1 rounded-lg border border-white/[0.12] bg-background/60 px-5 font-mono text-base uppercase tracking-[0.18em] outline-none placeholder:tracking-[0.18em] placeholder:text-muted-foreground/60 focus:border-primary/60"
+          className="h-16 w-full flex-1 rounded-md border border-white/[0.12] bg-background/60 px-5 font-mono text-lg uppercase tracking-[0.18em] outline-none placeholder:tracking-[0.18em] placeholder:text-muted-foreground/60 focus:border-primary/60 sm:h-14 sm:text-base"
         />
         <button
           type="button"
           onClick={handleRedeem}
           disabled={state === 'redeeming'}
-          className="inline-flex h-14 min-w-44 shrink-0 items-center justify-center gap-2 rounded-lg bg-primary px-6 text-sm font-semibold text-primary-foreground transition-colors hover:bg-primary/90 disabled:cursor-not-allowed disabled:opacity-50"
+          className="inline-flex h-14 w-full shrink-0 items-center justify-center gap-2 rounded-md bg-primary px-6 text-base font-semibold text-primary-foreground transition-colors hover:bg-primary/90 disabled:cursor-not-allowed disabled:opacity-50 sm:w-auto sm:min-w-44 sm:text-sm"
         >
           {state === 'redeeming' && <Loader2 className="h-4 w-4 animate-spin" />}
           {state === 'success' && <CircleCheck className="h-4 w-4" />}
