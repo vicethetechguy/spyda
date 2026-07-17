@@ -529,6 +529,7 @@ export default function Workspace() {
   const [aiModel, setAiModel] = useState<AiModel>(AI_MODELS[1])
   const [modelMenuOpen, setModelMenuOpen] = useState(false)
   const [profilePic, setProfilePic] = useState<string | null>(null)
+  const [walletRefreshKey, setWalletRefreshKey] = useState(0)
   const { user, signOut } = useAuth()
 
   // Handle logout
@@ -1389,8 +1390,8 @@ export default function Workspace() {
           {activeId === 'templates' && <TemplatesView onUseTemplate={handleUseTemplate} />}
           {activeId === 'brand-assets' && <BrandAssetsView onUseAsset={handleUseBrandAsset} />}
           {activeId === 'whitepaper' && <WhitepaperView />}
-          {activeId === 'wallet' && <WalletView onFund={() => setActiveId('fund')} />}
-          {activeId === 'fund' && <FundView onBack={() => setActiveId('wallet')} />}
+          {activeId === 'wallet' && <WalletView key={walletRefreshKey} onFund={() => setActiveId('fund')} />}
+          {activeId === 'fund' && <FundView onBack={() => { setWalletRefreshKey(k => k + 1); setActiveId('wallet') }} />}
           {activeId === 'subscription' && <SubscriptionView onBack={() => setActiveId('settings')} onOpenWallet={() => setActiveId('wallet')} onOpenSettings={() => setActiveId('settings')} />}
           {activeId === 'settings' && <SettingsView profilePic={profilePic} setProfilePic={setProfilePic} onManageSubscription={() => setActiveId('subscription')} />}
         </div>
@@ -2855,9 +2856,6 @@ function WalletView({ onFund }: { onFund: () => void }) {
                   <p className="text-[10px] font-semibold uppercase text-white/60">{selectedAsset.name}</p>
                   <div className="mt-2 flex items-center gap-2 text-sm text-white/75">{selectedAsset.icon}<span>{selectedAsset.shortName}</span></div>
                 </div>
-                <span className={`inline-flex items-center gap-1.5 rounded-md border px-2.5 py-1 text-[10px] font-semibold uppercase ${selectedAsset.status === 'Live' ? 'border-white/25 bg-black/20 text-[#9dfab0]' : 'border-white/15 bg-black/25 text-white/70'}`}>
-                  {selectedAsset.status === 'Locked' && <LockKeyhole className="h-3 w-3" />}{selectedAsset.status}
-                </span>
               </div>
               <div className="my-7">
                 <p className="font-heading text-4xl font-semibold leading-none sm:text-5xl">{loading && activeAsset === 'credits' ? <Loader2 className="h-9 w-9 animate-spin" /> : selectedAsset.value}</p>
