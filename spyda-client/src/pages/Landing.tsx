@@ -4,16 +4,21 @@ import {
   ArrowRight,
   Check,
   ChevronDown,
+  Coins,
   Download,
+  Gift,
   GitCompareArrows,
   Layers3,
   Library,
   MousePointer2,
+  Network,
   Palette,
   Play,
   RefreshCw,
   ScanSearch,
+  ShieldCheck,
   SlidersHorizontal,
+  Target,
   Upload,
   WandSparkles,
   X,
@@ -29,6 +34,28 @@ function SectionLabel({ children }: { children: React.ReactNode }) {
     <div className="mb-5 flex items-center justify-center gap-2 text-[11px] font-semibold uppercase tracking-[0.18em] text-primary">
       <span className="h-1.5 w-1.5 rounded-full bg-primary shadow-[0_0_12px_rgba(157,250,176,0.8)]" />
       {children}
+    </div>
+  )
+}
+
+function SpydaCoinVisual() {
+  return (
+    <div className="relative mx-auto aspect-square w-full max-w-[430px]" aria-label="Spyda Token community reward coin">
+      <div className="absolute inset-[3%] rounded-full border border-dashed border-primary/25 motion-safe:animate-[spin_18s_linear_infinite]" />
+      <div className="absolute inset-[12%] rounded-full border border-[#88a8ff]/20 motion-safe:animate-[spin_13s_linear_infinite_reverse]" />
+      <div className="absolute inset-[21%] rounded-full border border-white/[0.08]" />
+
+      <div className="absolute left-1/2 top-1/2 h-[54%] w-[54%] -translate-x-[46%] -translate-y-[44%] rounded-full border border-black/70 bg-[#16221e] shadow-[0_30px_70px_rgba(0,0,0,.55)]" />
+      <div className="absolute left-1/2 top-1/2 flex h-[54%] w-[54%] -translate-x-1/2 -translate-y-1/2 flex-col items-center justify-center rounded-full border border-primary/50 bg-[linear-gradient(145deg,#18201e_0%,#0c0f10_46%,#203f36_100%)] shadow-[inset_0_1px_0_rgba(255,255,255,.15),inset_0_-12px_28px_rgba(0,0,0,.5),0_0_55px_rgba(157,250,176,.12)] motion-safe:animate-[pulse_4s_ease-in-out_infinite]">
+        <div className="absolute inset-3 rounded-full border border-white/[0.08]" />
+        <img src="/assets/spyda-credit.png" alt="Spyda Token" className="relative h-[48%] w-[48%] object-contain" />
+        <span className="relative mt-1 font-heading text-[10px] font-semibold tracking-[0.22em] text-white/75 sm:text-xs">SPYDA</span>
+      </div>
+
+      <div className="absolute left-0 top-[20%] rounded-md border border-white/[0.09] bg-black/70 px-3 py-2 backdrop-blur-md"><p className="text-[9px] font-semibold uppercase text-muted-foreground">Earn rate</p><p className="mt-1 text-xs font-semibold text-primary">1,000 : 1</p></div>
+      <div className="absolute bottom-[16%] right-0 rounded-md border border-white/[0.09] bg-black/70 px-3 py-2 text-right backdrop-blur-md"><p className="text-[9px] font-semibold uppercase text-muted-foreground">Launch mission</p><p className="mt-1 text-xs font-semibold text-[#a9bcff]">1B user-earned</p></div>
+      <div className="absolute right-[8%] top-[8%] flex h-8 w-8 items-center justify-center rounded-full border border-primary/30 bg-[#0b0e0d] text-primary shadow-[0_0_24px_rgba(157,250,176,.15)]"><Network className="h-3.5 w-3.5" /></div>
+      <div className="absolute bottom-[8%] left-[12%] flex h-8 w-8 items-center justify-center rounded-full border border-[#ff8f5c]/30 bg-[#0b0e0d] text-[#ffab84]"><Gift className="h-3.5 w-3.5" /></div>
     </div>
   )
 }
@@ -154,10 +181,11 @@ export default function Landing() {
             <img src="/assets/spyda-logo-drive.webp" alt="" className="h-8 w-8 object-contain" />
             <span className="font-heading text-lg font-semibold">Spyda</span>
           </Link>
-          <nav className="hidden items-center gap-7 md:flex">
+          <nav className="hidden items-center gap-6 md:flex">
             <a href="#problem" className="text-xs font-normal text-muted-foreground transition-colors hover:text-foreground">Why Spyda</a>
             <a href="#how" className="text-xs font-normal text-muted-foreground transition-colors hover:text-foreground">How it works</a>
             <a href="#features" className="text-xs font-normal text-muted-foreground transition-colors hover:text-foreground">What you control</a>
+            <a href="#economy" className="text-xs font-normal text-muted-foreground transition-colors hover:text-foreground">Spyda Token</a>
             <a href="#pricing" className="text-xs font-normal text-muted-foreground transition-colors hover:text-foreground">Pricing</a>
           </nav>
           <div className="flex items-center gap-2">
@@ -317,6 +345,51 @@ export default function Landing() {
           </div>
         </section>
 
+        <section id="economy" className="relative overflow-hidden border-y border-white/[0.06] bg-[#070909] px-4 py-24 sm:py-28">
+          <div className="absolute inset-0 grid-pattern opacity-20" />
+          <div className="absolute inset-x-0 top-0 h-px bg-[linear-gradient(90deg,transparent,#9dfab0,#88a8ff,transparent)]" />
+          <div className="relative mx-auto max-w-6xl">
+            <div className="grid items-center gap-12 lg:grid-cols-[minmax(0,1fr)_minmax(360px,.82fr)] lg:gap-16">
+              <div>
+                <div className="mb-5 flex items-center gap-2 text-[11px] font-semibold uppercase tracking-[0.18em] text-primary"><Coins className="h-4 w-4" /> The Spyda economy</div>
+                <h2 className="max-w-3xl font-heading text-3xl font-semibold leading-tight sm:text-5xl">Your design budget should create more than the next design.</h2>
+                <p className="mt-6 max-w-2xl text-base leading-8 text-muted-foreground">Spyda is building a creative economy where eligible product usage becomes proof that you helped grow the network. You get faster, premium design work today and accrue participation in what Spyda can become tomorrow.</p>
+
+                <div className="mt-8 grid gap-px overflow-hidden rounded-lg border border-white/[0.09] bg-white/[0.08] sm:grid-cols-[1fr_auto_1fr] sm:items-stretch">
+                  <div className="bg-[#0a0c0c] p-5"><p className="text-[10px] font-semibold uppercase text-muted-foreground">Eligible usage</p><p className="mt-2 font-heading text-2xl font-semibold">1,000 credits</p><p className="mt-1 text-xs text-muted-foreground">consumed inside Spyda</p></div>
+                  <div className="flex items-center justify-center bg-[#0a0c0c] px-4 py-2"><ArrowRight className="h-5 w-5 rotate-90 text-primary sm:rotate-0" /></div>
+                  <div className="bg-[#0a0c0c] p-5"><p className="text-[10px] font-semibold uppercase text-muted-foreground">Community reward</p><div className="mt-2 flex items-center gap-2"><img src="/assets/spyda-credit.png" alt="" className="h-7 w-7 object-contain" /><p className="font-heading text-2xl font-semibold">1 SPYDA</p></div><p className="mt-1 text-xs text-primary">pre-launch allocation</p></div>
+                </div>
+
+                <div className="mt-7 grid gap-3 sm:grid-cols-3">
+                  {[
+                    [WandSparkles, 'Create', 'Use Spyda for real design work.'],
+                    [Target, 'Accrue', 'Eligible credit spend builds your balance.'],
+                    [Network, 'Launch together', 'The community target is 1B SPYDA.'],
+                  ].map(([Icon, title, copy]) => {
+                    const StepIcon = Icon as typeof WandSparkles
+                    return <div key={String(title)} className="border-l border-white/[0.1] pl-4"><StepIcon className="h-4 w-4 text-primary" /><h3 className="mt-3 text-sm font-semibold">{String(title)}</h3><p className="mt-1 text-xs leading-5 text-muted-foreground">{String(copy)}</p></div>
+                  })}
+                </div>
+
+                <div className="mt-8 flex flex-col gap-3 sm:flex-row sm:items-center">
+                  <Link to="/auth" className="inline-flex h-11 items-center justify-center gap-2 rounded-lg bg-primary px-5 text-sm font-semibold text-primary-foreground transition-transform hover:-translate-y-0.5">Start creating and accruing <ArrowRight className="h-4 w-4" /></Link>
+                  <Link to="/auth" className="inline-flex h-11 items-center justify-center gap-2 rounded-lg border border-white/[0.1] bg-white/[0.025] px-5 text-sm font-semibold hover:bg-white/[0.06]"><ShieldCheck className="h-4 w-4 text-primary" /> Read the whitepaper in Spyda</Link>
+                </div>
+                <p className="mt-5 max-w-2xl text-[11px] leading-5 text-muted-foreground">Pre-launch SPYDA is a non-transferable reward record, not cash, a refund, a stablecoin, or guaranteed market value. Launch requires the community threshold plus security, utility, network, and legal readiness.</p>
+              </div>
+
+              <SpydaCoinVisual />
+            </div>
+
+            <div className="mt-16 grid gap-3 border-t border-white/[0.08] pt-8 md:grid-cols-3">
+              <div className="rounded-lg border border-white/[0.08] bg-white/[0.02] p-5"><Gift className="h-5 w-5 text-primary" /><h3 className="mt-4 font-heading text-base font-semibold">Usage becomes participation</h3><p className="mt-2 text-sm leading-6 text-muted-foreground">Rewards follow eligible credits actually consumed, not money simply deposited into the wallet.</p></div>
+              <div className="rounded-lg border border-white/[0.08] bg-white/[0.02] p-5"><Network className="h-5 w-5 text-[#a9bcff]" /><h3 className="mt-4 font-heading text-base font-semibold">One billion, earned together</h3><p className="mt-2 text-sm leading-6 text-muted-foreground">The planned launch trigger is reached when user accounts collectively accrue 1 billion eligible SPYDA.</p></div>
+              <div className="rounded-lg border border-white/[0.08] bg-white/[0.02] p-5"><ShieldCheck className="h-5 w-5 text-[#ffab84]" /><h3 className="mt-4 font-heading text-base font-semibold">Product and trust first</h3><p className="mt-2 text-sm leading-6 text-muted-foreground">Spyda must remain useful before launch, and the token infrastructure must pass its readiness gates.</p></div>
+            </div>
+          </div>
+        </section>
+
         <section id="pricing" className="border-y border-white/[0.06] bg-white/[0.012] px-4 py-24 sm:py-28">
           <div className="mx-auto max-w-6xl">
             <div className="mx-auto max-w-2xl text-center">
@@ -325,10 +398,10 @@ export default function Landing() {
               <p className="mt-5 text-base leading-7 text-muted-foreground">Fund your wallet, subscribe for a larger workload, or connect your own API key for a lower Spyda credit rate.</p>
             </div>
             <div className="mx-auto mt-14 flex max-w-7xl snap-x snap-mandatory gap-4 overflow-x-auto px-[8vw] pb-3 md:grid md:grid-cols-2 md:overflow-visible md:px-0 md:pb-0 xl:grid-cols-4">
-              <PricingCard name="Wallet Funding" price="Any amount" detail="$1 = 100 Spyda credits" desc="Fund your wallet with the amount that matches the work in front of you." features={['Credits stay in your account', 'No recurring payment', '20 credits per generation', 'Top up again at any time']} texture="starter" />
-              <PricingCard name="Creator" price="NGN 12,000" detail="30 days of access" desc="For creators handling regular campaigns, promotions, and client revisions." features={['1,200 credits per access period', 'Unlimited saved projects', 'Brand asset library', 'Premium design analysis']} texture="creator" featured />
-              <PricingCard name="Studio" price="NGN 30,000" detail="30 days of access" desc="For teams and high-volume creative work that needs more room to move." features={['3,500 credits per access period', 'Everything in Creator', 'Faster processing queue', 'Advanced brand controls']} texture="pro" />
-              <PricingCard name="Bring Your API Key" price="5 credits" detail="per AI generation" desc="Use your own OpenAI API billing while Spyda provides the editing workflow and QA." features={['Connect your OpenAI API key', 'Optional Groq analysis key', '5 Spyda credits per generation', 'Manage keys from Settings']} texture="free" />
+              <PricingCard name="Wallet Funding" price="Any amount" detail="$1 = 100 Spyda credits" desc="Fund your wallet with the amount that matches the work in front of you." features={['Credits stay in your account', 'No recurring payment', '20 credits per generation', 'Eligible spend accrues SPYDA']} texture="starter" />
+              <PricingCard name="Creator" price="NGN 12,000" detail="30 days of access" desc="For creators handling regular campaigns, promotions, and client revisions." features={['1,200 credits per access period', 'Unlimited saved projects', 'Brand asset library', 'Eligible spend accrues SPYDA']} texture="creator" featured />
+              <PricingCard name="Studio" price="NGN 30,000" detail="30 days of access" desc="For teams and high-volume creative work that needs more room to move." features={['3,500 credits per access period', 'Everything in Creator', 'Faster processing queue', 'Eligible spend accrues SPYDA']} texture="pro" />
+              <PricingCard name="Bring Your API Key" price="5 credits" detail="per AI generation" desc="Use your own OpenAI API billing while Spyda provides the editing workflow and QA." features={['Connect your OpenAI API key', 'Optional Groq analysis key', '5 Spyda credits per generation', 'Eligible spend accrues SPYDA']} texture="free" />
             </div>
             <p className="mt-5 text-center text-xs text-muted-foreground">Paid access does not renew automatically. Payments are handled securely through Paystack.</p>
           </div>
@@ -346,6 +419,9 @@ export default function Landing() {
               <FAQItem question="Why can I make only three focused changes per round?" answer="Smaller rounds give the image model fewer instructions to balance at once. This helps it preserve more of the parent layout, and your latest child version becomes the source for the next round." />
               <FAQItem question="Can I replace logos and product images?" answer="Yes. Upload a replacement on the matching design atom or through Essentials. Spyda also supports exact placement controls for detected image regions before the AI generation step." />
               <FAQItem question="Can I keep my brand fonts and colors?" answer="Yes. Brand Constants lets you set heading and body fonts, HEX colors, and the visual style that should guide the revised design." />
+              <FAQItem question="How do Spyda Token rewards work?" answer="For every 1,000 eligible Spyda Credits consumed on qualifying product actions, your account accrues 1 pre-launch SPYDA allocation. Funding the wallet alone does not create a reward; the credits must be used inside Spyda." />
+              <FAQItem question="When will the Spyda Token launch?" answer="The planned community trigger is reached when users collectively hold 1 billion eligible, accrued SPYDA. Launch also depends on security audits, useful token infrastructure, network selection, claim controls, and legal readiness." />
+              <FAQItem question="Is accrued SPYDA the same as cash?" answer="No. Before launch, accrued SPYDA is a non-transferable reward record. It is not cash, a refund, a stablecoin, or a guarantee that a future token will have a specific market price." />
               <FAQItem question="Do I need to be a professional designer?" answer="No. Spyda is built for anyone who can point to a design they like and clearly choose what should stay, what should change, and what should be removed." />
             </div>
           </div>
@@ -389,7 +465,7 @@ export default function Landing() {
       <footer className="border-t border-white/[0.07] px-4 py-9">
         <div className="mx-auto flex max-w-6xl flex-col gap-6 sm:flex-row sm:items-center sm:justify-between">
           <div className="flex items-center gap-2.5"><img src="/assets/spyda-logo-drive.webp" alt="" className="h-7 w-7 object-contain opacity-70" /><span className="font-heading text-sm font-semibold">Spyda</span><span className="text-xs text-muted-foreground">&copy; 2026</span></div>
-          <p className="text-xs text-muted-foreground">Reference-led design revision, made simpler.</p>
+          <p className="text-xs text-muted-foreground">Premium design today. Participation in what comes next.</p>
           <div className="inline-flex w-fit items-center gap-2 rounded-lg border border-white/[0.09] bg-white/[0.025] px-3 py-2 text-[10px] text-muted-foreground">
             <span>Built by</span><img src="/assets/vigency-logo-footer.png" alt="Vigency" className="h-4 w-auto opacity-70" />
           </div>
