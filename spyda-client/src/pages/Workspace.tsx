@@ -2751,31 +2751,42 @@ function WalletView({ onFund }: { onFund: () => void }) {
   const [activeAsset, setActiveAsset] = useState<'credits' | 'usd' | 'token'>('credits')
   const [walletNotice, setWalletNotice] = useState('')
 
-  useEffect(() => {
-    async function fetchBalance() {
-      if (!user) {
-        setLoading(false)
-        return
-      }
-      try {
-        const { data, error } = await supabase
-          .from('profiles')
-          .select('wallet_balance, openai_key')
-          .eq('id', user.id)
-          .single()
-
-        if (error) throw error
-        setBalance(Number(data?.wallet_balance || 0))
-        setByokEnabled(Boolean(String(data?.openai_key || '').trim()))
-      } catch (err) {
-        console.error('Error fetching balance:', err)
-        setBalanceError('We could not refresh your balance. Try again shortly.')
-      } finally {
-        setLoading(false)
-      }
+  const loadBalance = useCallback(async () => {
+    if (!user) {
+      setLoading(false)
+      return
     }
-    fetchBalance()
+    try {
+      const { data, error } = await supabase
+        .from('profiles')
+        .select('wallet_balance, openai_key')
+        .eq('id', user.id)
+        .single()
+
+      if (error) throw error
+      setBalance(Number(data?.wallet_balance || 0))
+      setByokEnabled(Boolean(String(data?.openai_key || '').trim()))
+      setBalanceError('')
+    } catch (err) {
+      console.error('Error fetching balance:', err)
+      setBalanceError('We could not refresh your balance. Try again shortly.')
+    } finally {
+      setLoading(false)
+    }
   }, [user])
+
+  useEffect(() => {
+    loadBalance()
+    // Keep the balance fresh after funding elsewhere (coupon redeem, Paystack)
+    // or when the user returns to this tab.
+    const onFocus = () => loadBalance()
+    window.addEventListener('focus', onFocus)
+    document.addEventListener('visibilitychange', onFocus)
+    return () => {
+      window.removeEventListener('focus', onFocus)
+      document.removeEventListener('visibilitychange', onFocus)
+    }
+  }, [loadBalance])
 
   const CREDITS_PER_GENERATION = byokEnabled ? SPYDA_BYOK_ROUND_CREDITS : SPYDA_AI_ROUND_CREDITS
   const generationsRemaining = Math.floor(balance / CREDITS_PER_GENERATION)
@@ -2856,6 +2867,9 @@ function WalletView({ onFund }: { onFund: () => void }) {
                   <p className="text-[10px] font-semibold uppercase text-white/60">{selectedAsset.name}</p>
                   <div className="mt-2 flex items-center gap-2 text-sm text-white/75">{selectedAsset.icon}<span>{selectedAsset.shortName}</span></div>
                 </div>
+                <button type="button" onClick={() => { setLoading(true); loadBalance() }} aria-label="Refresh balance" className="inline-flex h-9 w-9 items-center justify-center rounded-lg border border-white/20 bg-white/10 text-white/80 transition-colors hover:bg-white/20">
+                  <RotateCcw className={`h-4 w-4 ${loading ? 'animate-spin' : ''}`} />
+                </button>
               </div>
               <div className="my-7">
                 <p className="font-heading text-4xl font-semibold leading-none sm:text-5xl">{loading && activeAsset === 'credits' ? <Loader2 className="h-9 w-9 animate-spin" /> : selectedAsset.value}</p>
@@ -3076,7 +3090,7 @@ function CouponRedeemCard({ onRedeemed }: { onRedeemed: (creditsAdded: number) =
         <Ticket className="h-4 w-4" /> Have a coupon code?
       </div>
       <p className="mb-5 text-sm leading-relaxed text-muted-foreground">Redeem a Spyda coupon to instantly top up your credit balance. Each code works once.</p>
-      <div className="flex flex-col gap-3 sm:flex-row">
+      <div className="flex flex-col gap-3 sm:flex-row sm:items-stretch">
         <input
           type="text"
           value={code}
@@ -3084,13 +3098,13 @@ function CouponRedeemCard({ onRedeemed }: { onRedeemed: (creditsAdded: number) =
           onKeyDown={event => { if (event.key === 'Enter') handleRedeem() }}
           placeholder="SPYDA-XXXX-XXXX"
           aria-label="Coupon code"
-          className="h-12 flex-1 rounded-lg border border-white/[0.1] bg-background/60 px-4 font-mono text-sm uppercase tracking-wide outline-none focus:border-primary/50"
+          className="h-14 w-full flex-1 rounded-lg border border-white/[0.12] bg-background/60 px-5 font-mono text-base uppercase tracking-[0.18em] outline-none placeholder:tracking-[0.18em] placeholder:text-muted-foreground/60 focus:border-primary/60"
         />
         <button
           type="button"
           onClick={handleRedeem}
           disabled={state === 'redeeming'}
-          className="inline-flex h-12 min-w-40 items-center justify-center gap-2 rounded-lg bg-primary px-5 text-sm font-semibold text-primary-foreground transition-colors hover:bg-primary/90 disabled:cursor-not-allowed disabled:opacity-50"
+          className="inline-flex h-14 min-w-44 shrink-0 items-center justify-center gap-2 rounded-lg bg-primary px-6 text-sm font-semibold text-primary-foreground transition-colors hover:bg-primary/90 disabled:cursor-not-allowed disabled:opacity-50"
         >
           {state === 'redeeming' && <Loader2 className="h-4 w-4 animate-spin" />}
           {state === 'success' && <CircleCheck className="h-4 w-4" />}
