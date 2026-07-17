@@ -4,6 +4,7 @@ import { AuthProvider, useAuth } from './lib/AuthContext'
 import Landing from './pages/Landing'
 import Workspace from './pages/Workspace'
 import Auth from './pages/Auth'
+import Admin from './pages/Admin'
 import SpydaSplash from './components/SpydaSplash'
 import WorkspaceErrorBoundary from './components/WorkspaceErrorBoundary'
 import { supabase } from './lib/supabase'
@@ -67,6 +68,7 @@ function App() {
         <Routes>
           <Route path="/" element={<Landing />} />
           <Route path="/auth" element={<Auth />} />
+          <Route path="/admin" element={<Admin />} />
           <Route path="/workspace" element={
             <ProtectedRoute>
               <WorkspaceErrorBoundary>

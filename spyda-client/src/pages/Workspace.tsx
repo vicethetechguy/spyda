@@ -48,8 +48,10 @@ import {
   LockKeyhole,
   DollarSign,
   Radio,
-  ChevronRight
+  ChevronRight,
+  Ticket
 } from 'lucide-react'
+import { redeemCoupon } from '../lib/admin'
 
 /* ═══════════════════════════════════════════════
    AI Model Definitions
@@ -3036,8 +3038,73 @@ function FundView({ onBack }: { onBack: () => void }) {
           <div className="mt-5 flex items-start gap-3 border-t border-white/[0.07] pt-5 text-xs leading-5 text-muted-foreground"><ShieldCheck className="mt-0.5 h-4 w-4 shrink-0 text-primary" />Payments are processed securely by Paystack. Your card details are never stored by Spyda.</div>
         </div>
 
+        <CouponRedeemCard onRedeemed={added => setBalance(balance + added)} />
+
         {balanceError && <p className="mt-6 text-sm text-amber-400">{balanceError}</p>}
       </div>
+    </div>
+  )
+}
+
+function CouponRedeemCard({ onRedeemed }: { onRedeemed: (creditsAdded: number) => void }) {
+  const [code, setCode] = useState('')
+  const [state, setState] = useState<'idle' | 'redeeming' | 'success' | 'error'>('idle')
+  const [message, setMessage] = useState('')
+
+  const handleRedeem = async () => {
+    const trimmed = code.trim()
+    if (!trimmed) {
+      setState('error')
+      setMessage('Enter a coupon code to redeem.')
+      return
+    }
+    setState('redeeming')
+    setMessage('')
+    try {
+      const { credit_amount } = await redeemCoupon(trimmed)
+      onRedeemed(credit_amount)
+      setState('success')
+      setMessage(`${credit_amount.toLocaleString()} Spyda credits added to your wallet.`)
+      setCode('')
+    } catch (err) {
+      setState('error')
+      setMessage(err instanceof Error ? err.message : 'That coupon code could not be redeemed.')
+    }
+  }
+
+  return (
+    <div className="mt-6 rounded-lg border border-white/[0.08] bg-white/[0.025] p-5 sm:p-6">
+      <div className="mb-3 flex items-center gap-2 text-[11px] font-semibold uppercase text-primary">
+        <Ticket className="h-3.5 w-3.5" /> Have a coupon code?
+      </div>
+      <p className="mb-4 text-sm text-muted-foreground">Redeem a Spyda coupon to instantly top up your credit balance. Each code works once.</p>
+      <div className="flex flex-col gap-3 sm:flex-row">
+        <input
+          type="text"
+          value={code}
+          onChange={event => { setCode(event.target.value.toUpperCase()); if (state !== 'idle') { setState('idle'); setMessage('') } }}
+          onKeyDown={event => { if (event.key === 'Enter') handleRedeem() }}
+          placeholder="SPYDA-XXXX-XXXX"
+          aria-label="Coupon code"
+          className="h-11 flex-1 rounded-lg border border-white/[0.1] bg-background/60 px-4 font-mono text-sm uppercase tracking-wide outline-none focus:border-primary/50"
+        />
+        <button
+          type="button"
+          onClick={handleRedeem}
+          disabled={state === 'redeeming'}
+          className="inline-flex h-11 min-w-40 items-center justify-center gap-2 rounded-lg bg-primary px-5 text-sm font-semibold text-primary-foreground transition-colors hover:bg-primary/90 disabled:cursor-not-allowed disabled:opacity-50"
+        >
+          {state === 'redeeming' && <Loader2 className="h-4 w-4 animate-spin" />}
+          {state === 'success' && <CircleCheck className="h-4 w-4" />}
+          {state === 'redeeming' ? 'Redeeming…' : state === 'success' ? 'Redeemed' : 'Redeem coupon'}
+        </button>
+      </div>
+      {message && (
+        <p className={`mt-3 flex items-start gap-2 text-sm ${state === 'error' ? 'text-amber-400' : 'text-primary'}`}>
+          {state === 'error' ? <X className="mt-0.5 h-4 w-4 shrink-0" /> : <Check className="mt-0.5 h-4 w-4 shrink-0" />}
+          {message}
+        </p>
+      )}
     </div>
   )
 }
