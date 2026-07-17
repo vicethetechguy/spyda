@@ -3073,11 +3073,11 @@ function CouponRedeemCard({ onRedeemed }: { onRedeemed: (creditsAdded: number) =
   }
 
   return (
-    <div className="mt-6 rounded-lg border border-white/[0.08] bg-white/[0.025] p-5 sm:p-6">
-      <div className="mb-3 flex items-center gap-2 text-[11px] font-semibold uppercase text-primary">
-        <Ticket className="h-3.5 w-3.5" /> Have a coupon code?
+    <div className="mt-6 rounded-xl border border-white/[0.08] bg-white/[0.025] p-6 pb-7 sm:p-8 sm:pb-9">
+      <div className="mb-4 flex items-center gap-2 text-[11px] font-semibold uppercase text-primary">
+        <Ticket className="h-4 w-4" /> Have a coupon code?
       </div>
-      <p className="mb-4 text-sm text-muted-foreground">Redeem a Spyda coupon to instantly top up your credit balance. Each code works once.</p>
+      <p className="mb-5 text-sm leading-relaxed text-muted-foreground">Redeem a Spyda coupon to instantly top up your credit balance. Each code works once.</p>
       <div className="flex flex-col gap-3 sm:flex-row">
         <input
           type="text"
@@ -3086,13 +3086,13 @@ function CouponRedeemCard({ onRedeemed }: { onRedeemed: (creditsAdded: number) =
           onKeyDown={event => { if (event.key === 'Enter') handleRedeem() }}
           placeholder="SPYDA-XXXX-XXXX"
           aria-label="Coupon code"
-          className="h-11 flex-1 rounded-lg border border-white/[0.1] bg-background/60 px-4 font-mono text-sm uppercase tracking-wide outline-none focus:border-primary/50"
+          className="h-12 flex-1 rounded-lg border border-white/[0.1] bg-background/60 px-4 font-mono text-sm uppercase tracking-wide outline-none focus:border-primary/50"
         />
         <button
           type="button"
           onClick={handleRedeem}
           disabled={state === 'redeeming'}
-          className="inline-flex h-11 min-w-40 items-center justify-center gap-2 rounded-lg bg-primary px-5 text-sm font-semibold text-primary-foreground transition-colors hover:bg-primary/90 disabled:cursor-not-allowed disabled:opacity-50"
+          className="inline-flex h-12 min-w-40 items-center justify-center gap-2 rounded-lg bg-primary px-5 text-sm font-semibold text-primary-foreground transition-colors hover:bg-primary/90 disabled:cursor-not-allowed disabled:opacity-50"
         >
           {state === 'redeeming' && <Loader2 className="h-4 w-4 animate-spin" />}
           {state === 'success' && <CircleCheck className="h-4 w-4" />}
