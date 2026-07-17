@@ -1,22 +1,40 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import {
+  AlertTriangle,
   Archive,
   ArchiveRestore,
   Clock3,
   Copy,
   FileImage,
   FolderKanban,
+  ImagePlus,
   LayoutTemplate,
   Loader2,
   Palette,
   Plus,
   Search,
+  Sparkles,
+  Store,
   Trash2,
   Type,
   Upload,
+  X,
 } from 'lucide-react'
 import type { LegacyBreakdown as BreakdownResult } from '../../core/design-document'
 import type { AtomBox } from '../../lib/design'
+import { useAuth } from '../../lib/AuthContext'
+import { supabase } from '../../lib/supabase'
+import {
+  TEMPLATE_LISTING_FEE,
+  deleteTemplate,
+  fetchMarketplaceTemplates,
+  fetchMyPurchases,
+  fetchTemplateCategories,
+  listTemplate,
+  purchaseTemplate,
+  uploadTemplateImage,
+  type MarketplaceTemplate,
+} from '../../lib/marketplace'
 
 export type WorkspaceAtomEdit = {
   mode: 'same' | 'customize' | 'delete'
@@ -277,34 +295,321 @@ const TEMPLATE_LIBRARY = [
   ['Digital services', 'Business', '/assets/spyda-sample-12.jpeg'],
 ] as const
 
+function SpydaCreditMark({ className = '' }: { className?: string }) {
+  return <img src="/assets/spyda-credit.png" alt="" aria-hidden="true" className={`shrink-0 object-contain ${className}`} />
+}
+
+type DisplayTemplate = {
+  key: string
+  name: string
+  category: string
+  source: string
+  price: number
+  kind: 'spyda' | 'community'
+  isOwner?: boolean
+  owned?: boolean
+  template?: MarketplaceTemplate
+}
+
 export function TemplatesView({ onUseTemplate }: { onUseTemplate: (source: string, name: string) => Promise<void> }) {
+  const { user } = useAuth()
   const [search, setSearch] = useState('')
   const [category, setCategory] = useState('All')
-  const [loading, setLoading] = useState<string | null>(null)
-  const categories = ['All', ...Array.from(new Set(TEMPLATE_LIBRARY.map(template => template[1])))]
-  const templates = TEMPLATE_LIBRARY.filter(template => (category === 'All' || template[1] === category) && template[0].toLowerCase().includes(search.toLowerCase()))
+  const [applying, setApplying] = useState<string | null>(null)
+  const [actionError, setActionError] = useState('')
+  const [showList, setShowList] = useState(false)
 
-  const applyTemplate = async (source: string, name: string) => {
-    setLoading(source)
-    try { await onUseTemplate(source, name) } finally { setLoading(null) }
+  const [templates, setTemplates] = useState<MarketplaceTemplate[]>([])
+  const [dbCategories, setDbCategories] = useState<string[]>([])
+  const [purchased, setPurchased] = useState<Set<string>>(new Set())
+  const [loadingMarket, setLoadingMarket] = useState(true)
+  const [marketError, setMarketError] = useState('')
+
+  const refresh = useCallback(async () => {
+    setLoadingMarket(true)
+    setMarketError('')
+    try {
+      const [cats, tpls] = await Promise.all([fetchTemplateCategories(), fetchMarketplaceTemplates()])
+      setDbCategories(cats)
+      setTemplates(tpls)
+      if (user?.id) {
+        try { setPurchased(await fetchMyPurchases(user.id)) } catch { /* purchases are best-effort */ }
+      }
+    } catch {
+      setMarketError('Community templates could not be loaded right now. Spyda picks are still available below.')
+      setTemplates([])
+    } finally {
+      setLoadingMarket(false)
+    }
+  }, [user?.id])
+
+  useEffect(() => { void refresh() }, [refresh])
+
+  const builtIns: DisplayTemplate[] = useMemo(
+    () => TEMPLATE_LIBRARY.map(([name, type, source]) => ({ key: `spyda:${source}`, name, category: type, source, price: 0, kind: 'spyda' })),
+    [],
+  )
+
+  const community: DisplayTemplate[] = useMemo(
+    () => templates.map(template => ({
+      key: `db:${template.id}`,
+      name: template.name,
+      category: template.category,
+      source: template.image_url,
+      price: template.price,
+      kind: 'community' as const,
+      isOwner: template.owner_id === user?.id,
+      owned: template.owner_id === user?.id || template.price <= 0 || purchased.has(template.id),
+      template,
+    })),
+    [templates, purchased, user?.id],
+  )
+
+  const categories = useMemo(
+    () => ['All', ...Array.from(new Set([...builtIns.map(item => item.category), ...dbCategories]))],
+    [builtIns, dbCategories],
+  )
+
+  const visible = useMemo(() => {
+    const query = search.toLowerCase().trim()
+    return [...community, ...builtIns].filter(item =>
+      (category === 'All' || item.category === category) && item.name.toLowerCase().includes(query))
+  }, [community, builtIns, category, search])
+
+  const handleUse = async (item: DisplayTemplate) => {
+    setActionError('')
+    setApplying(item.key)
+    try {
+      if (item.kind === 'community' && item.template && !item.owned) {
+        await purchaseTemplate(item.template.id)
+        setPurchased(prev => new Set(prev).add(item.template!.id))
+      }
+      await onUseTemplate(item.source, `${item.name}.jpeg`)
+    } catch (error) {
+      setActionError(error instanceof Error ? error.message : 'This template could not be used.')
+    } finally {
+      setApplying(null)
+    }
+  }
+
+  const handleDelete = async (item: DisplayTemplate) => {
+    if (!item.template) return
+    setActionError('')
+    try {
+      await deleteTemplate(item.template)
+      await refresh()
+    } catch (error) {
+      setActionError(error instanceof Error ? error.message : 'This template could not be removed.')
+    }
   }
 
   return (
     <div className="mx-auto w-full max-w-6xl p-5 sm:p-8">
-      <PageIntro eyebrow="Reference library" title="Templates" copy="Start from a polished flyer reference, then let Spyda dissect it into editable design atoms." />
+      <PageIntro
+        eyebrow="Template marketplace"
+        title="Templates"
+        copy="Start from a polished reference, or list your own template to earn Spyda credits every time someone uses it."
+        action={(
+          <button type="button" onClick={() => setShowList(true)} className="inline-flex h-10 items-center gap-2 rounded-lg bg-primary px-4 text-xs font-semibold text-primary-foreground">
+            <Plus className="h-4 w-4" /> List a template
+          </button>
+        )}
+      />
+
       <div className="mt-6 flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
         <div className="flex gap-2 overflow-x-auto pb-1">
           {categories.map(value => <button key={value} type="button" onClick={() => setCategory(value)} className={`h-9 shrink-0 rounded-lg border px-4 text-xs font-semibold ${category === value ? 'border-primary/40 bg-primary/10 text-primary' : 'border-white/[0.08] text-muted-foreground'}`}>{value}</button>)}
         </div>
         <label className="flex h-10 items-center gap-2 rounded-lg border border-white/[0.08] bg-white/[0.02] px-3 sm:w-64"><Search className="h-4 w-4 text-muted-foreground" /><input value={search} onChange={event => setSearch(event.target.value)} placeholder="Search templates" className="min-w-0 flex-1 bg-transparent text-sm outline-none" /></label>
       </div>
+
+      {marketError && <div className="mt-4 flex items-start gap-2 rounded-lg border border-amber-500/20 bg-amber-500/[0.06] px-4 py-3 text-xs leading-5 text-amber-200"><AlertTriangle className="mt-0.5 h-4 w-4 shrink-0" />{marketError}</div>}
+      {actionError && <div className="mt-4 flex items-start gap-2 rounded-lg border border-red-500/20 bg-red-500/[0.06] px-4 py-3 text-xs leading-5 text-red-200"><AlertTriangle className="mt-0.5 h-4 w-4 shrink-0" />{actionError}<button type="button" aria-label="Dismiss" onClick={() => setActionError('')} className="ml-auto text-red-200/70 hover:text-red-100"><X className="h-4 w-4" /></button></div>}
+
+      {loadingMarket && !templates.length && (
+        <div className="mt-6 flex items-center gap-2 text-xs text-muted-foreground"><Loader2 className="h-4 w-4 animate-spin" /> Loading community templates…</div>
+      )}
+
       <div className="mt-6 grid grid-cols-2 gap-3 md:grid-cols-3 xl:grid-cols-4">
-        {templates.map(([name, type, source]) => (
-          <article key={source} className="group overflow-hidden rounded-lg border border-white/[0.08] bg-white/[0.02]">
-            <div className="relative aspect-[4/5] overflow-hidden bg-[#0a0a0c]"><img src={source} alt={`${name} template`} className="h-full w-full object-cover transition-transform duration-300 group-hover:scale-[1.02]" /></div>
-            <div className="p-3"><p className="truncate text-sm font-semibold">{name}</p><p className="mt-1 text-[10px] uppercase text-muted-foreground">{type}</p><button type="button" disabled={loading !== null} onClick={() => applyTemplate(source, `${name}.jpeg`)} className="mt-3 inline-flex h-9 w-full items-center justify-center gap-2 rounded-lg bg-primary text-xs font-semibold text-primary-foreground disabled:opacity-50">{loading === source ? <Loader2 className="h-4 w-4 animate-spin" /> : <LayoutTemplate className="h-4 w-4" />} Use template</button></div>
-          </article>
-        ))}
+        {visible.map(item => {
+          const isApplying = applying === item.key
+          const paid = item.kind === 'community' && item.price > 0 && !item.owned
+          return (
+            <article key={item.key} className="group flex flex-col overflow-hidden rounded-lg border border-white/[0.08] bg-white/[0.02]">
+              <div className="relative aspect-[4/5] overflow-hidden bg-[#0a0a0c]">
+                <img src={item.source} alt={`${item.name} template`} className="h-full w-full object-cover transition-transform duration-300 group-hover:scale-[1.02]" />
+                {item.kind === 'spyda' ? (
+                  <span className="absolute left-2 top-2 inline-flex items-center gap-1 rounded bg-black/70 px-2 py-1 text-[9px] font-semibold uppercase text-white"><Sparkles className="h-3 w-3 text-primary" /> Spyda pick</span>
+                ) : item.isOwner ? (
+                  <span className="absolute left-2 top-2 rounded bg-primary px-2 py-1 text-[9px] font-semibold uppercase text-primary-foreground">Your listing</span>
+                ) : (
+                  <span className="absolute left-2 top-2 inline-flex items-center gap-1 rounded bg-black/70 px-2 py-1 text-[9px] font-semibold uppercase text-white"><Store className="h-3 w-3 text-primary" /> Community</span>
+                )}
+                {item.kind === 'community' && (
+                  <span className="absolute right-2 top-2 inline-flex items-center gap-1 rounded bg-black/70 px-2 py-1 text-[10px] font-semibold text-white">
+                    {item.price > 0 ? <><SpydaCreditMark className="h-3 w-3" /> {item.price.toLocaleString()}</> : 'Free'}
+                  </span>
+                )}
+                {item.isOwner && (
+                  <button type="button" onClick={() => handleDelete(item)} aria-label={`Remove ${item.name}`} title="Remove listing" className="absolute bottom-2 right-2 flex h-8 w-8 items-center justify-center rounded-lg bg-black/70 text-white/80 opacity-0 transition-opacity hover:text-red-300 group-hover:opacity-100"><Trash2 className="h-4 w-4" /></button>
+                )}
+              </div>
+              <div className="flex flex-1 flex-col p-3">
+                <p className="truncate text-sm font-semibold">{item.name}</p>
+                <p className="mt-1 text-[10px] uppercase text-muted-foreground">{item.category}</p>
+                <button type="button" disabled={applying !== null} onClick={() => handleUse(item)} className="mt-3 inline-flex h-9 w-full items-center justify-center gap-1.5 rounded-lg bg-primary text-xs font-semibold text-primary-foreground disabled:opacity-50">
+                  {isApplying ? <Loader2 className="h-4 w-4 animate-spin" /> : <LayoutTemplate className="h-4 w-4" />}
+                  {paid ? <>Use · {item.price.toLocaleString()}<SpydaCreditMark className="h-3.5 w-3.5" /></> : 'Use template'}
+                </button>
+              </div>
+            </article>
+          )
+        })}
+      </div>
+
+      {!loadingMarket && !visible.length && (
+        <div className="mt-6"><EmptyLibrary icon={LayoutTemplate} title="No matching templates" copy="Try another category or search term, or list your own template for the community." /></div>
+      )}
+
+      {showList && (
+        <ListTemplateDialog
+          categories={dbCategories.length ? dbCategories : builtIns.map(item => item.category)}
+          userId={user?.id}
+          onClose={() => setShowList(false)}
+          onListed={() => { setShowList(false); void refresh() }}
+        />
+      )}
+    </div>
+  )
+}
+
+function ListTemplateDialog({ categories, userId, onClose, onListed }: {
+  categories: string[]
+  userId?: string
+  onClose: () => void
+  onListed: () => void
+}) {
+  const uniqueCategories = useMemo(() => Array.from(new Set(categories)).sort((a, b) => a.localeCompare(b)), [categories])
+  const [name, setName] = useState('')
+  const [category, setCategory] = useState(uniqueCategories[0] ?? '')
+  const [useCustom, setUseCustom] = useState(uniqueCategories.length === 0)
+  const [customCategory, setCustomCategory] = useState('')
+  const [price, setPrice] = useState('25')
+  const [description, setDescription] = useState('')
+  const [file, setFile] = useState<File | null>(null)
+  const [preview, setPreview] = useState('')
+  const [balance, setBalance] = useState<number | null>(null)
+  const [submitting, setSubmitting] = useState(false)
+  const [error, setError] = useState('')
+  const fileRef = useRef<HTMLInputElement>(null)
+
+  useEffect(() => {
+    let active = true
+    if (!userId) return
+    supabase.from('profiles').select('wallet_balance').eq('id', userId).single().then(({ data }) => {
+      if (active) setBalance(Number(data?.wallet_balance ?? 0))
+    })
+    return () => { active = false }
+  }, [userId])
+
+  const chosenCategory = useCustom ? customCategory.trim() : category
+  const priceValue = Math.max(0, Math.floor(Number(price) || 0))
+  const lowBalance = balance !== null && balance < TEMPLATE_LISTING_FEE
+
+  const pickImage = (selected?: File) => {
+    if (!selected) return
+    if (!selected.type.startsWith('image/')) return setError('Choose an image file.')
+    if (selected.size > 8 * 1024 * 1024) return setError('Choose an image smaller than 8 MB.')
+    setError('')
+    setFile(selected)
+    setPreview(URL.createObjectURL(selected))
+  }
+
+  const submit = async () => {
+    if (!userId) return setError('Sign in to list a template.')
+    if (!name.trim()) return setError('Give your template a name.')
+    if (!chosenCategory) return setError('Choose or enter a category.')
+    if (!file) return setError('Upload a preview image for your template.')
+    if (lowBalance) return setError(`You need ${TEMPLATE_LISTING_FEE} Spyda credits to list a template.`)
+    setSubmitting(true)
+    setError('')
+    try {
+      const { url, path } = await uploadTemplateImage(userId, file)
+      await listTemplate({ name: name.trim(), category: chosenCategory, price: priceValue, imageUrl: url, imagePath: path, description: description.trim() })
+      onListed()
+    } catch (caught) {
+      setError(caught instanceof Error ? caught.message : 'Your template could not be listed.')
+    } finally {
+      setSubmitting(false)
+    }
+  }
+
+  return (
+    <div className="fixed inset-0 z-50 flex items-end justify-center bg-black/70 p-0 sm:items-center sm:p-6" role="dialog" aria-modal="true" aria-label="List a template">
+      <div className="max-h-[92vh] w-full max-w-lg overflow-y-auto rounded-t-2xl border border-white/[0.08] bg-[#0c0d0f] p-5 sm:rounded-2xl sm:p-6">
+        <div className="flex items-start justify-between gap-4">
+          <div>
+            <div className="mb-1 flex items-center gap-2 text-[10px] font-semibold uppercase text-primary"><Store className="h-3.5 w-3.5" /> Template marketplace</div>
+            <h3 className="font-heading text-lg font-semibold">List your template</h3>
+            <p className="mt-1 flex flex-wrap items-center gap-1 text-xs text-muted-foreground">Listing costs <span className="inline-flex items-center gap-1 font-semibold text-foreground"><SpydaCreditMark className="h-3 w-3" />{TEMPLATE_LISTING_FEE} credits</span>. You keep every credit buyers pay to use it.</p>
+          </div>
+          <button type="button" onClick={onClose} aria-label="Close" className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg border border-white/[0.08] text-muted-foreground hover:text-foreground"><X className="h-4 w-4" /></button>
+        </div>
+
+        <div className="mt-5 space-y-4">
+          <div>
+            <label className="text-xs font-semibold text-muted-foreground">Preview image</label>
+            <input ref={fileRef} type="file" accept="image/*" className="hidden" onChange={event => pickImage(event.target.files?.[0])} />
+            <button type="button" onClick={() => fileRef.current?.click()} className="mt-2 flex aspect-[4/3] w-full items-center justify-center overflow-hidden rounded-lg border border-dashed border-white/[0.14] bg-white/[0.02] text-muted-foreground hover:border-primary/40">
+              {preview ? <img src={preview} alt="Template preview" className="h-full w-full object-contain" /> : <span className="flex flex-col items-center gap-2 text-xs"><ImagePlus className="h-6 w-6 text-primary" /> Upload template image</span>}
+            </button>
+          </div>
+
+          <div>
+            <label className="text-xs font-semibold text-muted-foreground" htmlFor="tpl-name">Template name</label>
+            <input id="tpl-name" value={name} onChange={event => setName(event.target.value)} placeholder="e.g. Weekend sale flyer" className="mt-2 h-10 w-full rounded-lg border border-white/[0.08] bg-background px-3 text-sm outline-none focus:border-primary/50" />
+          </div>
+
+          <div>
+            <div className="flex items-center justify-between">
+              <label className="text-xs font-semibold text-muted-foreground" htmlFor="tpl-category">Category</label>
+              <button type="button" onClick={() => { setUseCustom(value => !value); setError('') }} className="text-[11px] font-semibold text-primary">{useCustom ? 'Choose from list' : '+ New category'}</button>
+            </div>
+            {useCustom ? (
+              <input id="tpl-category" value={customCategory} onChange={event => setCustomCategory(event.target.value)} placeholder="Add a new category" className="mt-2 h-10 w-full rounded-lg border border-white/[0.08] bg-background px-3 text-sm outline-none focus:border-primary/50" />
+            ) : (
+              <select id="tpl-category" value={category} onChange={event => setCategory(event.target.value)} className="mt-2 h-10 w-full rounded-lg border border-white/[0.08] bg-background px-3 text-sm outline-none focus:border-primary/50">
+                {uniqueCategories.map(value => <option key={value} value={value}>{value}</option>)}
+              </select>
+            )}
+            {useCustom && <p className="mt-1.5 text-[11px] text-muted-foreground">New categories are added to the shared list automatically.</p>}
+          </div>
+
+          <div>
+            <label className="text-xs font-semibold text-muted-foreground" htmlFor="tpl-price">Price buyers pay (Spyda credits)</label>
+            <div className="mt-2 flex h-10 items-center gap-2 rounded-lg border border-white/[0.08] bg-background px-3">
+              <SpydaCreditMark className="h-4 w-4" />
+              <input id="tpl-price" type="number" min="0" step="1" value={price} onChange={event => setPrice(event.target.value)} className="min-w-0 flex-1 bg-transparent text-sm outline-none" />
+              <span className="text-xs text-muted-foreground">credits</span>
+            </div>
+            <p className="mt-1.5 text-[11px] text-muted-foreground">Set 0 to share it for free. Buyers pay once, then reuse it anytime.</p>
+          </div>
+
+          <div>
+            <label className="text-xs font-semibold text-muted-foreground" htmlFor="tpl-desc">Description <span className="font-normal">(optional)</span></label>
+            <textarea id="tpl-desc" value={description} onChange={event => setDescription(event.target.value)} rows={2} placeholder="What is this template best for?" className="mt-2 w-full rounded-lg border border-white/[0.08] bg-background px-3 py-2 text-sm outline-none focus:border-primary/50" />
+          </div>
+
+          {error && <p className="flex items-start gap-2 text-xs text-red-300"><AlertTriangle className="mt-0.5 h-4 w-4 shrink-0" />{error}</p>}
+          {lowBalance && !error && <p className="flex items-start gap-2 text-xs text-amber-300"><AlertTriangle className="mt-0.5 h-4 w-4 shrink-0" />You need {TEMPLATE_LISTING_FEE} Spyda credits to list. Fund your wallet first.</p>}
+        </div>
+
+        <div className="mt-6 flex items-center justify-between gap-3 border-t border-white/[0.07] pt-4">
+          <p className="flex items-center gap-1 text-xs text-muted-foreground">{balance !== null && <>Balance: <span className="inline-flex items-center gap-1 font-semibold text-foreground"><SpydaCreditMark className="h-3 w-3" />{balance.toLocaleString()}</span></>}</p>
+          <button type="button" disabled={submitting || lowBalance} onClick={submit} className="inline-flex h-10 min-w-40 items-center justify-center gap-2 rounded-lg bg-primary px-5 text-sm font-semibold text-primary-foreground disabled:cursor-not-allowed disabled:opacity-50">
+            {submitting ? <><Loader2 className="h-4 w-4 animate-spin" /> Listing…</> : <>List for {TEMPLATE_LISTING_FEE}<SpydaCreditMark className="h-3.5 w-3.5" /></>}
+          </button>
+        </div>
       </div>
     </div>
   )

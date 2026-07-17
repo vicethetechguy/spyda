@@ -618,6 +618,7 @@ export default function Workspace() {
     'brand-assets': 'Brand Assets',
     whitepaper: 'Whitepaper',
     wallet: 'Wallet',
+    fund: 'Fund',
     subscription: 'Subscription',
     settings: 'Settings',
   }
@@ -1386,7 +1387,8 @@ export default function Workspace() {
           {activeId === 'templates' && <TemplatesView onUseTemplate={handleUseTemplate} />}
           {activeId === 'brand-assets' && <BrandAssetsView onUseAsset={handleUseBrandAsset} />}
           {activeId === 'whitepaper' && <WhitepaperView />}
-          {activeId === 'wallet' && <WalletView />}
+          {activeId === 'wallet' && <WalletView onFund={() => setActiveId('fund')} />}
+          {activeId === 'fund' && <FundView onBack={() => setActiveId('wallet')} />}
           {activeId === 'subscription' && <SubscriptionView onBack={() => setActiveId('settings')} onOpenWallet={() => setActiveId('wallet')} onOpenSettings={() => setActiveId('settings')} />}
           {activeId === 'settings' && <SettingsView profilePic={profilePic} setProfilePic={setProfilePic} onManageSubscription={() => setActiveId('subscription')} />}
         </div>
@@ -2737,18 +2739,14 @@ const CREDIT_TIERS: CreditTier[] = [
   { amountUSD: 25, credits: 2800, label: '$25', title: 'Studio', detail: 'Extra credits for production work' },
 ]
 
-function WalletView() {
+function WalletView({ onFund }: { onFund: () => void }) {
   const { user } = useAuth()
   const [balance, setBalance] = useState(0)
   const [byokEnabled, setByokEnabled] = useState(false)
   const [loading, setLoading] = useState(true)
   const [balanceError, setBalanceError] = useState('')
-  const [selectedTier, setSelectedTier] = useState<CreditTier>(CREDIT_TIERS[1])
-  const [customAmount, setCustomAmount] = useState('15')
   const [activeAsset, setActiveAsset] = useState<'credits' | 'usd' | 'token'>('credits')
   const [walletNotice, setWalletNotice] = useState('')
-  const [fundingOpen, setFundingOpen] = useState(false)
-  const fundingRef = useRef<HTMLDivElement>(null)
 
   useEffect(() => {
     async function fetchBalance() {
@@ -2776,11 +2774,8 @@ function WalletView() {
     fetchBalance()
   }, [user])
 
-  const USD_TO_NGN = 1500
   const CREDITS_PER_GENERATION = byokEnabled ? SPYDA_BYOK_ROUND_CREDITS : SPYDA_AI_ROUND_CREDITS
   const generationsRemaining = Math.floor(balance / CREDITS_PER_GENERATION)
-  const selectedGenerations = Math.floor(selectedTier.credits / CREDITS_PER_GENERATION)
-  const localPrice = new Intl.NumberFormat('en-NG', { style: 'currency', currency: 'NGN', maximumFractionDigits: 0 }).format(selectedTier.amountUSD * USD_TO_NGN)
   const fiatBalance = Number(user?.user_metadata?.spyda_fiat_balance || 0)
   const tokenBalance = Number(user?.user_metadata?.spyda_token_balance || 0)
   const walletId = user?.id ? `SPY-${user.id.slice(0, 4).toUpperCase()}-${user.id.slice(-4).toUpperCase()}` : 'SPY-GUEST'
@@ -2819,16 +2814,9 @@ function WalletView() {
   }
   const selectedAsset = assets[activeAsset]
 
-  const showFunding = () => {
-    setActiveAsset('credits')
-    setWalletNotice('')
-    setFundingOpen(true)
-    window.setTimeout(() => fundingRef.current?.scrollIntoView({ behavior: 'smooth', block: 'start' }), 80)
-  }
-
   const handleWalletAction = (action: 'fund' | 'send' | 'withdraw') => {
     if (action === 'fund') {
-      showFunding()
+      onFund()
       return
     }
     if (action === 'send') {
@@ -2908,7 +2896,7 @@ function WalletView() {
           <section className="rounded-lg border border-white/[0.08] bg-white/[0.025] p-5">
             <div className="flex items-center justify-between"><h3 className="font-heading text-base font-semibold">Wallet activity</h3><ReceiptText className="h-4 w-4 text-muted-foreground" /></div>
             <div className="mt-7 border-b border-dashed border-white/[0.1] pb-7 text-center"><div className="mx-auto flex h-10 w-10 items-center justify-center rounded-full border border-white/10 bg-white/[0.03]"><Wallet className="h-4 w-4 text-primary" /></div><p className="mt-3 text-sm font-semibold">No recent movement</p><p className="mt-1 text-xs leading-5 text-muted-foreground">Completed funding and transfers will appear here.</p></div>
-            <button type="button" onClick={showFunding} className="mt-4 flex w-full items-center justify-between text-sm font-semibold text-primary">Fund your credit balance <ChevronRight className="h-4 w-4" /></button>
+            <button type="button" onClick={onFund} className="mt-4 flex w-full items-center justify-between text-sm font-semibold text-primary">Fund your credit balance <ChevronRight className="h-4 w-4" /></button>
           </section>
 
           <section className="rounded-lg border border-white/[0.08] bg-white/[0.025] p-5">
@@ -2926,12 +2914,72 @@ function WalletView() {
         </aside>
       </div>
 
-      {fundingOpen && <section ref={fundingRef} className="scroll-mt-6 border-t border-white/[0.07] py-7 lg:py-9">
-        <div className="flex items-end justify-between gap-4">
-          <div><div className="mb-1 flex items-center gap-2 text-[10px] font-semibold uppercase text-primary"><SpydaCreditIcon className="h-3.5 w-3.5" /> Live funding rail</div><h3 className="font-heading text-lg font-semibold">Fund Spyda Credits</h3><p className="mt-1 text-sm text-muted-foreground">Choose a pack or enter any amount. Every $1 adds 100 credits.</p></div>
-          <button type="button" onClick={() => setFundingOpen(false)} aria-label="Close funding options" className="inline-flex h-9 w-9 items-center justify-center rounded-lg border border-white/[0.08] text-muted-foreground hover:text-foreground"><X className="h-4 w-4" /></button>
+      {balanceError && <p className="pb-8 text-sm text-amber-400">{balanceError}</p>}
+    </div>
+  )
+}
+
+const USD_TO_NGN = 1500
+
+function FundView({ onBack }: { onBack: () => void }) {
+  const { user } = useAuth()
+  const [balance, setBalance] = useState(0)
+  const [byokEnabled, setByokEnabled] = useState(false)
+  const [loading, setLoading] = useState(true)
+  const [balanceError, setBalanceError] = useState('')
+  const [selectedTier, setSelectedTier] = useState<CreditTier>(CREDIT_TIERS[1])
+  const [customAmount, setCustomAmount] = useState('15')
+
+  useEffect(() => {
+    async function fetchBalance() {
+      if (!user) {
+        setLoading(false)
+        return
+      }
+      try {
+        const { data, error } = await supabase
+          .from('profiles')
+          .select('wallet_balance, openai_key')
+          .eq('id', user.id)
+          .single()
+
+        if (error) throw error
+        setBalance(Number(data?.wallet_balance || 0))
+        setByokEnabled(Boolean(String(data?.openai_key || '').trim()))
+      } catch (err) {
+        console.error('Error fetching balance:', err)
+        setBalanceError('We could not refresh your balance. Try again shortly.')
+      } finally {
+        setLoading(false)
+      }
+    }
+    fetchBalance()
+  }, [user])
+
+  const CREDITS_PER_GENERATION = byokEnabled ? SPYDA_BYOK_ROUND_CREDITS : SPYDA_AI_ROUND_CREDITS
+  const selectedGenerations = Math.floor(selectedTier.credits / CREDITS_PER_GENERATION)
+  const localPrice = new Intl.NumberFormat('en-NG', { style: 'currency', currency: 'NGN', maximumFractionDigits: 0 }).format(selectedTier.amountUSD * USD_TO_NGN)
+
+  return (
+    <div className="mx-auto w-full max-w-[1240px] px-4 py-6 sm:px-6 lg:px-8 lg:py-8">
+      <button type="button" onClick={onBack} className="inline-flex items-center gap-2 text-sm font-medium text-muted-foreground transition-colors hover:text-foreground">
+        <ArrowLeft className="h-4 w-4" /> Back to wallet
+      </button>
+
+      <header className="mt-5 flex flex-col gap-4 border-b border-white/[0.07] pb-6 sm:flex-row sm:items-end sm:justify-between">
+        <div>
+          <div className="mb-2 flex items-center gap-2 text-[11px] font-semibold uppercase text-primary"><SpydaCreditIcon className="h-3.5 w-3.5" /> Live funding rail</div>
+          <h2 className="font-heading text-2xl font-semibold sm:text-[28px]">Fund Spyda Credits</h2>
+          <p className="mt-1.5 max-w-xl text-sm text-muted-foreground">Choose a pack or enter any amount. Every $1 adds 100 credits.</p>
         </div>
-        <div className="mt-5 grid gap-3 md:grid-cols-2 xl:grid-cols-4">
+        <div className="inline-flex w-fit items-center gap-2 rounded-lg border border-white/[0.08] bg-white/[0.03] px-3 py-2 text-xs text-muted-foreground">
+          <Wallet className="h-4 w-4 text-primary" /> Current balance:
+          <span className="font-semibold text-foreground">{loading ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : `${balance.toLocaleString()} credits`}</span>
+        </div>
+      </header>
+
+      <div className="py-6 lg:py-8">
+        <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-4">
           {CREDIT_TIERS.map(tier => {
             const selected = selectedTier.amountUSD === tier.amountUSD && selectedTier.title === tier.title
             return (
@@ -2980,13 +3028,16 @@ function WalletView() {
           </label>
         </div>
 
-        <div className="mt-5 flex flex-col gap-4 border-t border-white/[0.07] pt-5 sm:flex-row sm:items-center sm:justify-between">
-          <div><p className="text-sm font-semibold">{selectedTier.credits.toLocaleString()} credits <span className="font-normal text-muted-foreground">· about {selectedGenerations} generations</span></p><p className="mt-1 text-xs text-muted-foreground">Charged as {localPrice} through Paystack.</p></div>
-          <PaystackTopUpButton tier={selectedTier} user={user} balance={balance} setBalance={setBalance} usdToNgn={USD_TO_NGN} />
+        <div className="mt-6 rounded-lg border border-white/[0.08] bg-white/[0.025] p-5 sm:p-6">
+          <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
+            <div><p className="text-sm font-semibold">{selectedTier.credits.toLocaleString()} credits <span className="font-normal text-muted-foreground">· about {selectedGenerations} generations</span></p><p className="mt-1 text-xs text-muted-foreground">Charged as {localPrice} through Paystack.</p></div>
+            <PaystackTopUpButton tier={selectedTier} user={user} balance={balance} setBalance={setBalance} usdToNgn={USD_TO_NGN} />
+          </div>
+          <div className="mt-5 flex items-start gap-3 border-t border-white/[0.07] pt-5 text-xs leading-5 text-muted-foreground"><ShieldCheck className="mt-0.5 h-4 w-4 shrink-0 text-primary" />Payments are processed securely by Paystack. Your card details are never stored by Spyda.</div>
         </div>
-        <div className="mt-6 flex items-start gap-3 border-t border-white/[0.07] pt-5 text-xs leading-5 text-muted-foreground"><ShieldCheck className="mt-0.5 h-4 w-4 shrink-0 text-primary" />Payments are processed securely by Paystack. Your card details are never stored by Spyda.</div>
-      </section>}
-      {balanceError && <p className="pb-8 text-sm text-amber-400">{balanceError}</p>}
+
+        {balanceError && <p className="mt-6 text-sm text-amber-400">{balanceError}</p>}
+      </div>
     </div>
   )
 }

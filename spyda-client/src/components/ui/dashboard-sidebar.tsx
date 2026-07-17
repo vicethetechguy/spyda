@@ -14,6 +14,7 @@ import {
   ChevronDown,
   ChevronRight,
 } from 'lucide-react';
+import InstallAppButton from '../InstallAppButton';
 
 export type NavItemData = {
   id: string;
@@ -294,6 +295,9 @@ export function SidebarNav({
       </div>
 
       <div className="mt-auto pt-4 border-t border-border/50 flex flex-col gap-0.5">
+        <div className="mb-2">
+          <InstallAppButton />
+        </div>
         {spydaAccountItems.heading && (
           <span className="px-2.5 mb-1 text-[11px] font-heading font-semibold tracking-wider text-muted-foreground/50 uppercase">
             {spydaAccountItems.heading}
