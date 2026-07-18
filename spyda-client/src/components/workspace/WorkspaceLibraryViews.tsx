@@ -506,7 +506,7 @@ function ListTemplateDialog({ categories, userId, onClose, onListed }: {
   useEffect(() => {
     let active = true
     if (!userId) return
-    supabase.from('profiles').select('wallet_balance').eq('id', userId).maybeSingle().then(({ data, error }) => {
+    Promise.resolve(supabase.from('profiles').select('wallet_balance').eq('id', userId).maybeSingle()).then(({ data, error }) => {
       if (error && active) {
         console.error('ListTemplateDialog failed to fetch balance:', error)
         setError('Failed to fetch your wallet balance. Please refresh.')
@@ -517,7 +517,7 @@ function ListTemplateDialog({ categories, userId, onClose, onListed }: {
         // If data is null and no error, maybe row doesn't exist?
         setBalance(0)
       }
-    }).catch(err => {
+    }).catch((err: unknown) => {
       console.error('ListTemplateDialog balance fetch threw:', err)
       if (active) setError('Error fetching balance.')
     })

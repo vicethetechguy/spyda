@@ -2873,25 +2873,43 @@ function WalletView({ onFund }: { onFund: () => void }) {
 
       <div className="grid gap-5 py-6 lg:grid-cols-[minmax(0,1.45fr)_minmax(280px,.72fr)] lg:py-8">
         <section className="min-w-0">
-          <div className="relative min-h-[288px] overflow-hidden rounded-lg border border-white/10 bg-[linear-gradient(128deg,#111315_0%,#16324a_36%,#50ef7b_70%,#d8e3ff_100%)] p-5 text-white shadow-[0_22px_65px_rgba(0,0,0,.28)] sm:p-7">
-            <div className="absolute inset-0 bg-[linear-gradient(90deg,rgba(0,0,0,.72),rgba(0,0,0,.1)_68%,rgba(0,0,0,.28))]" />
+          <div className="group relative min-h-[288px] overflow-hidden rounded-2xl border border-white/[0.14] p-5 text-white shadow-[0_28px_80px_rgba(0,0,0,.45),inset_0_1px_0_rgba(255,255,255,.12)] sm:p-7">
+            {/* Layered card surface */}
+            <div className="absolute inset-0 bg-[linear-gradient(135deg,#0a0d0c_0%,#0f1d17_34%,#153826_62%,#1d5a38_86%,#2f8f55_112%)]" />
+            <div className="absolute -right-24 -top-28 h-80 w-80 rounded-full bg-primary/[0.22] blur-[110px]" />
+            <div className="absolute -bottom-32 -left-20 h-80 w-80 rounded-full bg-[#88a8ff]/[0.12] blur-[110px]" />
+            <div className="absolute inset-0 opacity-[0.12] [background-image:linear-gradient(rgba(255,255,255,.5)_1px,transparent_1px),linear-gradient(90deg,rgba(255,255,255,.5)_1px,transparent_1px)] [background-size:46px_46px]" />
+            <div className="absolute inset-0 bg-[linear-gradient(115deg,transparent_32%,rgba(255,255,255,.07)_46%,transparent_58%)] transition-transform duration-700 group-hover:translate-x-10" />
+            <img src="/assets/spyda-credit.png" alt="" aria-hidden="true" className="absolute -bottom-14 -right-10 h-60 w-60 rotate-[18deg] object-contain opacity-[0.07]" />
+
             <div className="relative flex h-full min-h-[238px] flex-col justify-between">
               <div className="flex items-start justify-between gap-4">
                 <div>
-                  <p className="text-[10px] font-semibold uppercase text-white/60">{selectedAsset.name}</p>
-                  <div className="mt-2 flex items-center gap-2 text-sm text-white/75">{selectedAsset.icon}<span>{selectedAsset.shortName}</span></div>
+                  <p className="text-[10px] font-semibold uppercase tracking-[0.2em] text-white/55">{selectedAsset.name}</p>
+                  <div className="mt-2.5 flex items-center gap-2.5">
+                    <span className="inline-flex h-8 w-8 items-center justify-center rounded-full border border-white/[0.18] bg-white/[0.08] text-primary shadow-[inset_0_1px_0_rgba(255,255,255,.15)]">{selectedAsset.icon}</span>
+                    <span className="text-sm font-medium text-white/85">{selectedAsset.shortName}</span>
+                  </div>
                 </div>
-                <button type="button" onClick={() => { setLoading(true); loadBalance() }} aria-label="Refresh balance" className="inline-flex h-9 w-9 items-center justify-center rounded-lg border border-white/20 bg-white/10 text-white/80 transition-colors hover:bg-white/20">
+                <button type="button" onClick={() => { setLoading(true); loadBalance() }} aria-label="Refresh balance" className="inline-flex h-9 w-9 items-center justify-center rounded-lg border border-white/[0.18] bg-white/[0.08] text-white/80 backdrop-blur-sm transition-colors hover:bg-white/[0.16]">
                   <RotateCcw className={`h-4 w-4 ${loading ? 'animate-spin' : ''}`} />
                 </button>
               </div>
-              <div className="my-7">
-                <p className="font-heading text-4xl font-semibold leading-none sm:text-5xl">{loading && activeAsset === 'credits' ? <Loader2 className="h-9 w-9 animate-spin" /> : selectedAsset.value}</p>
-                <p className="mt-2 text-sm font-medium text-white/70">{selectedAsset.suffix}</p>
+
+              <div className="my-6 flex items-end justify-between gap-4">
+                <div>
+                  <p className="font-heading text-4xl font-semibold leading-none tracking-tight sm:text-[52px]">{loading && activeAsset === 'credits' ? <Loader2 className="h-9 w-9 animate-spin" /> : selectedAsset.value}</p>
+                  <p className="mt-2.5 text-sm font-medium text-white/60">{selectedAsset.suffix}</p>
+                </div>
+                {/* Card chip */}
+                <div aria-hidden="true" className="hidden h-9 w-12 shrink-0 overflow-hidden rounded-md border border-[#e8c87a]/40 bg-[linear-gradient(140deg,#d9b25c_0%,#f3dc9a_45%,#b98f3e_100%)] opacity-90 shadow-[inset_0_1px_2px_rgba(255,255,255,.5)] sm:block">
+                  <div className="h-full w-full [background-image:linear-gradient(rgba(0,0,0,.28)_1px,transparent_1px),linear-gradient(90deg,rgba(0,0,0,.28)_1px,transparent_1px)] [background-size:8px_7px] [background-position:center]" />
+                </div>
               </div>
-              <div className="flex flex-col gap-3 text-[11px] text-white/65 sm:flex-row sm:items-end sm:justify-between">
-                <div><p className="uppercase">Wallet ID</p><p className="mt-1 font-medium tracking-wide text-white/90">{walletId}</p></div>
-                <div className="sm:text-right"><p className="uppercase">Account</p><p className="mt-1 max-w-[230px] truncate font-medium text-white/90">{user?.email || 'Signed out'}</p></div>
+
+              <div className="flex flex-col gap-3 border-t border-white/[0.12] pt-4 text-[11px] text-white/55 sm:flex-row sm:items-end sm:justify-between">
+                <div><p className="uppercase tracking-[0.14em]">Wallet ID</p><p className="mt-1 font-mono text-xs font-medium tracking-[0.14em] text-white/90">{walletId}</p></div>
+                <div className="sm:text-right"><p className="uppercase tracking-[0.14em]">Account</p><p className="mt-1 max-w-[230px] truncate font-medium text-white/90">{user?.email || 'Signed out'}</p></div>
               </div>
             </div>
           </div>
@@ -3111,13 +3129,13 @@ function CouponRedeemCard({ onRedeemed }: { onRedeemed: (creditsAdded: number) =
           onKeyDown={event => { if (event.key === 'Enter') handleRedeem() }}
           placeholder="SPYDA-XXXX-XXXX"
           aria-label="Coupon code"
-          className="h-20 w-full flex-1 rounded-md border border-white/[0.12] bg-background/60 px-6 font-mono text-xl uppercase tracking-[0.18em] outline-none placeholder:tracking-[0.18em] placeholder:text-muted-foreground/60 focus:border-primary/60"
+          className="h-24 w-full flex-1 rounded-md border border-white/[0.12] bg-background/60 px-6 font-mono text-2xl uppercase tracking-[0.18em] outline-none placeholder:tracking-[0.18em] placeholder:text-muted-foreground/60 focus:border-primary/60 sm:h-20 sm:text-xl"
         />
         <button
           type="button"
           onClick={handleRedeem}
           disabled={state === 'redeeming'}
-          className="inline-flex h-20 w-full shrink-0 items-center justify-center gap-2 rounded-md bg-primary px-8 text-lg font-semibold text-primary-foreground transition-colors hover:bg-primary/90 disabled:cursor-not-allowed disabled:opacity-50 sm:w-auto sm:min-w-44"
+          className="inline-flex h-24 w-full shrink-0 items-center justify-center gap-2 rounded-md bg-primary px-8 text-xl font-semibold text-primary-foreground transition-colors hover:bg-primary/90 disabled:cursor-not-allowed disabled:opacity-50 sm:h-20 sm:w-auto sm:min-w-44 sm:text-lg"
         >
           {state === 'redeeming' && <Loader2 className="h-4 w-4 animate-spin" />}
           {state === 'success' && <CircleCheck className="h-4 w-4" />}

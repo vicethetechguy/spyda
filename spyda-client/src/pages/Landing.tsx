@@ -2,26 +2,39 @@ import { useEffect, useState } from 'react'
 import { Link } from 'react-router-dom'
 import {
   ArrowRight,
+  Blocks,
+  BookOpen,
+  Bot,
   Check,
   ChevronDown,
+  Clock,
   Coins,
   Download,
+  FolderKanban,
   Gift,
   GitCompareArrows,
+  GraduationCap,
+  Image as ImageIcon,
   Layers3,
+  LayoutDashboard,
   Library,
   MousePointer2,
   Network,
   Palette,
+  PanelLeftClose,
   Play,
   RefreshCw,
   ScanSearch,
+  Settings,
   ShieldCheck,
   SlidersHorizontal,
   Target,
+  Type,
   Upload,
+  Wallet,
   WandSparkles,
   X,
+  Zap,
 } from 'lucide-react'
 
 type PwaInstallPrompt = Event & {
@@ -60,14 +73,203 @@ function SpydaCoinVisual() {
   )
 }
 
+/* ── Hero mockup: a faithful miniature of the real Spyda workspace ── */
+
+function MockNavItem({ icon: Icon, label, active }: { icon: React.ElementType; label: string; active?: boolean }) {
+  return (
+    <div className={`flex items-center gap-2 rounded-[5px] px-2 py-[5px] text-[10px] ${active ? 'border-l-2 border-primary bg-primary/5 font-semibold text-primary' : 'text-muted-foreground'}`}>
+      <Icon className={`h-3 w-3 shrink-0 ${active ? 'text-primary' : 'text-muted-foreground/70'}`} strokeWidth={1.5} />
+      <span className="truncate">{label}</span>
+    </div>
+  )
+}
+
+function MockNavHeading({ children }: { children: React.ReactNode }) {
+  return <span className="px-2 pb-0.5 pt-2.5 text-[8px] font-semibold uppercase tracking-wider text-muted-foreground/50">{children}</span>
+}
+
+function MockAtomCard({ icon: Icon, name, type, mode, detail }: {
+  icon: React.ElementType
+  name: string
+  type: string
+  mode: 'same' | 'customize'
+  detail?: string
+}) {
+  return (
+    <div className={`rounded-lg border p-2.5 ${mode === 'customize' ? 'border-primary/25 bg-primary/[0.04]' : 'border-white/[0.06] bg-white/[0.02]'}`}>
+      <div className="flex items-center justify-between gap-2">
+        <div className="flex min-w-0 items-center gap-2">
+          <span className="flex h-5 w-5 shrink-0 items-center justify-center rounded-md border border-white/[0.08] bg-white/[0.03]"><Icon className="h-2.5 w-2.5 text-primary" strokeWidth={1.7} /></span>
+          <span className="truncate text-[10px] font-semibold text-foreground">{name}</span>
+          <span className="shrink-0 rounded-sm bg-white/[0.05] px-1 py-0.5 text-[7px] font-bold uppercase tracking-wide text-muted-foreground">{type}</span>
+        </div>
+        <div className="flex shrink-0 overflow-hidden rounded-md border border-white/[0.08] text-[8px] font-semibold">
+          <span className={`px-1.5 py-0.5 ${mode === 'same' ? 'bg-white/[0.08] text-foreground' : 'text-muted-foreground/60'}`}>Same</span>
+          <span className={`px-1.5 py-0.5 ${mode === 'customize' ? 'bg-primary text-primary-foreground' : 'text-muted-foreground/60'}`}>Customize</span>
+        </div>
+      </div>
+      {detail && (
+        <p className="mt-1.5 flex items-center gap-1 truncate rounded-md border border-white/[0.06] bg-black/30 px-2 py-1 text-[9px] text-foreground/80">
+          {mode === 'customize' && <Check className="h-2.5 w-2.5 shrink-0 text-primary" strokeWidth={2.6} />}{detail}
+        </p>
+      )}
+    </div>
+  )
+}
+
+function WorkspaceMockup() {
+  return (
+    <div className="relative mx-auto mt-10 max-w-5xl overflow-hidden rounded-lg border border-white/[0.09] bg-[#08090a] shadow-[0_28px_90px_rgba(0,0,0,0.45)]">
+      <div className="flex h-9 items-center justify-between border-b border-white/[0.07] px-3 text-[10px] text-muted-foreground">
+        <div className="flex items-center gap-2"><span className="h-1.5 w-1.5 rounded-full bg-primary" /> Spyda design workspace</div>
+        <span>Reference to child design</span>
+      </div>
+
+      <div className="flex h-[400px] select-none sm:h-[460px]" aria-hidden="true">
+        {/* Sidebar */}
+        <div className="hidden w-44 shrink-0 flex-col border-r border-white/[0.06] bg-[#060608]/90 p-2.5 md:flex">
+          <div className="mb-2 flex items-center gap-2 rounded-lg px-1.5 py-1.5">
+            <div className="flex h-6 w-6 items-center justify-center rounded-[5px] bg-gradient-to-br from-[#22c55e] to-[#16a34a] font-heading text-[10px] font-bold text-white">S</div>
+            <div className="min-w-0">
+              <p className="truncate text-[10px] font-medium leading-none text-foreground">My Workspace</p>
+              <p className="mt-0.5 text-[8px] leading-none text-muted-foreground">Design workspace</p>
+            </div>
+            <ChevronDown className="ml-auto h-2.5 w-2.5 shrink-0 text-muted-foreground/50" />
+          </div>
+          <div className="flex flex-col gap-0.5">
+            <MockNavItem icon={LayoutDashboard} label="Canvas" active />
+            <MockNavItem icon={ImageIcon} label="Gallery" />
+            <MockNavItem icon={Clock} label="History" />
+            <MockNavHeading>Workspace</MockNavHeading>
+            <MockNavItem icon={FolderKanban} label="Projects" />
+            <MockNavItem icon={Blocks} label="Templates" />
+            <MockNavItem icon={Palette} label="Brand Assets" />
+            <MockNavHeading>Documentation</MockNavHeading>
+            <MockNavItem icon={BookOpen} label="Whitepaper" />
+            <MockNavItem icon={GraduationCap} label="Guides" />
+          </div>
+          <div className="mt-auto flex flex-col gap-0.5 border-t border-white/[0.06] pt-2">
+            <MockNavHeading>Account</MockNavHeading>
+            <MockNavItem icon={Wallet} label="Wallet" />
+            <MockNavItem icon={Settings} label="Settings" />
+          </div>
+        </div>
+
+        {/* Main */}
+        <div className="flex min-w-0 flex-1 flex-col">
+          {/* Top bar */}
+          <div className="flex h-9 shrink-0 items-center justify-between border-b border-white/[0.06] bg-[#060608]/80 px-3">
+            <div className="flex items-center gap-2 text-[10px]">
+              <PanelLeftClose className="h-3 w-3 text-muted-foreground" strokeWidth={1.5} />
+              <span className="hidden text-muted-foreground sm:inline">My Workspace</span>
+              <span className="hidden text-muted-foreground/30 sm:inline">/</span>
+              <span className="font-semibold text-foreground">Canvas</span>
+              <ShieldCheck className="h-3 w-3 text-primary" strokeWidth={1.5} />
+            </div>
+            <div className="flex items-center gap-2">
+              <span className="inline-flex h-5 items-center gap-1.5 rounded-md border border-white/[0.08] bg-white/[0.03] px-2 text-[9px] font-medium text-muted-foreground">
+                <Bot className="h-2.5 w-2.5 text-primary" /> Groq + GPT-Image 2 <ChevronDown className="h-2 w-2" />
+              </span>
+              <span className="flex h-5 w-5 items-center justify-center rounded-full bg-gradient-to-br from-[#22c55e] to-[#16a34a] text-[8px] font-bold text-primary-foreground">S</span>
+            </div>
+          </div>
+
+          <div className="flex min-h-0 flex-1">
+            {/* Source + Child Source */}
+            <div className="flex min-h-0 w-full flex-col border-r border-white/[0.06] p-3 sm:w-[46%]">
+              <div className="mb-1.5 flex items-center justify-between">
+                <div className="flex items-center gap-1.5">
+                  <span className="text-[8px] font-bold uppercase tracking-[0.12em] text-primary">Source</span>
+                  <span className="text-[8px] text-muted-foreground/50">launch-flyer.jpeg</span>
+                </div>
+                <span className="text-[8px] text-muted-foreground">Change</span>
+              </div>
+              <div className="relative min-h-0 flex-1 overflow-hidden rounded-lg border border-white/[0.06]">
+                <img src="/assets/spyda-sample-04.jpeg" alt="" className="h-full w-full object-cover object-top" loading="lazy" />
+                {/* Layout grid overlay */}
+                <div className="absolute inset-0 opacity-40 [background-image:linear-gradient(rgba(255,255,255,.14)_1px,transparent_1px),linear-gradient(90deg,rgba(255,255,255,.14)_1px,transparent_1px)] [background-size:12.5%_12.5%]" />
+                {/* Detected atom boxes */}
+                <div className="absolute left-[8%] top-[7%] flex h-[16%] w-[84%] items-start rounded-sm border border-dashed border-primary/70 bg-primary/[0.06]"><span className="rounded-br-sm bg-primary px-1 py-px text-[7px] font-bold text-primary-foreground">Headline</span></div>
+                <div className="absolute left-[22%] top-[34%] flex h-[34%] w-[56%] items-start rounded-sm border border-dashed border-[#8bd3ff]/70 bg-[#8bd3ff]/[0.06]"><span className="rounded-br-sm bg-[#8bd3ff] px-1 py-px text-[7px] font-bold text-[#06202e]">Product photo</span></div>
+                <div className="absolute bottom-[6%] left-[26%] flex h-[10%] w-[48%] items-start rounded-sm border border-dashed border-[#ffab84]/70 bg-[#ffab84]/[0.08]"><span className="rounded-br-sm bg-[#ffab84] px-1 py-px text-[7px] font-bold text-[#3a1503]">Call to action</span></div>
+                <span className="absolute bottom-1.5 left-1.5 rounded border border-white/10 bg-black/70 px-1.5 py-0.5 text-[7px] font-semibold uppercase tracking-[0.1em] text-white/75 backdrop-blur-sm">8 x 8 layout grid</span>
+              </div>
+
+              <div className="mb-1.5 mt-2.5 flex items-center justify-between">
+                <span className="text-[8px] font-bold uppercase tracking-[0.12em] text-primary">Child Source</span>
+                <div className="flex items-center gap-1.5">
+                  <span className="rounded-full border border-white/[0.08] bg-white/[0.03] px-1.5 py-0.5 text-[7px] font-bold text-muted-foreground">3/3 changes ready</span>
+                  <span className="inline-flex items-center gap-1 rounded-md bg-primary px-1.5 py-0.5 text-[7px] font-bold text-primary-foreground"><Download className="h-2 w-2" /> Download</span>
+                </div>
+              </div>
+              <div className="relative h-[88px] shrink-0 overflow-hidden rounded-lg border border-primary/25 sm:h-[104px]">
+                <img src="/assets/spyda-sample-04.jpeg" alt="" className="h-full w-full object-cover object-center" loading="lazy" />
+                <div className="absolute inset-0 bg-gradient-to-t from-black/50 to-transparent" />
+                <span className="absolute bottom-1.5 left-1.5 inline-flex items-center gap-1 rounded border border-primary/30 bg-black/75 px-1.5 py-0.5 text-[7px] font-bold text-primary backdrop-blur-sm"><ShieldCheck className="h-2 w-2" /> QA 98/100 · Round 2</span>
+              </div>
+            </div>
+
+            {/* Design Atoms panel */}
+            <div className="hidden min-h-0 min-w-0 flex-1 flex-col sm:flex">
+              <div className="flex shrink-0 items-center justify-between border-b border-white/[0.06] px-3 py-2">
+                <div>
+                  <p className="text-[11px] font-semibold text-foreground">Design Atoms</p>
+                  <p className="text-[8px] text-muted-foreground">6 components detected • Edit replacements below</p>
+                </div>
+                <span className="inline-flex items-center gap-1 rounded-md bg-primary px-2 py-1 text-[9px] font-bold text-primary-foreground"><Zap className="h-2.5 w-2.5" /> Apply 3/3</span>
+              </div>
+              <div className="relative min-h-0 flex-1 space-y-2 overflow-hidden p-2.5">
+                <div className="rounded-lg border border-white/[0.06] bg-white/[0.025] p-2.5">
+                  <div className="flex items-center justify-between gap-2">
+                    <div>
+                      <p className="text-[9px] font-bold uppercase tracking-[0.1em] text-primary">Edit round — up to 3 focused changes</p>
+                      <p className="mt-0.5 text-[8px] text-muted-foreground">2 atom changes + 1 Essential prompt. 0 slots left.</p>
+                    </div>
+                    <span className="shrink-0 rounded-full bg-primary/15 px-2 py-0.5 text-[9px] font-bold text-primary">3/3</span>
+                  </div>
+                </div>
+                <MockAtomCard icon={Type} name="Headline" type="text" mode="customize" detail="Grand Opening — This Saturday" />
+                <MockAtomCard icon={ImageIcon} name="Product Photo" type="image" mode="customize" detail="Replacement placed at exact size" />
+                <MockAtomCard icon={Target} name="Brand Logo" type="logo" mode="same" />
+                <div className="rounded-lg border border-primary/20 bg-primary/[0.03] p-2.5">
+                  <div className="flex items-center justify-between">
+                    <span className="text-[9px] font-bold uppercase tracking-[0.1em] text-primary">Brand Constants</span>
+                    <span className="relative h-3.5 w-6 rounded-full border border-primary/70 bg-primary"><span className="absolute right-0.5 top-[2px] h-2 w-2 rounded-full bg-white" /></span>
+                  </div>
+                  <div className="mt-2 flex items-center gap-2">
+                    {['#0F172A', '#22C55E', '#F8FAFC'].map(hex => (
+                      <span key={hex} className="flex items-center gap-1 rounded-md border border-white/[0.07] bg-white/[0.03] px-1.5 py-0.5">
+                        <span className="h-2 w-2 rounded-full border border-white/20" style={{ backgroundColor: hex }} />
+                        <span className="text-[7px] font-medium text-muted-foreground">{hex}</span>
+                      </span>
+                    ))}
+                  </div>
+                  <p className="mt-1.5 text-[8px] text-muted-foreground">Space Grotesk / Montserrat · Applied to every reconstruction</p>
+                </div>
+                <div className="pointer-events-none absolute inset-x-0 bottom-0 h-10 bg-gradient-to-t from-[#08090a] to-transparent" />
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <div className="absolute bottom-3 left-3 flex items-center gap-2 rounded-lg border border-white/[0.1] bg-black/75 px-3 py-2 text-[10px] text-white backdrop-blur-md">
+        <ScanSearch className="h-3.5 w-3.5 text-primary" /> Source, atoms, and child version in one view
+      </div>
+    </div>
+  )
+}
+
 function FeatureCard({ icon: Icon, title, desc }: { icon: React.ElementType; title: string; desc: string }) {
   return (
-    <article className="group rounded-lg border border-white/[0.07] bg-white/[0.02] p-6 transition-colors duration-300 hover:border-primary/30 hover:bg-primary/[0.025]">
-      <div className="mb-5 flex h-10 w-10 items-center justify-center rounded-lg border border-primary/20 bg-primary/[0.07]">
+    <article className="group relative overflow-hidden rounded-xl border border-white/[0.07] bg-[linear-gradient(155deg,rgba(255,255,255,0.035),rgba(255,255,255,0.008)_55%)] p-6 transition-all duration-300 hover:-translate-y-1 hover:border-primary/35 hover:shadow-[0_20px_50px_rgba(0,0,0,0.45),0_0_34px_rgba(157,250,176,0.07)]">
+      <div className="pointer-events-none absolute -right-14 -top-14 h-36 w-36 rounded-full bg-primary/[0.09] opacity-0 blur-3xl transition-opacity duration-300 group-hover:opacity-100" />
+      <div className="pointer-events-none absolute inset-x-0 top-0 h-px bg-gradient-to-r from-transparent via-primary/45 to-transparent opacity-0 transition-opacity duration-300 group-hover:opacity-100" />
+      <div className="relative mb-5 flex h-11 w-11 items-center justify-center rounded-xl border border-primary/25 bg-[linear-gradient(145deg,rgba(157,250,176,0.14),rgba(157,250,176,0.03))] shadow-[inset_0_1px_0_rgba(255,255,255,0.08)] transition-transform duration-300 group-hover:scale-105">
         <Icon className="h-[18px] w-[18px] text-primary" strokeWidth={1.7} />
       </div>
-      <h3 className="font-heading text-base font-semibold text-foreground">{title}</h3>
-      <p className="mt-2 text-sm leading-6 text-muted-foreground">{desc}</p>
+      <h3 className="relative font-heading text-base font-semibold text-foreground">{title}</h3>
+      <p className="relative mt-2 text-sm leading-6 text-muted-foreground">{desc}</p>
     </article>
   )
 }
@@ -237,19 +439,7 @@ export default function Landing() {
               </div>
             </div>
 
-            <div className="relative mx-auto mt-10 max-w-5xl overflow-hidden rounded-lg border border-white/[0.09] bg-[#08090a] shadow-[0_28px_90px_rgba(0,0,0,0.45)]">
-              <div className="flex h-9 items-center justify-between border-b border-white/[0.07] px-3 text-[10px] text-muted-foreground">
-                <div className="flex items-center gap-2"><span className="h-1.5 w-1.5 rounded-full bg-primary" /> Spyda design workspace</div>
-                <span>Reference to child design</span>
-              </div>
-              <video autoPlay muted loop playsInline preload="metadata" className="aspect-[16/7] w-full object-cover object-top" aria-label="Spyda workspace workflow preview">
-                <source src="/assets/spyda-workflow-demo.webm" type="video/webm" />
-              </video>
-              <div className="pointer-events-none absolute inset-x-0 bottom-0 h-20 bg-gradient-to-t from-[#08090a] to-transparent" />
-              <div className="absolute bottom-3 left-3 flex items-center gap-2 rounded-lg border border-white/[0.1] bg-black/75 px-3 py-2 text-[10px] text-white backdrop-blur-md">
-                <ScanSearch className="h-3.5 w-3.5 text-primary" /> Source, atoms, and child version in one view
-              </div>
-            </div>
+            <WorkspaceMockup />
           </div>
         </section>
 
@@ -302,8 +492,12 @@ export default function Landing() {
                 { icon: SlidersHorizontal, step: '03', title: 'Choose up to 3 changes', copy: 'Replace a few exact items per round so the model can stay focused on the parent design.' },
                 { icon: RefreshCw, step: '04', title: 'Continue from the new version', copy: 'The child design becomes your next working source, while the original remains available for comparison.' },
               ].map(item => (
-                <article key={item.step} className="min-h-64 bg-background p-6">
-                  <div className="flex items-center justify-between"><item.icon className="h-5 w-5 text-primary" /><span className="font-heading text-xs text-muted-foreground">{item.step}</span></div>
+                <article key={item.step} className="group relative min-h-64 overflow-hidden bg-background p-6 transition-colors duration-300 hover:bg-primary/[0.03]">
+                  <div className="pointer-events-none absolute inset-x-0 bottom-0 h-px bg-gradient-to-r from-transparent via-primary/45 to-transparent opacity-0 transition-opacity duration-300 group-hover:opacity-100" />
+                  <div className="flex items-center justify-between">
+                    <span className="flex h-10 w-10 items-center justify-center rounded-lg border border-white/[0.08] bg-white/[0.03] transition-colors duration-300 group-hover:border-primary/30 group-hover:bg-primary/[0.07]"><item.icon className="h-[18px] w-[18px] text-primary" strokeWidth={1.7} /></span>
+                    <span className="font-heading text-xs text-muted-foreground">{item.step}</span>
+                  </div>
                   <h3 className="mt-10 font-heading text-lg font-semibold">{item.title}</h3>
                   <p className="mt-3 text-sm leading-6 text-muted-foreground">{item.copy}</p>
                 </article>
@@ -383,9 +577,9 @@ export default function Landing() {
             </div>
 
             <div className="mt-16 grid gap-3 border-t border-white/[0.08] pt-8 md:grid-cols-3">
-              <div className="rounded-lg border border-white/[0.08] bg-white/[0.02] p-5"><Gift className="h-5 w-5 text-primary" /><h3 className="mt-4 font-heading text-base font-semibold">Usage becomes participation</h3><p className="mt-2 text-sm leading-6 text-muted-foreground">Rewards follow eligible credits actually consumed, not money simply deposited into the wallet.</p></div>
-              <div className="rounded-lg border border-white/[0.08] bg-white/[0.02] p-5"><Network className="h-5 w-5 text-[#a9bcff]" /><h3 className="mt-4 font-heading text-base font-semibold">One billion, earned together</h3><p className="mt-2 text-sm leading-6 text-muted-foreground">The planned launch trigger is reached when user accounts collectively accrue 1 billion eligible SPYDA.</p></div>
-              <div className="rounded-lg border border-white/[0.08] bg-white/[0.02] p-5"><ShieldCheck className="h-5 w-5 text-[#ffab84]" /><h3 className="mt-4 font-heading text-base font-semibold">Product and trust first</h3><p className="mt-2 text-sm leading-6 text-muted-foreground">Spyda must remain useful before launch, and the token infrastructure must pass its readiness gates.</p></div>
+              <div className="rounded-lg border border-white/[0.08] bg-white/[0.02] p-5 transition-all duration-300 hover:-translate-y-0.5 hover:border-primary/25 hover:bg-primary/[0.03]"><Gift className="h-5 w-5 text-primary" /><h3 className="mt-4 font-heading text-base font-semibold">Usage becomes participation</h3><p className="mt-2 text-sm leading-6 text-muted-foreground">Rewards follow eligible credits actually consumed, not money simply deposited into the wallet.</p></div>
+              <div className="rounded-lg border border-white/[0.08] bg-white/[0.02] p-5 transition-all duration-300 hover:-translate-y-0.5 hover:border-primary/25 hover:bg-primary/[0.03]"><Network className="h-5 w-5 text-[#a9bcff]" /><h3 className="mt-4 font-heading text-base font-semibold">One billion, earned together</h3><p className="mt-2 text-sm leading-6 text-muted-foreground">The planned launch trigger is reached when user accounts collectively accrue 1 billion eligible SPYDA.</p></div>
+              <div className="rounded-lg border border-white/[0.08] bg-white/[0.02] p-5 transition-all duration-300 hover:-translate-y-0.5 hover:border-primary/25 hover:bg-primary/[0.03]"><ShieldCheck className="h-5 w-5 text-[#ffab84]" /><h3 className="mt-4 font-heading text-base font-semibold">Product and trust first</h3><p className="mt-2 text-sm leading-6 text-muted-foreground">Spyda must remain useful before launch, and the token infrastructure must pass its readiness gates.</p></div>
             </div>
           </div>
         </section>
