@@ -2,6 +2,11 @@ import { StrictMode } from 'react'
 import { createRoot } from 'react-dom/client'
 import './index.css'
 import App from './App.tsx'
+import { setupInstallPromptCapture } from './lib/pwa-install'
+
+// Capture Chrome's one-shot beforeinstallprompt event before the splash screen
+// delays React mounting — otherwise the in-app Install buttons miss it.
+setupInstallPromptCapture()
 
 createRoot(document.getElementById('root')!).render(
   <StrictMode>

@@ -1,10 +1,11 @@
 import { useEffect, useState } from 'react'
 import { Download, Share, Plus, X, SquarePlus } from 'lucide-react'
-
-type BeforeInstallPromptEvent = Event & {
-  prompt: () => Promise<void>
-  userChoice: Promise<{ outcome: 'accepted' | 'dismissed' }>
-}
+import {
+  INSTALL_AVAILABLE_EVENT,
+  INSTALL_COMPLETED_EVENT,
+  clearInstallPrompt,
+  getInstallPrompt,
+} from '../lib/pwa-install'
 
 function isStandalone() {
   if (typeof window === 'undefined') return false
@@ -20,21 +21,20 @@ function isIos() {
 }
 
 export default function InstallAppButton() {
-  const [deferred, setDeferred] = useState<BeforeInstallPromptEvent | null>(null)
+  const [deferred, setDeferred] = useState(getInstallPrompt)
   const [installed, setInstalled] = useState(isStandalone())
   const [showHelp, setShowHelp] = useState(false)
 
   useEffect(() => {
-    const onPrompt = (event: Event) => {
-      event.preventDefault()
-      setDeferred(event as BeforeInstallPromptEvent)
-    }
+    // The event itself is captured at app boot (see lib/pwa-install); here we
+    // only sync with the stash, so a prompt fired during the splash still works.
+    const onAvailable = () => setDeferred(getInstallPrompt())
     const onInstalled = () => { setInstalled(true); setDeferred(null); setShowHelp(false) }
-    window.addEventListener('beforeinstallprompt', onPrompt)
-    window.addEventListener('appinstalled', onInstalled)
+    window.addEventListener(INSTALL_AVAILABLE_EVENT, onAvailable)
+    window.addEventListener(INSTALL_COMPLETED_EVENT, onInstalled)
     return () => {
-      window.removeEventListener('beforeinstallprompt', onPrompt)
-      window.removeEventListener('appinstalled', onInstalled)
+      window.removeEventListener(INSTALL_AVAILABLE_EVENT, onAvailable)
+      window.removeEventListener(INSTALL_COMPLETED_EVENT, onInstalled)
     }
   }, [])
 
@@ -46,6 +46,7 @@ export default function InstallAppButton() {
       const choice = await deferred.userChoice.catch(() => ({ outcome: 'dismissed' as const }))
       if (choice.outcome === 'accepted') setInstalled(true)
       setDeferred(null)
+      clearInstallPrompt()
       return
     }
     // No native prompt (iOS Safari, or criteria not yet met) — show manual steps.

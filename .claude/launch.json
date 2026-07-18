@@ -7,6 +7,13 @@
       "runtimeArgs": ["run", "dev"],
       "cwd": "spyda-client",
       "port": 5173
+    },
+    {
+      "name": "spyda-client-preview",
+      "runtimeExecutable": "npm",
+      "runtimeArgs": ["run", "preview", "--", "--port", "4310", "--strictPort"],
+      "cwd": "spyda-client",
+      "port": 4310
     }
   ]
 }

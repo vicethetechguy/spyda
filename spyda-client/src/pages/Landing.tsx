@@ -37,10 +37,12 @@ import {
   Zap,
 } from 'lucide-react'
 
-type PwaInstallPrompt = Event & {
-  prompt: () => Promise<void>
-  userChoice: Promise<{ outcome: 'accepted' | 'dismissed' }>
-}
+import {
+  INSTALL_AVAILABLE_EVENT,
+  INSTALL_COMPLETED_EVENT,
+  clearInstallPrompt,
+  getInstallPrompt,
+} from '../lib/pwa-install'
 
 function SectionLabel({ children }: { children: React.ReactNode }) {
   return (
@@ -328,7 +330,7 @@ const samples = [
 ]
 
 export default function Landing() {
-  const [installPrompt, setInstallPrompt] = useState<PwaInstallPrompt | null>(null)
+  const [installPrompt, setInstallPrompt] = useState(getInstallPrompt)
   const [installHint, setInstallHint] = useState<string | null>(null)
   const [isInstalled, setIsInstalled] = useState(false)
 
@@ -337,22 +339,20 @@ export default function Landing() {
       || Boolean((window.navigator as Navigator & { standalone?: boolean }).standalone)
     setIsInstalled(standalone)
 
-    const capturePrompt = (event: Event) => {
-      // Keep Chrome's native Install/Add to Home Screen entry available.
-      // Spyda also retains the event so the in-app Install button can use it.
-      setInstallPrompt(event as PwaInstallPrompt)
-    }
+    // The prompt event is captured at app boot (see lib/pwa-install), so it is
+    // available even when Chrome fired it while the splash screen was showing.
+    const syncPrompt = () => setInstallPrompt(getInstallPrompt())
     const markInstalled = () => {
       setInstallPrompt(null)
       setInstallHint(null)
       setIsInstalled(true)
     }
 
-    window.addEventListener('beforeinstallprompt', capturePrompt)
-    window.addEventListener('appinstalled', markInstalled)
+    window.addEventListener(INSTALL_AVAILABLE_EVENT, syncPrompt)
+    window.addEventListener(INSTALL_COMPLETED_EVENT, markInstalled)
     return () => {
-      window.removeEventListener('beforeinstallprompt', capturePrompt)
-      window.removeEventListener('appinstalled', markInstalled)
+      window.removeEventListener(INSTALL_AVAILABLE_EVENT, syncPrompt)
+      window.removeEventListener(INSTALL_COMPLETED_EVENT, markInstalled)
     }
   }, [])
 
@@ -362,9 +362,11 @@ export default function Landing() {
         await installPrompt.prompt()
         await installPrompt.userChoice
         setInstallPrompt(null)
+        clearInstallPrompt()
         return
       } catch {
         setInstallPrompt(null)
+        clearInstallPrompt()
       }
     }
 
