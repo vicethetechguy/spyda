@@ -530,11 +530,23 @@ function ListTemplateDialog({ categories, userId, onClose, onListed }: {
 
   const pickImage = (selected?: File) => {
     if (!selected) return
-    if (!selected.type.startsWith('image/')) return setError('Choose an image file.')
-    if (selected.size > 8 * 1024 * 1024) return setError('Choose an image smaller than 8 MB.')
+    const isImage = selected.type.startsWith('image/') || /\.(jpe?g|png|webp|gif)$/i.test(selected.name)
+    if (!isImage) {
+      if (selected.name.toLowerCase().endsWith('.pdf')) {
+        setError('Please upload an image file (JPG, PNG) instead of a PDF flyer.')
+        return
+      }
+      setError('Please choose a valid image file.')
+      return
+    }
+    if (selected.size > 8 * 1024 * 1024) {
+      setError('Please choose an image smaller than 8 MB.')
+      return
+    }
     setError('')
     setFile(selected)
     setPreview(URL.createObjectURL(selected))
+    if (fileRef.current) fileRef.current.value = '' // Allow re-selecting the same file
   }
 
   const submit = async () => {
