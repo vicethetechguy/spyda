@@ -71,7 +71,9 @@ export async function listTemplate(input: {
     p_description: input.description ?? null,
   })
   if (error) throw new Error(error.message)
-  return data as MarketplaceTemplate
+  const template = (Array.isArray(data) ? data[0] : data) as MarketplaceTemplate | null
+  if (!template?.id) throw new Error('The listing was saved, but Spyda did not receive the new template record. Refresh and try again.')
+  return template
 }
 
 // Moves credits from the buyer to the lister. Idempotent server-side: an owner

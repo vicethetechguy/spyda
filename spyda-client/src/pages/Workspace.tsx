@@ -2741,6 +2741,16 @@ type CreditTier = {
   recommended?: boolean
 }
 
+type CreditTransaction = {
+  id: string
+  activity_type: 'funded' | 'spent' | 'earned' | 'adjustment'
+  source: string
+  description: string
+  amount: number
+  balance_after: number
+  created_at: string
+}
+
 function SpydaCreditIcon({ className = '' }: { className?: string }) {
   return <img src="/assets/spyda-credit.png" alt="" aria-hidden="true" className={`shrink-0 object-contain ${className}`} />
 }
@@ -2759,6 +2769,11 @@ function WalletView({ onFund }: { onFund: () => void }) {
   const [byokEnabled, setByokEnabled] = useState(false)
   const [loading, setLoading] = useState(true)
   const [balanceError, setBalanceError] = useState('')
+  const [activities, setActivities] = useState<CreditTransaction[]>([])
+  const [activityLoading, setActivityLoading] = useState(true)
+  const [activityError, setActivityError] = useState('')
+  const [activityLimit, setActivityLimit] = useState(20)
+  const [activityTotal, setActivityTotal] = useState(0)
   const [activeAsset, setActiveAsset] = useState<'credits' | 'usd' | 'token'>('credits')
   const [walletNotice, setWalletNotice] = useState('')
 
@@ -2790,18 +2805,57 @@ function WalletView({ onFund }: { onFund: () => void }) {
     }
   }, [user])
 
+  const loadActivity = useCallback(async () => {
+    if (!user) {
+      setActivities([])
+      setActivityLoading(false)
+      return
+    }
+    setActivityLoading(true)
+    try {
+      const { data, error, count } = await supabase
+        .from('credit_transactions')
+        .select('id, activity_type, source, description, amount, balance_after, created_at', { count: 'exact' })
+        .eq('user_id', user.id)
+        .order('created_at', { ascending: false })
+        .range(0, activityLimit - 1)
+
+      if (error) throw error
+      setActivities((data ?? []).map(row => ({
+        id: String(row.id),
+        activity_type: row.activity_type as CreditTransaction['activity_type'],
+        source: String(row.source || 'wallet'),
+        description: String(row.description || 'Spyda credit activity'),
+        amount: Number(row.amount || 0),
+        balance_after: Number(row.balance_after || 0),
+        created_at: String(row.created_at),
+      })))
+      setActivityTotal(Number(count || 0))
+      setActivityError('')
+    } catch (error) {
+      console.error('Error fetching wallet activity:', error)
+      setActivityError('Credit activity could not be loaded. Refresh after the wallet ledger is connected.')
+    } finally {
+      setActivityLoading(false)
+    }
+  }, [activityLimit, user])
+
   useEffect(() => {
-    loadBalance()
+    void loadBalance()
+    void loadActivity()
     // Keep the balance fresh after funding elsewhere (coupon redeem, Paystack)
     // or when the user returns to this tab.
-    const onFocus = () => loadBalance()
+    const onFocus = () => {
+      void loadBalance()
+      void loadActivity()
+    }
     window.addEventListener('focus', onFocus)
     document.addEventListener('visibilitychange', onFocus)
     return () => {
       window.removeEventListener('focus', onFocus)
       document.removeEventListener('visibilitychange', onFocus)
     }
-  }, [loadBalance])
+  }, [loadActivity, loadBalance])
 
   const CREDITS_PER_GENERATION = byokEnabled ? SPYDA_BYOK_ROUND_CREDITS : SPYDA_AI_ROUND_CREDITS
   const generationsRemaining = Math.floor(balance / CREDITS_PER_GENERATION)
@@ -2891,7 +2945,7 @@ function WalletView({ onFund }: { onFund: () => void }) {
                     <span className="text-sm font-medium text-white/85">{selectedAsset.shortName}</span>
                   </div>
                 </div>
-                <button type="button" onClick={() => { setLoading(true); loadBalance() }} aria-label="Refresh balance" className="inline-flex h-9 w-9 items-center justify-center rounded-lg border border-white/[0.18] bg-white/[0.08] text-white/80 backdrop-blur-sm transition-colors hover:bg-white/[0.16]">
+                <button type="button" onClick={() => { setLoading(true); void loadBalance(); void loadActivity() }} aria-label="Refresh balance and activity" className="inline-flex h-9 w-9 items-center justify-center rounded-lg border border-white/[0.18] bg-white/[0.08] text-white/80 backdrop-blur-sm transition-colors hover:bg-white/[0.16]">
                   <RotateCcw className={`h-4 w-4 ${loading ? 'animate-spin' : ''}`} />
                 </button>
               </div>
@@ -2943,8 +2997,38 @@ function WalletView({ onFund }: { onFund: () => void }) {
 
         <aside className="space-y-3">
           <section className="rounded-lg border border-white/[0.08] bg-white/[0.025] p-5">
-            <div className="flex items-center justify-between"><h3 className="font-heading text-base font-semibold">Wallet activity</h3><ReceiptText className="h-4 w-4 text-muted-foreground" /></div>
-            <div className="mt-7 border-b border-dashed border-white/[0.1] pb-7 text-center"><div className="mx-auto flex h-10 w-10 items-center justify-center rounded-full border border-white/10 bg-white/[0.03]"><Wallet className="h-4 w-4 text-primary" /></div><p className="mt-3 text-sm font-semibold">No recent movement</p><p className="mt-1 text-xs leading-5 text-muted-foreground">Completed funding and transfers will appear here.</p></div>
+            <div className="flex items-center justify-between gap-3"><div><h3 className="font-heading text-base font-semibold">Wallet activity</h3><p className="mt-1 text-[10px] uppercase text-muted-foreground">{activityTotal.toLocaleString()} transaction{activityTotal === 1 ? '' : 's'}</p></div><ReceiptText className="h-4 w-4 text-muted-foreground" /></div>
+            {activityLoading && !activities.length ? (
+              <div className="flex min-h-40 items-center justify-center"><Loader2 className="h-5 w-5 animate-spin text-primary" /></div>
+            ) : activityError ? (
+              <div className="mt-5 rounded-lg border border-amber-500/20 bg-amber-500/[0.05] p-4 text-xs leading-5 text-amber-200">{activityError}</div>
+            ) : activities.length ? (
+              <div className="mt-4 max-h-[390px] overflow-y-auto border-y border-white/[0.07] [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
+                {activities.map(activity => {
+                  const incoming = activity.amount > 0
+                  const sourceLabel = activity.source.replaceAll('_', ' ')
+                  return (
+                    <div key={activity.id} className="grid grid-cols-[36px_minmax(0,1fr)_auto] gap-3 border-b border-white/[0.06] py-3 last:border-b-0">
+                      <span className={`flex h-9 w-9 items-center justify-center rounded-full border ${incoming ? 'border-primary/20 bg-primary/[0.08] text-primary' : 'border-[#ff8f5c]/20 bg-[#ff8f5c]/[0.06] text-[#ffab84]'}`}>
+                        {incoming ? <ArrowDownToLine className="h-4 w-4" /> : <ArrowUpRight className="h-4 w-4" />}
+                      </span>
+                      <div className="min-w-0">
+                        <p className="truncate text-xs font-semibold" title={activity.description}>{activity.description}</p>
+                        <p className="mt-1 truncate text-[10px] capitalize text-muted-foreground">{sourceLabel} / {new Date(activity.created_at).toLocaleString(undefined, { month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit' })}</p>
+                        <p className="mt-1 text-[10px] text-muted-foreground">Balance: {activity.balance_after.toLocaleString()}</p>
+                      </div>
+                      <div className="text-right">
+                        <p className={`text-xs font-semibold ${incoming ? 'text-primary' : 'text-[#ffab84]'}`}>{incoming ? '+' : ''}{activity.amount.toLocaleString()}</p>
+                        <p className="mt-1 text-[9px] uppercase text-muted-foreground">{activity.activity_type}</p>
+                      </div>
+                    </div>
+                  )
+                })}
+              </div>
+            ) : (
+              <div className="mt-7 border-b border-dashed border-white/[0.1] pb-7 text-center"><div className="mx-auto flex h-10 w-10 items-center justify-center rounded-full border border-white/10 bg-white/[0.03]"><Wallet className="h-4 w-4 text-primary" /></div><p className="mt-3 text-sm font-semibold">No credit activity yet</p><p className="mt-1 text-xs leading-5 text-muted-foreground">Funding, generation spending, and marketplace earnings will appear here.</p></div>
+            )}
+            {activities.length < activityTotal && <button type="button" onClick={() => setActivityLimit(limit => limit + 20)} disabled={activityLoading} className="mt-4 flex h-9 w-full items-center justify-center gap-2 rounded-lg border border-white/[0.08] text-xs font-semibold text-muted-foreground hover:bg-white/[0.04] hover:text-foreground disabled:opacity-50">{activityLoading && <Loader2 className="h-3.5 w-3.5 animate-spin" />} Load older activity</button>}
             <button type="button" onClick={onFund} className="mt-4 flex w-full items-center justify-between text-sm font-semibold text-primary">Fund your credit balance <ChevronRight className="h-4 w-4" /></button>
           </section>
 

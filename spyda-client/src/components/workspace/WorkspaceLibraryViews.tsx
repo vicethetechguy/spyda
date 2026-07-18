@@ -315,6 +315,7 @@ export function TemplatesView({ onUseTemplate }: { onUseTemplate: (source: strin
   const { user } = useAuth()
   const [search, setSearch] = useState('')
   const [category, setCategory] = useState('All')
+  const [ownerOnly, setOwnerOnly] = useState(false)
   const [applying, setApplying] = useState<string | null>(null)
   const [actionError, setActionError] = useState('')
   const [showList, setShowList] = useState(false)
@@ -335,8 +336,11 @@ export function TemplatesView({ onUseTemplate }: { onUseTemplate: (source: strin
       if (user?.id) {
         try { setPurchased(await fetchMyPurchases(user.id)) } catch { /* purchases are best-effort */ }
       }
-    } catch {
-      setMarketError('Community templates could not be loaded right now. Spyda picks are still available below.')
+    } catch (error) {
+      const message = String((error as { message?: string })?.message || '')
+      setMarketError(/schema cache|could not find the table|404/i.test(message)
+        ? 'Template marketplace setup is pending. Apply the latest Spyda Supabase migration, then refresh this page.'
+        : 'Community templates could not be loaded right now. Spyda picks are still available below.')
       setTemplates([])
     } finally {
       setLoadingMarket(false)
@@ -373,8 +377,19 @@ export function TemplatesView({ onUseTemplate }: { onUseTemplate: (source: strin
   const visible = useMemo(() => {
     const query = search.toLowerCase().trim()
     return [...community, ...builtIns].filter(item =>
-      (category === 'All' || item.category === category) && item.name.toLowerCase().includes(query))
-  }, [community, builtIns, category, search])
+      (!ownerOnly || item.isOwner) &&
+      (category === 'All' || item.category === category) &&
+      item.name.toLowerCase().includes(query))
+  }, [community, builtIns, category, ownerOnly, search])
+
+  const handleListed = (template: MarketplaceTemplate) => {
+    setTemplates(previous => [template, ...previous.filter(item => item.id !== template.id)])
+    setDbCategories(previous => Array.from(new Set([...previous, template.category])).sort((a, b) => a.localeCompare(b)))
+    setCategory('All')
+    setSearch('')
+    setOwnerOnly(true)
+    setShowList(false)
+  }
 
   const handleUse = async (item: DisplayTemplate) => {
     setActionError('')
@@ -418,7 +433,8 @@ export function TemplatesView({ onUseTemplate }: { onUseTemplate: (source: strin
 
       <div className="mt-6 flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
         <div className="flex gap-2 overflow-x-auto pb-1">
-          {categories.map(value => <button key={value} type="button" onClick={() => setCategory(value)} className={`h-9 shrink-0 rounded-lg border px-4 text-xs font-semibold ${category === value ? 'border-primary/40 bg-primary/10 text-primary' : 'border-white/[0.08] text-muted-foreground'}`}>{value}</button>)}
+          {user && <button type="button" onClick={() => { setOwnerOnly(value => !value); setCategory('All') }} className={`h-9 shrink-0 rounded-lg border px-4 text-xs font-semibold ${ownerOnly ? 'border-primary/40 bg-primary/10 text-primary' : 'border-white/[0.08] text-muted-foreground'}`}>My listings</button>}
+          {categories.map(value => <button key={value} type="button" onClick={() => { setCategory(value); setOwnerOnly(false) }} className={`h-9 shrink-0 rounded-lg border px-4 text-xs font-semibold ${!ownerOnly && category === value ? 'border-primary/40 bg-primary/10 text-primary' : 'border-white/[0.08] text-muted-foreground'}`}>{value}</button>)}
         </div>
         <label className="flex h-10 items-center gap-2 rounded-lg border border-white/[0.08] bg-white/[0.02] px-3 sm:w-64"><Search className="h-4 w-4 text-muted-foreground" /><input value={search} onChange={event => setSearch(event.target.value)} placeholder="Search templates" className="min-w-0 flex-1 bg-transparent text-sm outline-none" /></label>
       </div>
@@ -476,7 +492,7 @@ export function TemplatesView({ onUseTemplate }: { onUseTemplate: (source: strin
           categories={dbCategories.length ? dbCategories : builtIns.map(item => item.category)}
           userId={user?.id}
           onClose={() => setShowList(false)}
-          onListed={() => { setShowList(false); void refresh() }}
+          onListed={handleListed}
         />
       )}
     </div>
@@ -487,7 +503,7 @@ function ListTemplateDialog({ categories, userId, onClose, onListed }: {
   categories: string[]
   userId?: string
   onClose: () => void
-  onListed: () => void
+  onListed: (template: MarketplaceTemplate) => void
 }) {
   const uniqueCategories = useMemo(() => Array.from(new Set(categories)).sort((a, b) => a.localeCompare(b)), [categories])
   const [name, setName] = useState('')
@@ -566,12 +582,11 @@ function ListTemplateDialog({ categories, userId, onClose, onListed }: {
       }
       
       try {
-        await listTemplate({ name: name.trim(), category: chosenCategory, price: priceValue, imageUrl: uploadResult.url, imagePath: uploadResult.path, description: description.trim() })
+        const listedTemplate = await listTemplate({ name: name.trim(), category: chosenCategory, price: priceValue, imageUrl: uploadResult.url, imagePath: uploadResult.path, description: description.trim() })
+        onListed(listedTemplate)
       } catch (e: any) {
         throw new Error(`Database error: ${e.message || 'Unknown RPC error'}`)
       }
-      
-      onListed()
     } catch (caught: any) {
       setError(caught.message || 'Your template could not be listed.')
     } finally {
