@@ -546,11 +546,22 @@ function ListTemplateDialog({ categories, userId, onClose, onListed }: {
     setSubmitting(true)
     setError('')
     try {
-      const { url, path } = await uploadTemplateImage(userId, file)
-      await listTemplate({ name: name.trim(), category: chosenCategory, price: priceValue, imageUrl: url, imagePath: path, description: description.trim() })
+      let uploadResult;
+      try {
+        uploadResult = await uploadTemplateImage(userId, file)
+      } catch (e: any) {
+        throw new Error(`Upload failed: ${e.message || 'Network error'}`)
+      }
+      
+      try {
+        await listTemplate({ name: name.trim(), category: chosenCategory, price: priceValue, imageUrl: uploadResult.url, imagePath: uploadResult.path, description: description.trim() })
+      } catch (e: any) {
+        throw new Error(`Database error: ${e.message || 'Unknown RPC error'}`)
+      }
+      
       onListed()
-    } catch (caught) {
-      setError(caught instanceof Error ? caught.message : 'Your template could not be listed.')
+    } catch (caught: any) {
+      setError(caught.message || 'Your template could not be listed.')
     } finally {
       setSubmitting(false)
     }

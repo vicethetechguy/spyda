@@ -2929,7 +2929,10 @@ function WalletView({ onFund }: { onFund: () => void }) {
             <div className="grid gap-2 md:grid-cols-3">
               {Object.values(assets).map(asset => (
                 <button key={asset.id} type="button" onClick={() => { setActiveAsset(asset.id); setWalletNotice('') }} aria-pressed={activeAsset === asset.id} className={`min-h-[146px] rounded-lg border p-4 text-left transition-colors ${activeAsset === asset.id ? 'border-primary/45 bg-primary/[0.06]' : 'border-white/[0.08] bg-white/[0.025] hover:border-white/[0.16]'}`}>
-                  <div className="flex items-center justify-between gap-3"><span className="inline-flex h-9 w-9 items-center justify-center rounded-full border border-white/10 bg-black/20 text-primary">{asset.icon}</span><span className="text-[9px] font-semibold uppercase text-muted-foreground">{asset.status}</span></div>
+                  <div className="flex items-center gap-3">
+                    <span className="inline-flex h-9 w-9 shrink-0 items-center justify-center rounded-full border border-white/10 bg-black/20 text-primary">{asset.icon}</span>
+                    <span className="text-lg font-semibold text-foreground">{asset.status}</span>
+                  </div>
                   <p className="mt-4 text-sm font-semibold">{asset.name}</p>
                   <p className="mt-1 text-xs leading-5 text-muted-foreground">{asset.detail}</p>
                 </button>
