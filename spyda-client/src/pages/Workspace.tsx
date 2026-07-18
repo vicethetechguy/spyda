@@ -16,6 +16,7 @@ import {
 } from '../components/workspace/WorkspaceLibraryViews'
 import { SecurityPanel, SubscriptionView } from '../components/workspace/WorkspaceAccountViews'
 import { WhitepaperView } from '../components/workspace/WorkspaceDocumentationViews'
+import { GuidesView } from '../components/workspace/WorkspaceGuidesView'
 import {
   PanelLeftClose,
   PanelLeftOpen,
@@ -47,7 +48,6 @@ import {
   ArrowDownToLine,
   LockKeyhole,
   DollarSign,
-  Radio,
   ChevronRight,
   Ticket
 } from 'lucide-react'
@@ -627,6 +627,7 @@ export default function Workspace() {
     templates: 'Templates',
     'brand-assets': 'Brand Assets',
     whitepaper: 'Whitepaper',
+    guides: 'Guides',
     wallet: 'Wallet',
     fund: 'Fund',
     subscription: 'Subscription',
@@ -1397,6 +1398,7 @@ export default function Workspace() {
           {activeId === 'templates' && <TemplatesView onUseTemplate={handleUseTemplate} />}
           {activeId === 'brand-assets' && <BrandAssetsView onUseAsset={handleUseBrandAsset} />}
           {activeId === 'whitepaper' && <WhitepaperView />}
+          {activeId === 'guides' && <GuidesView />}
           {activeId === 'wallet' && <WalletView key={walletRefreshKey} onFund={() => setActiveId('fund')} />}
           {activeId === 'fund' && <FundView onBack={() => { setWalletRefreshKey(k => k + 1); setActiveId('wallet') }} />}
           {activeId === 'subscription' && <SubscriptionView onBack={() => setActiveId('settings')} onOpenWallet={() => setActiveId('wallet')} onOpenSettings={() => setActiveId('settings')} />}
@@ -2863,7 +2865,6 @@ function WalletView({ onFund }: { onFund: () => void }) {
     <div className="mx-auto w-full max-w-[1240px] px-4 py-6 sm:px-6 lg:px-8 lg:py-8">
       <header className="flex flex-col gap-4 border-b border-white/[0.07] pb-6 sm:flex-row sm:items-end sm:justify-between">
         <div>
-          <div className="mb-2 flex items-center gap-2 text-[11px] font-semibold uppercase text-primary"><Radio className="h-3.5 w-3.5" /> Hybrid value layer</div>
           <h2 className="font-heading text-2xl font-semibold sm:text-[28px]">Spyda Wallet</h2>
           <p className="mt-1.5 max-w-xl text-sm text-muted-foreground">One place for design credits, fiat settlement, and Spyda's future Web3 economy.</p>
         </div>
@@ -2995,7 +2996,6 @@ function FundView({ onBack }: { onBack: () => void }) {
 
       <header className="mt-5 flex flex-col gap-4 border-b border-white/[0.07] pb-6 sm:flex-row sm:items-end sm:justify-between">
         <div>
-          <div className="mb-2 flex items-center gap-2 text-[11px] font-semibold uppercase text-primary"><SpydaCreditIcon className="h-3.5 w-3.5" /> Live funding rail</div>
           <h2 className="font-heading text-2xl font-semibold sm:text-[28px]">Fund Spyda Credits</h2>
           <p className="mt-1.5 max-w-xl text-sm text-muted-foreground">Choose a pack or enter any amount. Every $1 adds 100 credits.</p>
         </div>
@@ -3111,13 +3111,13 @@ function CouponRedeemCard({ onRedeemed }: { onRedeemed: (creditsAdded: number) =
           onKeyDown={event => { if (event.key === 'Enter') handleRedeem() }}
           placeholder="SPYDA-XXXX-XXXX"
           aria-label="Coupon code"
-          className="h-16 w-full flex-1 rounded-md border border-white/[0.12] bg-background/60 px-5 font-mono text-lg uppercase tracking-[0.18em] outline-none placeholder:tracking-[0.18em] placeholder:text-muted-foreground/60 focus:border-primary/60 sm:h-14 sm:text-base"
+          className="h-20 w-full flex-1 rounded-md border border-white/[0.12] bg-background/60 px-6 font-mono text-xl uppercase tracking-[0.18em] outline-none placeholder:tracking-[0.18em] placeholder:text-muted-foreground/60 focus:border-primary/60"
         />
         <button
           type="button"
           onClick={handleRedeem}
           disabled={state === 'redeeming'}
-          className="inline-flex h-14 w-full shrink-0 items-center justify-center gap-2 rounded-md bg-primary px-6 text-base font-semibold text-primary-foreground transition-colors hover:bg-primary/90 disabled:cursor-not-allowed disabled:opacity-50 sm:w-auto sm:min-w-44 sm:text-sm"
+          className="inline-flex h-20 w-full shrink-0 items-center justify-center gap-2 rounded-md bg-primary px-8 text-lg font-semibold text-primary-foreground transition-colors hover:bg-primary/90 disabled:cursor-not-allowed disabled:opacity-50 sm:w-auto sm:min-w-44"
         >
           {state === 'redeeming' && <Loader2 className="h-4 w-4 animate-spin" />}
           {state === 'success' && <CircleCheck className="h-4 w-4" />}

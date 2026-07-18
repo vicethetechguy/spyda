@@ -11,6 +11,7 @@ import {
   LogOut,
   Hash,
   BookOpen,
+  GraduationCap,
   ChevronDown,
   ChevronRight,
 } from 'lucide-react';
@@ -58,6 +59,7 @@ const spydaNavGroups: NavGroupData[] = [
     heading: 'Documentation',
     items: [
       { id: 'whitepaper', title: 'Whitepaper', icon: BookOpen },
+      { id: 'guides', title: 'Guides', icon: GraduationCap },
     ],
   },
 ];
