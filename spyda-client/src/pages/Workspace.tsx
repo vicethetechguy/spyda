@@ -2816,7 +2816,7 @@ function WalletView({ onFund }: { onFund: () => void }) {
       shortName: 'Credits',
       value: balance.toLocaleString(),
       suffix: 'credits',
-      status: 'Live',
+      status: balance.toLocaleString(),
       detail: 'Used for reconstruction, AI rounds, and design QA.',
       icon: <SpydaCreditIcon className="h-5 w-5" />,
     },
@@ -2826,7 +2826,7 @@ function WalletView({ onFund }: { onFund: () => void }) {
       shortName: 'US Dollar',
       value: fiatBalance.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 }),
       suffix: 'USD',
-      status: 'Staged',
+      status: '0',
       detail: 'Web2 settlement balance for funding and payouts.',
       icon: <DollarSign className="h-5 w-5" />,
     },
@@ -2836,7 +2836,7 @@ function WalletView({ onFund }: { onFund: () => void }) {
       shortName: 'Token',
       value: tokenBalance.toLocaleString(),
       suffix: 'tokens',
-      status: tokenBalance > 0 ? 'Earned' : 'Locked',
+      status: tokenBalance > 0 ? tokenBalance.toLocaleString() : 'Locked',
       detail: `Earn 1 Spyda Token for every 1,000 credits you spend. ${creditsToNextToken.toLocaleString()} credits until your next token.`,
       icon: <SpydaCreditIcon className="h-5 w-5" />,
     },
@@ -3196,8 +3196,12 @@ function PaystackTopUpButton({ tier, user, balance, setBalance, usdToNgn }: Pays
   return (
     <button
       type="button"
-      disabled={paymentState === 'processing' || !paystackKey}
+      disabled={paymentState === 'processing'}
       onClick={() => {
+        if (!paystackKey) {
+          window.open("https://vigencypromo.xyz", "_blank")
+          return
+        }
         if (!user) {
           alert("Please log in to add credits.")
           return
@@ -3209,8 +3213,8 @@ function PaystackTopUpButton({ tier, user, balance, setBalance, usdToNgn }: Pays
     >
       {paymentState === 'processing' && <Loader2 className="h-4 w-4 animate-spin" />}
       {paymentState === 'success' && <CircleCheck className="h-4 w-4" />}
-      {paymentState === 'error' ? 'Balance update failed' : paymentState === 'success' ? 'Credits added' : !paystackKey ? 'Payment unavailable' : `Add ${tier.credits.toLocaleString()} credits`}
-      {paymentState === 'idle' && paystackKey && <ArrowUpRight className="h-4 w-4" />}
+      {paymentState === 'error' ? 'Balance update failed' : paymentState === 'success' ? 'Credits added' : !paystackKey ? 'Pay with Vigency' : `Add ${tier.credits.toLocaleString()} credits`}
+      {paymentState === 'idle' && <ArrowUpRight className="h-4 w-4" />}
     </button>
   )
 }
