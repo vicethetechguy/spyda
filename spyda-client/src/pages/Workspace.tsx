@@ -2917,13 +2917,7 @@ function WalletView({ onFund }: { onFund: () => void }) {
 
   return (
     <div className="mx-auto w-full max-w-[1240px] px-4 py-6 sm:px-6 lg:px-8 lg:py-8">
-      <header className="flex flex-col gap-4 border-b border-white/[0.07] pb-6 sm:flex-row sm:items-end sm:justify-between">
-        <div>
-          <h2 className="font-heading text-2xl font-semibold sm:text-[28px]">Spyda Wallet</h2>
-          <p className="mt-1.5 max-w-xl text-sm text-muted-foreground">One place for design credits, fiat settlement, and Spyda's future Web3 economy.</p>
-        </div>
-        <div className="inline-flex w-fit items-center gap-2 rounded-lg border border-white/[0.08] bg-white/[0.03] px-3 py-2 text-xs text-muted-foreground"><Wallet className="h-4 w-4 text-primary" /> Web2 + Web3 infrastructure</div>
-      </header>
+
 
       <div className="grid gap-5 py-6 lg:grid-cols-[minmax(0,1.45fr)_minmax(280px,.72fr)] lg:py-8">
         <section className="min-w-0">
