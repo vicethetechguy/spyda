@@ -33,4 +33,33 @@ describe('bring your API key routing', () => {
     const headers = request.mock.calls[0]?.[1]?.headers as Record<string, string> | undefined
     expect(headers?.Authorization).toBe('Bearer gsk-user-key')
   })
+
+  it('retries with another supported Groq vision model when the preferred model is unavailable', async () => {
+    const request = vi.fn(async (_url: string, init?: RequestInit) => {
+      const body = JSON.parse(String(init?.body || '{}')) as { model?: string }
+      if (request.mock.calls.length === 1) {
+        return {
+          ok: false,
+          status: 400,
+          text: async () => JSON.stringify({
+            error: { code: 'model_not_found', message: `The model ${body.model} does not exist.` },
+          }),
+        }
+      }
+      return {
+        ok: true,
+        status: 200,
+        json: async () => ({ choices: [{ message: { content: '{"design":{"editableComponents":[]}}' } }] }),
+      }
+    })
+    vi.stubGlobal('fetch', request)
+
+    const result = await analyzeDesignWithGroq('data:image/png;base64,test', 'Analyze this design.', 'gsk-user-key')
+
+    expect(request).toHaveBeenCalledTimes(2)
+    const firstBody = JSON.parse(String(request.mock.calls[0]?.[1]?.body || '{}')) as { model: string }
+    const secondBody = JSON.parse(String(request.mock.calls[1]?.[1]?.body || '{}')) as { model: string }
+    expect(secondBody.model).not.toBe(firstBody.model)
+    expect(result.ok).toBe(true)
+  })
 })

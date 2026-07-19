@@ -487,22 +487,45 @@ export async function analyzeDesignWithGroq(base64Image: string, prompt: string,
   const groqKey = providedKey || process.env.GROQ_API_KEY || "";
   if (!groqKey) throw new Error("GROQ_API_KEY is not configured.");
 
-  const response = await fetch("https://api.groq.com/openai/v1/chat/completions", {
-    method: "POST",
-    headers: { "Authorization": `Bearer ${groqKey}`, "Content-Type": "application/json" },
-    body: JSON.stringify({
-      model: groqAnalysisModel, temperature: 0.2, max_completion_tokens: 1800,
-      messages: [{ role: "user", content: [{ type: "text", text: prompt }, { type: "image_url", image_url: { url: base64Image } }] }]
-    })
-  });
+  const modelCandidates = Array.from(new Set([
+    groqAnalysisModel,
+    "qwen/qwen3.6-27b",
+    "meta-llama/llama-4-scout-17b-16e-instruct",
+  ].filter(Boolean)));
+  let lastModelError = "";
 
-  if (!response.ok) {
-    const err = await response.text();
-    throw new Error(`Groq API Error: ${err}`);
+  for (const model of modelCandidates) {
+    const response = await fetch("https://api.groq.com/openai/v1/chat/completions", {
+      method: "POST",
+      headers: { "Authorization": `Bearer ${groqKey}`, "Content-Type": "application/json" },
+      body: JSON.stringify({
+        model, temperature: 0.2, max_completion_tokens: 3200,
+        messages: [{ role: "user", content: [{ type: "text", text: prompt }, { type: "image_url", image_url: { url: base64Image } }] }]
+      })
+    });
+
+    if (response.ok) {
+      const payload = await response.json();
+      return {
+        ok: true,
+        mode: "groq",
+        analysisModel: model,
+        breakdown: extractJson(payload.choices?.[0]?.message?.content || ""),
+      };
+    }
+
+    const errorText = await response.text();
+    const modelUnavailable = response.status === 404
+      || /model_not_found|model .* does not exist|do not have access to it/i.test(errorText);
+    if (!modelUnavailable) {
+      throw new Error(`Groq API Error: ${errorText}`);
+    }
+    lastModelError = errorText;
   }
 
-  const payload = await response.json();
-  return { ok: true, mode: "groq", breakdown: extractJson(payload.choices?.[0]?.message?.content || "") };
+  throw new Error(
+    `Groq could not access a supported vision model. Tried: ${modelCandidates.join(", ")}. ${lastModelError}`,
+  );
 }
 
 export async function analyzeDesignWithOpenAI(base64Image: string, prompt: string, providedKey = "") {
