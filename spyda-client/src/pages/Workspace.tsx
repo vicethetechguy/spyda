@@ -1,4 +1,4 @@
-import { useState, useRef, useCallback, useEffect, useMemo } from 'react'
+import { useState, useRef, useCallback, useEffect, useMemo, type FormEvent } from 'react'
 import { useAuth } from '../lib/AuthContext'
 import { supabase } from '../lib/supabase'
 import { parseAtomBox, clampBox, compositeReplacements, getImageSize, refineLogoBox, resizeBoxFromCorner, trimImageWhitespace, type AtomBox, type ResizeCorner } from '../lib/design'
@@ -44,13 +44,14 @@ import {
   CircleCheck,
   ReceiptText,
   Wallet,
+  Send,
   ArrowDownToLine,
   LockKeyhole,
   DollarSign,
   ChevronRight,
   Ticket
 } from 'lucide-react'
-import { redeemCoupon } from '../lib/admin'
+import { isAdminEmail, redeemCoupon, sendCreditsBySpydaId } from '../lib/admin'
 
 /* ═══════════════════════════════════════════════
    AI Model Definitions
@@ -1398,7 +1399,8 @@ export default function Workspace() {
           {activeId === 'brand-assets' && <BrandAssetsView onUseAsset={handleUseBrandAsset} />}
           {activeId === 'whitepaper' && <WhitepaperView />}
           {activeId === 'guides' && <GuidesView />}
-          {activeId === 'wallet' && <WalletView key={walletRefreshKey} onFund={() => setActiveId('fund')} />}
+          {activeId === 'wallet' && <WalletView key={walletRefreshKey} onFund={() => setActiveId('fund')} onSend={() => setActiveId('wallet-send')} />}
+          {activeId === 'wallet-send' && <AdminWalletSendView onBack={() => { setWalletRefreshKey(k => k + 1); setActiveId('wallet') }} />}
           {activeId === 'fund' && <FundView onBack={() => { setWalletRefreshKey(k => k + 1); setActiveId('wallet') }} />}
           {activeId === 'subscription' && <SubscriptionView onBack={() => setActiveId('settings')} onOpenWallet={() => setActiveId('wallet')} onOpenSettings={() => setActiveId('settings')} />}
           {activeId === 'settings' && <SettingsView profilePic={profilePic} setProfilePic={setProfilePic} onManageSubscription={() => setActiveId('subscription')} />}
@@ -2760,8 +2762,9 @@ const CREDIT_TIERS: CreditTier[] = [
   { amountUSD: 25, credits: 2800, label: '$25', title: 'Studio', detail: 'Extra credits for production work' },
 ]
 
-function WalletView({ onFund }: { onFund: () => void }) {
+function WalletView({ onFund, onSend }: { onFund: () => void; onSend: () => void }) {
   const { user } = useAuth()
+  const isAdmin = isAdminEmail(user?.email)
   const [balance, setBalance] = useState(0)
   const [tokenBalance, setTokenBalance] = useState(0)
   const [creditsSpent, setCreditsSpent] = useState(0)
@@ -2957,7 +2960,11 @@ function WalletView({ onFund }: { onFund: () => void }) {
 
           <div className="mt-3 grid grid-cols-3 gap-2">
             <button type="button" onClick={() => handleWalletAction('fund')} className="inline-flex h-12 items-center justify-center gap-2 rounded-lg border border-primary/30 bg-primary/10 text-sm font-semibold text-primary transition-colors hover:bg-primary/15"><ArrowDownToLine className="h-4 w-4" /> Fund</button>
-            <button type="button" disabled title="Spyda Credit transfers are available to administrators only." className="inline-flex h-12 cursor-not-allowed items-center justify-center gap-2 rounded-lg border border-white/[0.06] bg-white/[0.02] text-sm font-semibold text-muted-foreground"><LockKeyhole className="h-4 w-4" /> Send</button>
+            {isAdmin ? (
+              <button type="button" onClick={onSend} className="inline-flex h-12 items-center justify-center gap-2 rounded-lg border border-white/[0.1] bg-white/[0.04] text-sm font-semibold transition-colors hover:border-primary/30 hover:bg-primary/[0.08] hover:text-primary"><Send className="h-4 w-4" /> Send</button>
+            ) : (
+              <button type="button" disabled title="Spyda Credit transfers are available to the administrator only." className="inline-flex h-12 cursor-not-allowed items-center justify-center gap-2 rounded-lg border border-white/[0.06] bg-white/[0.02] text-sm font-semibold text-muted-foreground"><LockKeyhole className="h-4 w-4" /> Send</button>
+            )}
             <button type="button" onClick={() => handleWalletAction('withdraw')} aria-disabled={activeAsset === 'token'} className={`inline-flex h-12 items-center justify-center gap-2 rounded-lg border text-sm font-semibold transition-colors ${activeAsset === 'token' ? 'cursor-not-allowed border-white/[0.06] bg-white/[0.02] text-muted-foreground' : 'border-white/[0.09] bg-white/[0.035] hover:bg-white/[0.07]'}`}>
               {activeAsset === 'token' ? <LockKeyhole className="h-4 w-4" /> : <ArrowUpRight className="h-4 w-4" />} Withdraw
             </button>
@@ -3035,6 +3042,190 @@ function WalletView({ onFund }: { onFund: () => void }) {
       </div>
 
       {balanceError && <p className="pb-8 text-sm text-amber-400">{balanceError}</p>}
+    </div>
+  )
+}
+
+function AdminWalletSendView({ onBack }: { onBack: () => void }) {
+  const { user } = useAuth()
+  const isAdmin = isAdminEmail(user?.email)
+  const [balance, setBalance] = useState(0)
+  const [loadingBalance, setLoadingBalance] = useState(true)
+  const [recipientSpydaId, setRecipientSpydaId] = useState('')
+  const [amount, setAmount] = useState('')
+  const [note, setNote] = useState('')
+  const [reviewing, setReviewing] = useState(false)
+  const [sending, setSending] = useState(false)
+  const [error, setError] = useState('')
+  const [receipt, setReceipt] = useState<{ spydaId: string; amount: number; balance: number } | null>(null)
+
+  const loadBalance = useCallback(async () => {
+    if (!user || !isAdmin) {
+      setLoadingBalance(false)
+      return
+    }
+    try {
+      const { data, error: balanceError } = await supabase
+        .from('profiles')
+        .select('wallet_balance')
+        .eq('id', user.id)
+        .maybeSingle()
+      if (balanceError) throw balanceError
+      setBalance(Number(data?.wallet_balance || 0))
+    } catch (balanceError) {
+      console.error('Error loading admin wallet balance:', balanceError)
+      setError('The admin wallet balance could not be loaded.')
+    } finally {
+      setLoadingBalance(false)
+    }
+  }, [isAdmin, user])
+
+  useEffect(() => {
+    void loadBalance()
+  }, [loadBalance])
+
+  const normalizedSpydaId = recipientSpydaId.trim().toUpperCase()
+  const transferAmount = Number(amount)
+  const validSpydaId = /^SPY-[A-F0-9]{4}-[A-F0-9]{4}$/.test(normalizedSpydaId)
+  const validAmount = Number.isInteger(transferAmount) && transferAmount > 0 && transferAmount <= balance
+
+  const reviewTransfer = (event: FormEvent) => {
+    event.preventDefault()
+    setError('')
+    if (!validSpydaId) {
+      setError('Enter a valid recipient ID in the format SPY-XXXX-XXXX.')
+      return
+    }
+    if (!Number.isInteger(transferAmount) || transferAmount < 1) {
+      setError('Enter a whole number of Spyda Credits.')
+      return
+    }
+    if (transferAmount > balance) {
+      setError('The admin wallet does not have enough Spyda Credits for this transfer.')
+      return
+    }
+    setReviewing(true)
+  }
+
+  const confirmTransfer = async () => {
+    if (!validSpydaId || !validAmount || sending) return
+    setSending(true)
+    setError('')
+    try {
+      const result = await sendCreditsBySpydaId(normalizedSpydaId, transferAmount, note)
+      setBalance(result.sender_balance)
+      setReceipt({ spydaId: result.spyda_id, amount: transferAmount, balance: result.sender_balance })
+      setReviewing(false)
+    } catch (transferError) {
+      setError(transferError instanceof Error ? transferError.message : 'The transfer could not be completed.')
+      setReviewing(false)
+      await loadBalance()
+    } finally {
+      setSending(false)
+    }
+  }
+
+  const resetTransfer = () => {
+    setRecipientSpydaId('')
+    setAmount('')
+    setNote('')
+    setError('')
+    setReviewing(false)
+    setReceipt(null)
+  }
+
+  if (!isAdmin) {
+    return (
+      <div className="mx-auto flex min-h-[60vh] w-full max-w-2xl items-center justify-center px-4 py-10">
+        <div className="w-full rounded-xl border border-white/[0.08] bg-white/[0.025] p-7 text-center">
+          <LockKeyhole className="mx-auto h-7 w-7 text-muted-foreground" />
+          <h2 className="mt-4 font-heading text-xl font-semibold">Admin transfer only</h2>
+          <p className="mt-2 text-sm text-muted-foreground">Only admin@spydadesigns.xyz can send Spyda Credits directly to another wallet.</p>
+          <button type="button" onClick={onBack} className="mt-6 inline-flex h-10 items-center gap-2 rounded-lg border border-white/[0.1] px-4 text-sm font-semibold hover:bg-white/[0.05]"><ArrowLeft className="h-4 w-4" /> Back to Wallet</button>
+        </div>
+      </div>
+    )
+  }
+
+  return (
+    <div className="mx-auto w-full max-w-[1040px] px-4 py-6 sm:px-6 lg:px-8 lg:py-10">
+      <button type="button" onClick={onBack} className="inline-flex items-center gap-2 text-sm text-muted-foreground transition-colors hover:text-foreground"><ArrowLeft className="h-4 w-4" /> Back to Wallet</button>
+
+      <div className="mt-6 grid gap-5 lg:grid-cols-[minmax(0,1fr)_300px]">
+        <section className="rounded-xl border border-white/[0.09] bg-white/[0.025] p-5 sm:p-7">
+          <div className="flex items-start gap-3">
+            <span className="inline-flex h-11 w-11 shrink-0 items-center justify-center rounded-lg border border-primary/25 bg-primary/10 text-primary"><Send className="h-5 w-5" /></span>
+            <div>
+              <p className="text-[10px] font-semibold uppercase tracking-[0.16em] text-primary">Admin wallet transfer</p>
+              <h2 className="mt-1 font-heading text-2xl font-semibold">Send Spyda Credits</h2>
+              <p className="mt-1 text-sm leading-6 text-muted-foreground">Transfer credits directly from the Spyda admin wallet to a user’s wallet.</p>
+            </div>
+          </div>
+
+          {receipt ? (
+            <div className="mt-8">
+              <div className="rounded-xl border border-primary/25 bg-primary/[0.055] p-6 text-center">
+                <span className="mx-auto inline-flex h-12 w-12 items-center justify-center rounded-full bg-primary/15 text-primary"><CircleCheck className="h-6 w-6" /></span>
+                <h3 className="mt-4 font-heading text-xl font-semibold">Transfer complete</h3>
+                <p className="mt-2 text-sm text-muted-foreground"><span className="font-semibold text-foreground">{receipt.amount.toLocaleString()} credits</span> were sent to <span className="font-mono text-primary">{receipt.spydaId}</span>.</p>
+                <p className="mt-2 text-xs text-muted-foreground">Admin wallet balance: {receipt.balance.toLocaleString()} credits</p>
+              </div>
+              <div className="mt-4 grid gap-3 sm:grid-cols-2">
+                <button type="button" onClick={resetTransfer} className="inline-flex h-11 items-center justify-center gap-2 rounded-lg bg-primary px-4 text-sm font-semibold text-primary-foreground hover:bg-primary/90"><Send className="h-4 w-4" /> Send another</button>
+                <button type="button" onClick={onBack} className="inline-flex h-11 items-center justify-center rounded-lg border border-white/[0.1] px-4 text-sm font-semibold hover:bg-white/[0.05]">Return to Wallet</button>
+              </div>
+            </div>
+          ) : reviewing ? (
+            <div className="mt-8">
+              <h3 className="font-heading text-lg font-semibold">Review transfer</h3>
+              <div className="mt-4 overflow-hidden rounded-lg border border-white/[0.09]">
+                <div className="flex items-center justify-between gap-4 border-b border-white/[0.07] px-4 py-4"><span className="text-sm text-muted-foreground">Recipient</span><span className="font-mono text-sm font-semibold text-primary">{normalizedSpydaId}</span></div>
+                <div className="flex items-center justify-between gap-4 border-b border-white/[0.07] px-4 py-4"><span className="text-sm text-muted-foreground">Amount</span><span className="font-heading text-lg font-semibold">{transferAmount.toLocaleString()} credits</span></div>
+                <div className="flex items-center justify-between gap-4 border-b border-white/[0.07] px-4 py-4"><span className="text-sm text-muted-foreground">Balance after</span><span className="text-sm font-semibold">{(balance - transferAmount).toLocaleString()} credits</span></div>
+                <div className="flex items-start justify-between gap-4 px-4 py-4"><span className="text-sm text-muted-foreground">Note</span><span className="max-w-[65%] text-right text-sm">{note.trim() || 'No note'}</span></div>
+              </div>
+              {error && <p role="alert" className="mt-4 rounded-lg border border-destructive/30 bg-destructive/10 px-3 py-2 text-sm text-destructive">{error}</p>}
+              <div className="mt-5 grid gap-3 sm:grid-cols-2">
+                <button type="button" onClick={() => setReviewing(false)} disabled={sending} className="inline-flex h-11 items-center justify-center rounded-lg border border-white/[0.1] px-4 text-sm font-semibold hover:bg-white/[0.05] disabled:opacity-50">Edit transfer</button>
+                <button type="button" onClick={() => void confirmTransfer()} disabled={sending} className="inline-flex h-11 items-center justify-center gap-2 rounded-lg bg-primary px-4 text-sm font-semibold text-primary-foreground hover:bg-primary/90 disabled:opacity-50">{sending ? <Loader2 className="h-4 w-4 animate-spin" /> : <Send className="h-4 w-4" />}{sending ? 'Sending…' : 'Confirm and send'}</button>
+              </div>
+            </div>
+          ) : (
+            <form onSubmit={reviewTransfer} className="mt-8 space-y-5">
+              <label className="block">
+                <span className="mb-2 block text-xs font-semibold">Recipient Spyda ID</span>
+                <input value={recipientSpydaId} onChange={event => { setRecipientSpydaId(event.target.value.toUpperCase()); setError('') }} autoComplete="off" placeholder="SPY-XXXX-XXXX" className="h-12 w-full rounded-lg border border-white/[0.1] bg-background/60 px-4 font-mono text-sm uppercase tracking-wide outline-none focus:border-primary/55" />
+                <span className="mt-2 block text-xs text-muted-foreground">The user can find this ID on their Spyda Wallet card.</span>
+              </label>
+              <label className="block">
+                <span className="mb-2 block text-xs font-semibold">Amount</span>
+                <div className="relative">
+                  <input type="number" min="1" max={Math.max(1, balance)} step="1" inputMode="numeric" value={amount} onChange={event => { setAmount(event.target.value); setError('') }} placeholder="Enter credits" className="h-12 w-full rounded-lg border border-white/[0.1] bg-background/60 px-4 pr-24 text-sm outline-none focus:border-primary/55" />
+                  <span className="pointer-events-none absolute right-4 top-1/2 -translate-y-1/2 text-xs font-semibold text-muted-foreground">Credits</span>
+                </div>
+              </label>
+              <label className="block">
+                <span className="mb-2 block text-xs font-semibold">Transfer note <span className="font-normal text-muted-foreground">(optional)</span></span>
+                <textarea value={note} onChange={event => setNote(event.target.value)} maxLength={120} rows={3} placeholder="Reason for this transfer" className="w-full resize-none rounded-lg border border-white/[0.1] bg-background/60 px-4 py-3 text-sm leading-6 outline-none focus:border-primary/55" />
+                <span className="mt-1 block text-right text-[10px] text-muted-foreground">{note.length}/120</span>
+              </label>
+              {error && <p role="alert" className="rounded-lg border border-destructive/30 bg-destructive/10 px-3 py-2 text-sm text-destructive">{error}</p>}
+              <button type="submit" disabled={loadingBalance} className="inline-flex h-12 w-full items-center justify-center gap-2 rounded-lg bg-primary px-5 text-sm font-semibold text-primary-foreground transition-colors hover:bg-primary/90 disabled:opacity-50"><ShieldCheck className="h-4 w-4" /> Review transfer</button>
+            </form>
+          )}
+        </section>
+
+        <aside className="space-y-3">
+          <section className="overflow-hidden rounded-xl border border-white/[0.1] bg-[linear-gradient(145deg,#0d1713_0%,#183c29_65%,#2f8550_125%)] p-5 text-white">
+            <p className="text-[10px] font-semibold uppercase tracking-[0.16em] text-white/55">Available to send</p>
+            <div className="mt-4 flex items-center gap-3"><SpydaCreditIcon className="h-9 w-9" /><div><p className="font-heading text-3xl font-semibold">{loadingBalance ? '—' : balance.toLocaleString()}</p><p className="text-xs text-white/55">Spyda Credits</p></div></div>
+            <div className="mt-6 border-t border-white/[0.12] pt-4"><p className="text-[10px] uppercase tracking-wide text-white/50">Sending account</p><p className="mt-1 truncate text-xs font-medium text-white/85">{user?.email}</p></div>
+          </section>
+          <section className="rounded-lg border border-white/[0.08] bg-white/[0.025] p-5">
+            <div className="flex items-start gap-3"><ShieldCheck className="mt-0.5 h-4 w-4 shrink-0 text-primary" /><div><p className="text-sm font-semibold">Admin protected</p><p className="mt-1 text-xs leading-5 text-muted-foreground">The database verifies the signed-in admin account before moving credits. Regular accounts cannot call this transfer.</p></div></div>
+          </section>
+        </aside>
+      </div>
     </div>
   )
 }

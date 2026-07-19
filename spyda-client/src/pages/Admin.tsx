@@ -456,11 +456,15 @@ function UsersTab() {
     setTransferNotice(null)
     try {
       const result = await sendCreditsBySpydaId(normalizedId, amount, transferNote)
-      setUsers(prev => prev.map(user => (
-        user.id === result.target_user_id
-          ? { ...user, wallet_balance: result.new_balance }
-          : user
-      )))
+      setUsers(prev => prev.map(user => {
+        if (user.id === result.target_user_id) {
+          return { ...user, wallet_balance: result.new_balance }
+        }
+        if (user.is_admin) {
+          return { ...user, wallet_balance: result.sender_balance }
+        }
+        return user
+      }))
       setRecipientSpydaId('')
       setTransferAmount('')
       setTransferNote('')

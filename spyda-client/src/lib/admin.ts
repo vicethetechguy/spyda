@@ -36,6 +36,7 @@ export type AdminCreditTransfer = {
   target_user_id: string
   spyda_id: string
   new_balance: number
+  sender_balance: number
 }
 
 export type OverviewStats = {
@@ -103,6 +104,7 @@ export async function sendCreditsBySpydaId(
     target_user_id: String(row.target_user_id),
     spyda_id: String(row.spyda_id),
     new_balance: Number(row.new_balance),
+    sender_balance: Number(row.sender_balance),
   }
 }
 
