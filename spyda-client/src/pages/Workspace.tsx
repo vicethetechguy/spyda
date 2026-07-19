@@ -44,7 +44,6 @@ import {
   CircleCheck,
   ReceiptText,
   Wallet,
-  Send,
   ArrowDownToLine,
   LockKeyhole,
   DollarSign,
@@ -2897,15 +2896,9 @@ function WalletView({ onFund }: { onFund: () => void }) {
   }
   const selectedAsset = assets[activeAsset]
 
-  const handleWalletAction = (action: 'fund' | 'send' | 'withdraw') => {
+  const handleWalletAction = (action: 'fund' | 'withdraw') => {
     if (action === 'fund') {
       onFund()
-      return
-    }
-    if (action === 'send') {
-      setWalletNotice(activeAsset === 'token'
-        ? 'Spyda Token transfers will unlock with the Web3 network activation.'
-        : `${selectedAsset.name} transfers are being connected to Spyda's verified transfer rails.`)
       return
     }
     setWalletNotice(activeAsset === 'token'
@@ -2964,7 +2957,7 @@ function WalletView({ onFund }: { onFund: () => void }) {
 
           <div className="mt-3 grid grid-cols-3 gap-2">
             <button type="button" onClick={() => handleWalletAction('fund')} className="inline-flex h-12 items-center justify-center gap-2 rounded-lg border border-primary/30 bg-primary/10 text-sm font-semibold text-primary transition-colors hover:bg-primary/15"><ArrowDownToLine className="h-4 w-4" /> Fund</button>
-            <button type="button" onClick={() => handleWalletAction('send')} className="inline-flex h-12 items-center justify-center gap-2 rounded-lg border border-white/[0.09] bg-white/[0.035] text-sm font-semibold transition-colors hover:bg-white/[0.07]"><Send className="h-4 w-4" /> Send</button>
+            <button type="button" disabled title="Spyda Credit transfers are available to administrators only." className="inline-flex h-12 cursor-not-allowed items-center justify-center gap-2 rounded-lg border border-white/[0.06] bg-white/[0.02] text-sm font-semibold text-muted-foreground"><LockKeyhole className="h-4 w-4" /> Send</button>
             <button type="button" onClick={() => handleWalletAction('withdraw')} aria-disabled={activeAsset === 'token'} className={`inline-flex h-12 items-center justify-center gap-2 rounded-lg border text-sm font-semibold transition-colors ${activeAsset === 'token' ? 'cursor-not-allowed border-white/[0.06] bg-white/[0.02] text-muted-foreground' : 'border-white/[0.09] bg-white/[0.035] hover:bg-white/[0.07]'}`}>
               {activeAsset === 'token' ? <LockKeyhole className="h-4 w-4" /> : <ArrowUpRight className="h-4 w-4" />} Withdraw
             </button>

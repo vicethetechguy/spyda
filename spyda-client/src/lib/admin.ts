@@ -8,9 +8,9 @@ export function isAdminEmail(email?: string | null): boolean {
   return (email ?? '').trim().toLowerCase() === ADMIN_EMAIL
 }
 
-// The three supported coupon denominations (Spyda credits).
+// Quick-pick coupon denominations. Admins can also enter any whole amount
+// between 1 and 10,000,000 credits.
 export const COUPON_AMOUNTS = [500, 1000, 2800] as const
-export type CouponAmount = (typeof COUPON_AMOUNTS)[number]
 
 export type Coupon = {
   id: string
@@ -26,9 +26,16 @@ export type Coupon = {
 export type AdminUser = {
   id: string
   email: string
+  spyda_id: string
   wallet_balance: number
   is_admin: boolean
   created_at: string
+}
+
+export type AdminCreditTransfer = {
+  target_user_id: string
+  spyda_id: string
+  new_balance: number
 }
 
 export type OverviewStats = {
@@ -75,6 +82,28 @@ export async function adjustCredits(userId: string, delta: number): Promise<numb
   const { data, error } = await supabase.rpc('admin_adjust_credits', { p_user_id: userId, p_delta: delta })
   if (error) throw error
   return Number(data)
+}
+
+export async function sendCreditsBySpydaId(
+  spydaId: string,
+  amount: number,
+  note?: string,
+): Promise<AdminCreditTransfer> {
+  const { data, error } = await supabase.rpc('admin_send_credits_by_spyda_id', {
+    p_spyda_id: spydaId,
+    p_amount: amount,
+    p_note: note?.trim() || null,
+  })
+  if (error) throw error
+
+  const row = Array.isArray(data) ? data[0] : data
+  if (!row) throw new Error('The transfer did not return a recipient wallet.')
+
+  return {
+    target_user_id: String(row.target_user_id),
+    spyda_id: String(row.spyda_id),
+    new_balance: Number(row.new_balance),
+  }
 }
 
 // ── Overview ─────────────────────────────────────────────────────────────────

@@ -20,6 +20,7 @@ import {
   CircleCheck,
   XCircle,
   ArrowLeft,
+  Send,
 } from 'lucide-react'
 import { useAuth } from '../lib/AuthContext'
 import {
@@ -30,9 +31,9 @@ import {
   listCoupons,
   listUsers,
   adjustCredits,
+  sendCreditsBySpydaId,
   overviewStats,
   type Coupon,
-  type CouponAmount,
   type AdminUser,
   type OverviewStats,
 } from '../lib/admin'
@@ -194,6 +195,7 @@ function OverviewTab() {
 // ── Coupons tab ───────────────────────────────────────────────────────────────
 function CouponsTab() {
   const [amount, setAmount] = useState<number>(1000)
+  const [customAmount, setCustomAmount] = useState('')
   const [generating, setGenerating] = useState(false)
   const [genError, setGenError] = useState('')
   const [newCoupon, setNewCoupon] = useState<Coupon | null>(null)
@@ -218,6 +220,10 @@ function CouponsTab() {
   useEffect(() => { load() }, [load])
 
   const handleGenerate = async () => {
+    if (!Number.isInteger(amount) || amount < 1 || amount > 10_000_000) {
+      setGenError('Enter a whole credit amount between 1 and 10,000,000.')
+      return
+    }
     setGenerating(true)
     setGenError('')
     setNewCoupon(null)
@@ -260,9 +266,13 @@ function CouponsTab() {
               <button
                 key={value}
                 type="button"
-                onClick={() => setAmount(value)}
-                aria-pressed={selected}
-                className={`rounded-lg border p-4 text-left transition-colors ${selected ? 'border-primary/60 bg-primary/[0.07]' : 'border-white/[0.08] bg-white/[0.02] hover:border-white/[0.16]'}`}
+                onClick={() => {
+                  setAmount(value)
+                  setCustomAmount('')
+                  setGenError('')
+                }}
+                aria-pressed={selected && customAmount === ''}
+                className={`rounded-lg border p-4 text-left transition-colors ${selected && customAmount === '' ? 'border-primary/60 bg-primary/[0.07]' : 'border-white/[0.08] bg-white/[0.02] hover:border-white/[0.16]'}`}
               >
                 <div className="flex items-center justify-between">
                   <span className="font-heading text-2xl font-semibold">{fmt(value)}</span>
@@ -276,27 +286,35 @@ function CouponsTab() {
           })}
           
           {/* Custom Amount */}
-          <div className={`rounded-lg border p-4 transition-colors ${!COUPON_AMOUNTS.includes(amount as any) ? 'border-primary/60 bg-primary/[0.07]' : 'border-white/[0.08] bg-white/[0.02]'}`}>
-            <p className="mb-2 text-xs text-muted-foreground">Custom amount</p>
+          <div className={`rounded-lg border p-4 transition-colors ${customAmount !== '' ? 'border-primary/60 bg-primary/[0.07]' : 'border-white/[0.08] bg-white/[0.02]'}`}>
+            <p className="mb-2 text-xs font-semibold text-foreground">Custom amount</p>
             <div className="flex items-center gap-2 border-b border-white/[0.14] pb-1 focus-within:border-primary/50">
-              <input 
-                type="number" 
-                min="1" 
-                value={!COUPON_AMOUNTS.includes(amount as any) ? amount : ''} 
-                onChange={e => setAmount(Number(e.target.value) || 0)} 
-                placeholder="0" 
-                className="w-full bg-transparent font-heading text-2xl font-semibold outline-none" 
+              <input
+                type="number"
+                min="1"
+                max="10000000"
+                step="1"
+                inputMode="numeric"
+                value={customAmount}
+                onChange={e => {
+                  setCustomAmount(e.target.value)
+                  setAmount(Number(e.target.value))
+                  setGenError('')
+                }}
+                placeholder="Any amount"
+                aria-label="Custom Spyda coupon credit amount"
+                className="w-full bg-transparent font-heading text-2xl font-semibold outline-none placeholder:text-base placeholder:text-muted-foreground"
               />
             </div>
-            <p className="mt-2 flex items-center gap-1.5 text-xs text-muted-foreground"><Coins className="h-3.5 w-3.5 text-primary" /> Spyda Credits</p>
+            <p className="mt-2 flex items-center gap-1.5 text-xs text-muted-foreground"><Coins className="h-3.5 w-3.5 text-primary" /> 1 to 10,000,000 credits</p>
           </div>
         </div>
 
         <div className="mt-5 flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
-          <p className="text-xs text-muted-foreground">The code will grant <span className="font-semibold text-foreground">{fmt(amount)} credits</span> to the first user who redeems it.</p>
+          <p className="text-xs text-muted-foreground">Use a preset or create any amount, including below 500 or above 2,800. The code will grant <span className="font-semibold text-foreground">{Number.isFinite(amount) ? fmt(amount) : '0'} credits</span> once.</p>
           <button
             onClick={handleGenerate}
-            disabled={generating}
+            disabled={generating || !Number.isInteger(amount) || amount < 1 || amount > 10_000_000}
             className="inline-flex h-11 items-center justify-center gap-2 rounded-lg bg-primary px-5 text-sm font-semibold text-primary-foreground transition-colors hover:bg-primary/90 disabled:opacity-50"
           >
             {generating ? <Loader2 className="h-4 w-4 animate-spin" /> : <Plus className="h-4 w-4" />}
@@ -379,6 +397,11 @@ function UsersTab() {
   const [drafts, setDrafts] = useState<Record<string, string>>({})
   const [savingId, setSavingId] = useState<string | null>(null)
   const [notice, setNotice] = useState<{ id: string; text: string; ok: boolean } | null>(null)
+  const [recipientSpydaId, setRecipientSpydaId] = useState('')
+  const [transferAmount, setTransferAmount] = useState('')
+  const [transferNote, setTransferNote] = useState('')
+  const [sending, setSending] = useState(false)
+  const [transferNotice, setTransferNotice] = useState<{ text: string; ok: boolean } | null>(null)
 
   const load = useCallback(async () => {
     setLoading(true)
@@ -415,6 +438,46 @@ function UsersTab() {
     }
   }
 
+  const sendCredits = async (event: FormEvent) => {
+    event.preventDefault()
+    const normalizedId = recipientSpydaId.trim().toUpperCase()
+    const amount = Number(transferAmount)
+
+    if (!/^SPY-[A-F0-9]{4}-[A-F0-9]{4}$/.test(normalizedId)) {
+      setTransferNotice({ text: 'Enter a valid Spyda ID in the format SPY-XXXX-XXXX.', ok: false })
+      return
+    }
+    if (!Number.isInteger(amount) || amount < 1 || amount > 10_000_000) {
+      setTransferNotice({ text: 'Enter a whole amount between 1 and 10,000,000 credits.', ok: false })
+      return
+    }
+
+    setSending(true)
+    setTransferNotice(null)
+    try {
+      const result = await sendCreditsBySpydaId(normalizedId, amount, transferNote)
+      setUsers(prev => prev.map(user => (
+        user.id === result.target_user_id
+          ? { ...user, wallet_balance: result.new_balance }
+          : user
+      )))
+      setRecipientSpydaId('')
+      setTransferAmount('')
+      setTransferNote('')
+      setTransferNotice({
+        text: `${fmt(amount)} credits sent to ${result.spyda_id}. New balance: ${fmt(result.new_balance)} credits.`,
+        ok: true,
+      })
+    } catch (err) {
+      setTransferNotice({
+        text: err instanceof Error ? err.message : 'Could not send Spyda credits.',
+        ok: false,
+      })
+    } finally {
+      setSending(false)
+    }
+  }
+
   return (
     <div>
       <div className="mb-5 flex items-center justify-between">
@@ -428,6 +491,70 @@ function UsersTab() {
       </div>
 
       {error && <p className="mb-4 rounded-lg border border-destructive/30 bg-destructive/10 px-3 py-2 text-sm text-destructive">{error}</p>}
+
+      <form onSubmit={sendCredits} className="mb-6 rounded-xl border border-primary/20 bg-primary/[0.035] p-5 sm:p-6">
+        <div className="flex items-start gap-3">
+          <span className="inline-flex h-10 w-10 shrink-0 items-center justify-center rounded-lg border border-primary/25 bg-primary/10 text-primary">
+            <Send className="h-4 w-4" />
+          </span>
+          <div>
+            <h3 className="font-heading text-base font-semibold">Send Spyda Credits</h3>
+            <p className="mt-1 text-xs leading-5 text-muted-foreground">Admin-only wallet transfer. Enter the user’s public Spyda ID shown on their wallet.</p>
+          </div>
+        </div>
+
+        <div className="mt-5 grid gap-3 lg:grid-cols-[minmax(200px,.8fr)_minmax(160px,.55fr)_minmax(240px,1fr)_auto]">
+          <label className="block">
+            <span className="mb-1.5 block text-[10px] font-semibold uppercase tracking-wide text-muted-foreground">Recipient Spyda ID</span>
+            <input
+              value={recipientSpydaId}
+              onChange={event => setRecipientSpydaId(event.target.value.toUpperCase())}
+              placeholder="SPY-XXXX-XXXX"
+              autoComplete="off"
+              className="h-11 w-full rounded-lg border border-white/[0.1] bg-background/60 px-3 font-mono text-sm uppercase outline-none focus:border-primary/50"
+            />
+          </label>
+          <label className="block">
+            <span className="mb-1.5 block text-[10px] font-semibold uppercase tracking-wide text-muted-foreground">Credits</span>
+            <input
+              type="number"
+              min="1"
+              max="10000000"
+              step="1"
+              inputMode="numeric"
+              value={transferAmount}
+              onChange={event => setTransferAmount(event.target.value)}
+              placeholder="Amount"
+              className="h-11 w-full rounded-lg border border-white/[0.1] bg-background/60 px-3 text-sm outline-none focus:border-primary/50"
+            />
+          </label>
+          <label className="block">
+            <span className="mb-1.5 block text-[10px] font-semibold uppercase tracking-wide text-muted-foreground">Transfer note</span>
+            <input
+              value={transferNote}
+              onChange={event => setTransferNote(event.target.value)}
+              maxLength={120}
+              placeholder="Optional reason"
+              className="h-11 w-full rounded-lg border border-white/[0.1] bg-background/60 px-3 text-sm outline-none focus:border-primary/50"
+            />
+          </label>
+          <button
+            type="submit"
+            disabled={sending}
+            className="mt-[22px] inline-flex h-11 items-center justify-center gap-2 rounded-lg bg-primary px-5 text-sm font-semibold text-primary-foreground transition-colors hover:bg-primary/90 disabled:opacity-50"
+          >
+            {sending ? <Loader2 className="h-4 w-4 animate-spin" /> : <Send className="h-4 w-4" />}
+            {sending ? 'Sending…' : 'Send credits'}
+          </button>
+        </div>
+
+        {transferNotice && (
+          <p role="status" className={`mt-4 flex items-center gap-2 rounded-lg border px-3 py-2 text-sm ${transferNotice.ok ? 'border-primary/25 bg-primary/[0.06] text-primary' : 'border-destructive/30 bg-destructive/10 text-destructive'}`}>
+            {transferNotice.ok ? <CircleCheck className="h-4 w-4 shrink-0" /> : <XCircle className="h-4 w-4 shrink-0" />}
+            {transferNotice.text}
+          </p>
+        )}
+      </form>
 
       <div className="overflow-hidden rounded-xl border border-white/[0.08]">
         <div className="overflow-x-auto">
@@ -453,6 +580,7 @@ function UsersTab() {
                         {u.is_admin && <span className="rounded-sm bg-primary/10 px-1.5 py-0.5 text-[9px] font-semibold uppercase text-primary">Admin</span>}
                       </div>
                       <div className="mt-0.5 text-xs text-muted-foreground">Joined {new Date(u.created_at).toLocaleDateString()}</div>
+                      <div className="mt-1 font-mono text-[10px] uppercase tracking-wide text-primary/80">{u.spyda_id || `SPY-${u.id.slice(0, 4)}-${u.id.slice(-4)}`}</div>
                     </td>
                     <td className="px-4 py-3">
                       <span className="font-heading text-base font-semibold">{fmt(u.wallet_balance)}</span>
