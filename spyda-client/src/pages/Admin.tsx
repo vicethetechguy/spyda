@@ -193,7 +193,7 @@ function OverviewTab() {
 
 // ── Coupons tab ───────────────────────────────────────────────────────────────
 function CouponsTab() {
-  const [amount, setAmount] = useState<CouponAmount>(1000)
+  const [amount, setAmount] = useState<number>(1000)
   const [generating, setGenerating] = useState(false)
   const [genError, setGenError] = useState('')
   const [newCoupon, setNewCoupon] = useState<Coupon | null>(null)
@@ -253,7 +253,7 @@ function CouponsTab() {
       {/* Generator */}
       <div className="rounded-xl border border-white/[0.08] bg-white/[0.02] p-5 sm:p-6">
         <p className="mb-3 text-xs font-semibold uppercase tracking-wide text-muted-foreground">Choose credit amount</p>
-        <div className="grid gap-3 sm:grid-cols-3">
+        <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
           {COUPON_AMOUNTS.map(value => {
             const selected = amount === value
             return (
@@ -274,6 +274,22 @@ function CouponsTab() {
               </button>
             )
           })}
+          
+          {/* Custom Amount */}
+          <div className={`rounded-lg border p-4 transition-colors ${!COUPON_AMOUNTS.includes(amount as any) ? 'border-primary/60 bg-primary/[0.07]' : 'border-white/[0.08] bg-white/[0.02]'}`}>
+            <p className="mb-2 text-xs text-muted-foreground">Custom amount</p>
+            <div className="flex items-center gap-2 border-b border-white/[0.14] pb-1 focus-within:border-primary/50">
+              <input 
+                type="number" 
+                min="1" 
+                value={!COUPON_AMOUNTS.includes(amount as any) ? amount : ''} 
+                onChange={e => setAmount(Number(e.target.value) || 0)} 
+                placeholder="0" 
+                className="w-full bg-transparent font-heading text-2xl font-semibold outline-none" 
+              />
+            </div>
+            <p className="mt-2 flex items-center gap-1.5 text-xs text-muted-foreground"><Coins className="h-3.5 w-3.5 text-primary" /> Spyda Credits</p>
+          </div>
         </div>
 
         <div className="mt-5 flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">

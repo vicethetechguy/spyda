@@ -41,7 +41,7 @@ export type OverviewStats = {
 
 // ── Coupons ──────────────────────────────────────────────────────────────────
 
-export async function generateCoupon(amount: CouponAmount): Promise<Coupon> {
+export async function generateCoupon(amount: number): Promise<Coupon> {
   const { data, error } = await supabase.rpc('generate_coupon', { p_credit_amount: amount })
   if (error) throw error
   return data as Coupon
