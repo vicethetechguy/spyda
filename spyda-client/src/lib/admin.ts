@@ -33,10 +33,20 @@ export type AdminUser = {
 }
 
 export type AdminCreditTransfer = {
+  transfer_id: string | null
   target_user_id: string
+  recipient_email: string
   spyda_id: string
+  previous_balance: number
   new_balance: number
-  sender_balance: number
+  sender_balance: number | null
+}
+
+export type AdminWalletRecipient = {
+  user_id: string
+  email: string
+  spyda_id: string
+  current_balance: number
 }
 
 export type OverviewStats = {
@@ -48,6 +58,32 @@ export type OverviewStats = {
 }
 
 // ── Coupons ──────────────────────────────────────────────────────────────────
+
+export function parseAdminCreditTransfer(value: unknown, amount: number): AdminCreditTransfer {
+  const row = Array.isArray(value) ? value[0] : value
+  if (!row || typeof row !== 'object') {
+    throw new Error('The transfer did not return a recipient wallet.')
+  }
+
+  const receipt = row as Record<string, unknown>
+  const senderBalance = Number(receipt.sender_balance)
+  const newBalance = Number(receipt.new_balance)
+  if (!Number.isFinite(newBalance)) {
+    throw new Error('The database did not return a verified recipient balance.')
+  }
+
+  return {
+    transfer_id: receipt.transfer_id ? String(receipt.transfer_id) : null,
+    target_user_id: String(receipt.target_user_id),
+    recipient_email: String(receipt.recipient_email || ''),
+    spyda_id: String(receipt.spyda_id),
+    previous_balance: Number.isFinite(Number(receipt.previous_balance))
+      ? Number(receipt.previous_balance)
+      : newBalance - amount,
+    new_balance: newBalance,
+    sender_balance: Number.isFinite(senderBalance) ? senderBalance : null,
+  }
+}
 
 export async function generateCoupon(amount: number): Promise<Coupon> {
   const { data, error } = await supabase.rpc('generate_coupon', { p_credit_amount: amount })
@@ -97,14 +133,23 @@ export async function sendCreditsBySpydaId(
   })
   if (error) throw error
 
+  return parseAdminCreditTransfer(data, amount)
+}
+
+export async function lookupSpydaWallet(spydaId: string): Promise<AdminWalletRecipient> {
+  const { data, error } = await supabase.rpc('admin_lookup_spyda_wallet', {
+    p_spyda_id: spydaId,
+  })
+  if (error) throw error
+
   const row = Array.isArray(data) ? data[0] : data
-  if (!row) throw new Error('The transfer did not return a recipient wallet.')
+  if (!row) throw new Error('No Spyda wallet was found for that ID.')
 
   return {
-    target_user_id: String(row.target_user_id),
+    user_id: String(row.user_id),
+    email: String(row.email || ''),
     spyda_id: String(row.spyda_id),
-    new_balance: Number(row.new_balance),
-    sender_balance: Number(row.sender_balance),
+    current_balance: Number(row.current_balance || 0),
   }
 }
 

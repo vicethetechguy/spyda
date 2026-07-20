@@ -473,7 +473,7 @@ function UsersTab() {
         if (user.id === result.target_user_id) {
           return { ...user, wallet_balance: result.new_balance }
         }
-        if (user.is_admin) {
+        if (user.is_admin && result.sender_balance !== null) {
           return { ...user, wallet_balance: result.sender_balance }
         }
         return user
@@ -482,7 +482,7 @@ function UsersTab() {
       setTransferAmount('')
       setTransferNote('')
       setTransferNotice({
-        text: `${fmt(amount)} credits sent to ${result.spyda_id}. New balance: ${fmt(result.new_balance)} credits.`,
+        text: `${fmt(amount)} credits sent to ${result.recipient_email || result.spyda_id}. Recipient balance: ${fmt(result.new_balance)} credits.`,
         ok: true,
       })
     } catch (err) {

@@ -52,7 +52,13 @@ import {
   ChevronRight,
   Ticket
 } from 'lucide-react'
-import { isAdminEmail, redeemCoupon, sendCreditsBySpydaId } from '../lib/admin'
+import {
+  isAdminEmail,
+  lookupSpydaWallet,
+  redeemCoupon,
+  sendCreditsBySpydaId,
+  type AdminWalletRecipient,
+} from '../lib/admin'
 import { getWelcomeRewardClaim, type WelcomeRewardClaim } from '../lib/rewards'
 
 /* ═══════════════════════════════════════════════
@@ -2897,19 +2903,34 @@ function WalletView({ onFund, onSend }: { onFund: () => void; onSend: () => void
   useEffect(() => {
     void loadBalance()
     void loadActivity()
-    // Keep the balance fresh after funding elsewhere (coupon redeem, Paystack)
-    // or when the user returns to this tab.
-    const onFocus = () => {
+    const refreshWallet = () => {
       void loadBalance()
       void loadActivity()
     }
-    window.addEventListener('focus', onFocus)
-    document.addEventListener('visibilitychange', onFocus)
-    return () => {
-      window.removeEventListener('focus', onFocus)
-      document.removeEventListener('visibilitychange', onFocus)
+    const onVisibilityChange = () => {
+      if (document.visibilityState === 'visible') refreshWallet()
     }
-  }, [loadActivity, loadBalance])
+    const refreshTimer = window.setInterval(refreshWallet, 15_000)
+    const walletChannel = user
+      ? supabase
+          .channel(`wallet-balance-${user.id}`)
+          .on(
+            'postgres_changes',
+            { event: 'UPDATE', schema: 'public', table: 'profiles', filter: `id=eq.${user.id}` },
+            refreshWallet,
+          )
+          .subscribe()
+      : null
+
+    window.addEventListener('focus', refreshWallet)
+    document.addEventListener('visibilitychange', onVisibilityChange)
+    return () => {
+      window.clearInterval(refreshTimer)
+      window.removeEventListener('focus', refreshWallet)
+      document.removeEventListener('visibilitychange', onVisibilityChange)
+      if (walletChannel) void supabase.removeChannel(walletChannel)
+    }
+  }, [loadActivity, loadBalance, user])
 
   const CREDITS_PER_GENERATION = byokEnabled ? SPYDA_BYOK_ROUND_CREDITS : SPYDA_AI_ROUND_CREDITS
   const generationsRemaining = Math.floor(balance / CREDITS_PER_GENERATION)
@@ -3107,9 +3128,18 @@ function AdminWalletSendView({ onBack }: { onBack: () => void }) {
   const [amount, setAmount] = useState('')
   const [note, setNote] = useState('')
   const [reviewing, setReviewing] = useState(false)
+  const [lookingUpRecipient, setLookingUpRecipient] = useState(false)
   const [sending, setSending] = useState(false)
   const [error, setError] = useState('')
-  const [receipt, setReceipt] = useState<{ spydaId: string; amount: number; balance: number } | null>(null)
+  const [recipientPreview, setRecipientPreview] = useState<AdminWalletRecipient | null>(null)
+  const [receipt, setReceipt] = useState<{
+    spydaId: string
+    recipientEmail: string
+    amount: number
+    adminBalance: number
+    recipientBalance: number
+    transferId: string | null
+  } | null>(null)
 
   const loadBalance = useCallback(async () => {
     if (!user || !isAdmin) {
@@ -3141,7 +3171,7 @@ function AdminWalletSendView({ onBack }: { onBack: () => void }) {
   const validSpydaId = /^SPY-[A-F0-9]{4}-[A-F0-9]{4}$/.test(normalizedSpydaId)
   const validAmount = Number.isInteger(transferAmount) && transferAmount > 0 && transferAmount <= balance
 
-  const reviewTransfer = (event: FormEvent) => {
+  const reviewTransfer = async (event: FormEvent) => {
     event.preventDefault()
     setError('')
     if (!validSpydaId) {
@@ -3156,7 +3186,17 @@ function AdminWalletSendView({ onBack }: { onBack: () => void }) {
       setError('The admin wallet does not have enough Spyda Credits for this transfer.')
       return
     }
-    setReviewing(true)
+    setLookingUpRecipient(true)
+    try {
+      const recipient = await lookupSpydaWallet(normalizedSpydaId)
+      setRecipientPreview(recipient)
+      setReviewing(true)
+    } catch (lookupError) {
+      setRecipientPreview(null)
+      setError(lookupError instanceof Error ? lookupError.message : 'The recipient wallet could not be verified.')
+    } finally {
+      setLookingUpRecipient(false)
+    }
   }
 
   const confirmTransfer = async () => {
@@ -3165,8 +3205,19 @@ function AdminWalletSendView({ onBack }: { onBack: () => void }) {
     setError('')
     try {
       const result = await sendCreditsBySpydaId(normalizedSpydaId, transferAmount, note)
-      setBalance(result.sender_balance)
-      setReceipt({ spydaId: result.spyda_id, amount: transferAmount, balance: result.sender_balance })
+      if (result.sender_balance !== null) {
+        setBalance(result.sender_balance)
+      } else {
+        await loadBalance()
+      }
+      setReceipt({
+        spydaId: result.spyda_id,
+        recipientEmail: result.recipient_email || recipientPreview?.email || '',
+        amount: transferAmount,
+        adminBalance: result.sender_balance ?? Math.max(0, balance - transferAmount),
+        recipientBalance: result.new_balance,
+        transferId: result.transfer_id,
+      })
       setReviewing(false)
     } catch (transferError) {
       setError(transferError instanceof Error ? transferError.message : 'The transfer could not be completed.')
@@ -3183,6 +3234,7 @@ function AdminWalletSendView({ onBack }: { onBack: () => void }) {
     setNote('')
     setError('')
     setReviewing(false)
+    setRecipientPreview(null)
     setReceipt(null)
   }
 
@@ -3220,7 +3272,12 @@ function AdminWalletSendView({ onBack }: { onBack: () => void }) {
                 <span className="mx-auto inline-flex h-12 w-12 items-center justify-center rounded-full bg-primary/15 text-primary"><CircleCheck className="h-6 w-6" /></span>
                 <h3 className="mt-4 font-heading text-xl font-semibold">Transfer complete</h3>
                 <p className="mt-2 text-sm text-muted-foreground"><span className="font-semibold text-foreground">{receipt.amount.toLocaleString()} credits</span> were sent to <span className="font-mono text-primary">{receipt.spydaId}</span>.</p>
-                <p className="mt-2 text-xs text-muted-foreground">Admin wallet balance: {receipt.balance.toLocaleString()} credits</p>
+                {receipt.recipientEmail && <p className="mt-2 text-xs text-muted-foreground">Recipient: {receipt.recipientEmail}</p>}
+                <div className="mt-5 grid grid-cols-2 gap-2 text-left">
+                  <div className="rounded-lg border border-white/[0.08] bg-black/15 p-3"><p className="text-[9px] uppercase tracking-wide text-muted-foreground">Recipient balance</p><p className="mt-1 text-sm font-semibold text-primary">{receipt.recipientBalance.toLocaleString()}</p></div>
+                  <div className="rounded-lg border border-white/[0.08] bg-black/15 p-3"><p className="text-[9px] uppercase tracking-wide text-muted-foreground">Admin balance</p><p className="mt-1 text-sm font-semibold">{receipt.adminBalance.toLocaleString()}</p></div>
+                </div>
+                {receipt.transferId && <p className="mt-3 font-mono text-[9px] text-muted-foreground">Receipt {receipt.transferId}</p>}
               </div>
               <div className="mt-4 grid gap-3 sm:grid-cols-2">
                 <button type="button" onClick={resetTransfer} className="inline-flex h-11 items-center justify-center gap-2 rounded-lg bg-primary px-4 text-sm font-semibold text-primary-foreground hover:bg-primary/90"><Send className="h-4 w-4" /> Send another</button>
@@ -3232,8 +3289,11 @@ function AdminWalletSendView({ onBack }: { onBack: () => void }) {
               <h3 className="font-heading text-lg font-semibold">Review transfer</h3>
               <div className="mt-4 overflow-hidden rounded-lg border border-white/[0.09]">
                 <div className="flex items-center justify-between gap-4 border-b border-white/[0.07] px-4 py-4"><span className="text-sm text-muted-foreground">Recipient</span><span className="font-mono text-sm font-semibold text-primary">{normalizedSpydaId}</span></div>
+                <div className="flex items-center justify-between gap-4 border-b border-white/[0.07] px-4 py-4"><span className="text-sm text-muted-foreground">Account</span><span className="max-w-[65%] truncate text-right text-sm font-semibold">{recipientPreview?.email || 'Verified Spyda account'}</span></div>
+                <div className="flex items-center justify-between gap-4 border-b border-white/[0.07] px-4 py-4"><span className="text-sm text-muted-foreground">Current recipient balance</span><span className="text-sm font-semibold">{(recipientPreview?.current_balance || 0).toLocaleString()} credits</span></div>
+                <div className="flex items-center justify-between gap-4 border-b border-white/[0.07] px-4 py-4"><span className="text-sm text-muted-foreground">Recipient balance after</span><span className="text-sm font-semibold text-primary">{((recipientPreview?.current_balance || 0) + transferAmount).toLocaleString()} credits</span></div>
                 <div className="flex items-center justify-between gap-4 border-b border-white/[0.07] px-4 py-4"><span className="text-sm text-muted-foreground">Amount</span><span className="font-heading text-lg font-semibold">{transferAmount.toLocaleString()} credits</span></div>
-                <div className="flex items-center justify-between gap-4 border-b border-white/[0.07] px-4 py-4"><span className="text-sm text-muted-foreground">Balance after</span><span className="text-sm font-semibold">{(balance - transferAmount).toLocaleString()} credits</span></div>
+                <div className="flex items-center justify-between gap-4 border-b border-white/[0.07] px-4 py-4"><span className="text-sm text-muted-foreground">Admin balance after</span><span className="text-sm font-semibold">{(balance - transferAmount).toLocaleString()} credits</span></div>
                 <div className="flex items-start justify-between gap-4 px-4 py-4"><span className="text-sm text-muted-foreground">Note</span><span className="max-w-[65%] text-right text-sm">{note.trim() || 'No note'}</span></div>
               </div>
               {error && <p role="alert" className="mt-4 rounded-lg border border-destructive/30 bg-destructive/10 px-3 py-2 text-sm text-destructive">{error}</p>}
@@ -3246,7 +3306,7 @@ function AdminWalletSendView({ onBack }: { onBack: () => void }) {
             <form onSubmit={reviewTransfer} className="mt-8 space-y-5">
               <label className="block">
                 <span className="mb-2 block text-xs font-semibold">Recipient Spyda ID</span>
-                <input value={recipientSpydaId} onChange={event => { setRecipientSpydaId(event.target.value.toUpperCase()); setError('') }} autoComplete="off" placeholder="SPY-XXXX-XXXX" className="h-12 w-full rounded-lg border border-white/[0.1] bg-background/60 px-4 font-mono text-sm uppercase tracking-wide outline-none focus:border-primary/55" />
+                <input value={recipientSpydaId} onChange={event => { setRecipientSpydaId(event.target.value.toUpperCase()); setRecipientPreview(null); setError('') }} autoComplete="off" placeholder="SPY-XXXX-XXXX" className="h-12 w-full rounded-lg border border-white/[0.1] bg-background/60 px-4 font-mono text-sm uppercase tracking-wide outline-none focus:border-primary/55" />
                 <span className="mt-2 block text-xs text-muted-foreground">The user can find this ID on their Spyda Wallet card.</span>
               </label>
               <label className="block">
@@ -3262,7 +3322,7 @@ function AdminWalletSendView({ onBack }: { onBack: () => void }) {
                 <span className="mt-1 block text-right text-[10px] text-muted-foreground">{note.length}/120</span>
               </label>
               {error && <p role="alert" className="rounded-lg border border-destructive/30 bg-destructive/10 px-3 py-2 text-sm text-destructive">{error}</p>}
-              <button type="submit" disabled={loadingBalance} className="inline-flex h-12 w-full items-center justify-center gap-2 rounded-lg bg-primary px-5 text-sm font-semibold text-primary-foreground transition-colors hover:bg-primary/90 disabled:opacity-50"><ShieldCheck className="h-4 w-4" /> Review transfer</button>
+              <button type="submit" disabled={loadingBalance || lookingUpRecipient} className="inline-flex h-12 w-full items-center justify-center gap-2 rounded-lg bg-primary px-5 text-sm font-semibold text-primary-foreground transition-colors hover:bg-primary/90 disabled:opacity-50">{lookingUpRecipient ? <Loader2 className="h-4 w-4 animate-spin" /> : <ShieldCheck className="h-4 w-4" />} {lookingUpRecipient ? 'Verifying wallet...' : 'Review transfer'}</button>
             </form>
           )}
         </section>
