@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useState, type FormEvent } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState, type FormEvent } from 'react'
 import {
   ArrowRight,
   AtSign,
@@ -32,6 +32,15 @@ const taskIcons = {
   repost_pinned: Repeat2,
   follow_vice: AtSign,
 } satisfies Record<WelcomeTaskId, typeof AtSign>
+
+function taskErrorMessage(error: unknown, fallback: string): string {
+  if (error instanceof Error && error.message) return error.message
+  if (error && typeof error === 'object' && 'message' in error) {
+    const message = String((error as { message?: unknown }).message || '').trim()
+    if (message) return message
+  }
+  return fallback
+}
 
 export function WelcomeRewardPrompt({
   onOpenTasks,
@@ -97,6 +106,11 @@ export function TasksView({
   const [savingTask, setSavingTask] = useState<WelcomeTaskId | null>(null)
   const [xHandle, setXHandle] = useState('')
   const [submitting, setSubmitting] = useState(false)
+  const onClaimChangeRef = useRef(onClaimChange)
+
+  useEffect(() => {
+    onClaimChangeRef.current = onClaimChange
+  }, [onClaimChange])
 
   const load = useCallback(async () => {
     setLoading(true)
@@ -105,13 +119,13 @@ export function TasksView({
       const nextClaim = await getWelcomeRewardClaim()
       setClaim(nextClaim)
       setXHandle(nextClaim?.x_handle || '')
-      onClaimChange?.(nextClaim)
+      onClaimChangeRef.current?.(nextClaim)
     } catch (loadError) {
-      setError(loadError instanceof Error ? loadError.message : 'Spyda could not load your tasks.')
+      setError(taskErrorMessage(loadError, 'Spyda could not load your tasks.'))
     } finally {
       setLoading(false)
     }
-  }, [onClaimChange])
+  }, [])
 
   useEffect(() => {
     void load()
@@ -130,9 +144,9 @@ export function TasksView({
     try {
       const nextClaim = await saveWelcomeRewardTask(task, !completed)
       setClaim(nextClaim)
-      onClaimChange?.(nextClaim)
+      onClaimChangeRef.current?.(nextClaim)
     } catch (taskError) {
-      setError(taskError instanceof Error ? taskError.message : 'Spyda could not save this task.')
+      setError(taskErrorMessage(taskError, 'Spyda could not save this task.'))
     } finally {
       setSavingTask(null)
     }
@@ -151,9 +165,9 @@ export function TasksView({
       const nextClaim = await submitWelcomeRewardClaim(xHandle)
       setClaim(nextClaim)
       setXHandle(nextClaim.x_handle || normalizeXHandle(xHandle))
-      onClaimChange?.(nextClaim)
+      onClaimChangeRef.current?.(nextClaim)
     } catch (submitError) {
-      setError(submitError instanceof Error ? submitError.message : 'Spyda could not submit your claim.')
+      setError(taskErrorMessage(submitError, 'Spyda could not submit your claim.'))
     } finally {
       setSubmitting(false)
     }

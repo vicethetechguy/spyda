@@ -549,6 +549,13 @@ export default function Workspace() {
   const [showWelcomeReward, setShowWelcomeReward] = useState(false)
   const { user, signOut } = useAuth()
 
+  const handleWelcomeClaimChange = useCallback((claim: WelcomeRewardClaim | null) => {
+    setWelcomeClaim(claim)
+    if (claim?.status === 'pending' || claim?.status === 'approved') {
+      setShowWelcomeReward(false)
+    }
+  }, [])
+
   useEffect(() => {
     let active = true
     let timer: number | undefined
@@ -1437,10 +1444,7 @@ export default function Workspace() {
           )}
           {activeId === 'gallery' && <GalleryView onNewDesign={() => setActiveId('canvas')} />}
           {activeId === 'history' && <HistoryView onOpenProject={handleOpenProject} onNewDesign={() => setActiveId('canvas')} />}
-          {activeId === 'tasks' && <TasksView onClaimChange={claim => {
-            setWelcomeClaim(claim)
-            if (claim?.status === 'pending' || claim?.status === 'approved') setShowWelcomeReward(false)
-          }} />}
+          {activeId === 'tasks' && <TasksView onClaimChange={handleWelcomeClaimChange} />}
           {['projects', 'p-active', 'p-archived'].includes(activeId) && <ProjectsView initialFilter={activeId === 'p-archived' ? 'archived' : 'active'} onOpenProject={handleOpenProject} onNewDesign={() => setActiveId('canvas')} />}
           {activeId === 'templates' && <TemplatesView onUseTemplate={handleUseTemplate} />}
           {activeId === 'brand-assets' && <BrandAssetsView onUseAsset={handleUseBrandAsset} />}
