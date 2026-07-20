@@ -269,7 +269,7 @@ export function TasksView({
 
           {readyToSubmit && (
             <form onSubmit={submitClaim} className="mt-6 rounded-lg border border-primary/20 bg-primary/[0.035] p-5 sm:p-6">
-              <div className="flex items-start gap-3"><ShieldCheck className="mt-0.5 h-5 w-5 shrink-0 text-primary" /><div><h3 className="font-heading text-base font-semibold">Submit for verification</h3><p className="mt-1 text-xs leading-5 text-muted-foreground">Enter only the X handle used for all three tasks. Spyda Admin will verify it before releasing the reward.</p></div></div>
+              <div className="flex items-start gap-3"><ShieldCheck className="mt-0.5 h-5 w-5 shrink-0 text-primary" /><div><h3 className="font-heading text-base font-semibold">Submit for verification</h3><p className="mt-1 text-xs leading-5 text-muted-foreground">Enter your own X handle used to complete the tasks, not @spydadesign or @viceonchain. Your reward is paid to this signed-in Spyda account, not to the X handle.</p></div></div>
               <div className="mt-5 flex flex-col gap-3 sm:flex-row">
                 <div className="relative flex-1">
                   <AtSign className="pointer-events-none absolute left-3.5 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />

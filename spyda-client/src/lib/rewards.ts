@@ -24,12 +24,18 @@ export type WelcomeRewardClaim = {
 export type AdminWelcomeRewardClaim = WelcomeRewardClaim & {
   email: string
   spyda_id: string
+  wallet_balance: number | null
+  payout_id: string | null
 }
 
 export type WelcomeRewardReviewResult = {
   status: 'approved' | 'rejected'
   user_balance: number
   admin_balance: number
+  recipient_email: string
+  spyda_id: string
+  x_handle: string
+  payout_id: string | null
 }
 
 export const WELCOME_TASKS: Array<{
@@ -131,6 +137,10 @@ export async function adminListWelcomeRewardClaims(status?: WelcomeRewardStatus)
     ...parseClaim(row)!,
     email: String(row.email || ''),
     spyda_id: String(row.spyda_id || ''),
+    wallet_balance: row.wallet_balance === null || row.wallet_balance === undefined
+      ? null
+      : Number(row.wallet_balance),
+    payout_id: row.payout_id ? String(row.payout_id) : null,
   }))
 }
 
@@ -151,5 +161,9 @@ export async function adminReviewWelcomeRewardClaim(
     status: String(row.status) as WelcomeRewardReviewResult['status'],
     user_balance: Number(row.user_balance),
     admin_balance: Number(row.admin_balance),
+    recipient_email: String(row.recipient_email || ''),
+    spyda_id: String(row.spyda_id || ''),
+    x_handle: String(row.x_handle || ''),
+    payout_id: row.payout_id ? String(row.payout_id) : null,
   }
 }

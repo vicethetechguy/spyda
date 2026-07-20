@@ -673,11 +673,19 @@ function TaskReviewsTab() {
       const result = await adminReviewWelcomeRewardClaim(claim.user_id, approved, notes[claim.user_id])
       setClaims(current => current
         .map(item => item.user_id === claim.user_id
-          ? { ...item, status: result.status, admin_note: notes[claim.user_id]?.trim() || null, credits_awarded: approved ? WELCOME_REWARD_CREDITS : 0, reviewed_at: new Date().toISOString() }
+          ? {
+              ...item,
+              status: result.status,
+              admin_note: notes[claim.user_id]?.trim() || null,
+              credits_awarded: approved ? WELCOME_REWARD_CREDITS : 0,
+              reviewed_at: new Date().toISOString(),
+              wallet_balance: result.user_balance,
+              payout_id: result.payout_id,
+            }
           : item)
         .filter(item => filter !== 'pending' || item.status === 'pending'))
       setNotice(approved
-        ? `${WELCOME_REWARD_CREDITS} credits sent to @${claim.x_handle}. User balance: ${fmt(result.user_balance)}.`
+        ? `${WELCOME_REWARD_CREDITS} credits awarded to ${result.recipient_email || claim.email} (${result.spyda_id || claim.spyda_id}). Wallet balance: ${fmt(result.user_balance)}. Verified X: @${result.x_handle || claim.x_handle}.`
         : `@${claim.x_handle}'s claim was returned for correction.`)
     } catch (reviewError) {
       setError(reviewError instanceof Error ? reviewError.message : 'Could not complete this review.')
@@ -725,10 +733,11 @@ function TaskReviewsTab() {
                 <div className="grid gap-5 border-b border-white/[0.07] p-5 lg:grid-cols-[minmax(0,1fr)_auto] lg:items-start">
                   <div>
                     <div className="flex flex-wrap items-center gap-2">
-                      <h3 className="font-heading text-base font-semibold">@{claim.x_handle}</h3>
+                      <h3 className="font-heading text-base font-semibold">{claim.email}</h3>
                       <span className={`rounded-full border px-2 py-0.5 text-[9px] font-semibold uppercase tracking-wide ${claim.status === 'approved' ? 'border-primary/25 bg-primary/10 text-primary' : claim.status === 'rejected' ? 'border-destructive/25 bg-destructive/10 text-destructive' : 'border-[#8bd3ff]/25 bg-[#8bd3ff]/10 text-[#8bd3ff]'}`}>{claim.status}</span>
                     </div>
-                    <p className="mt-2 text-xs text-muted-foreground">{claim.email} <span className="mx-1 text-white/20">/</span> <span className="font-mono text-primary/80">{claim.spyda_id}</span></p>
+                    <p className="mt-2 text-xs text-muted-foreground"><span className="font-mono text-primary/80">{claim.spyda_id}</span> <span className="mx-1 text-white/20">/</span> X verification: <span className="font-semibold text-foreground">@{claim.x_handle}</span></p>
+                    <p className="mt-1 text-[11px] text-muted-foreground">Wallet balance: {claim.wallet_balance === null ? 'Unavailable' : `${fmt(claim.wallet_balance)} credits`}{claim.payout_id ? ` / Receipt ${claim.payout_id.slice(0, 8)}` : ''}</p>
                     <p className="mt-1 flex items-center gap-1.5 text-[11px] text-muted-foreground"><Clock3 className="h-3.5 w-3.5" /> Submitted {claim.submitted_at ? new Date(claim.submitted_at).toLocaleString() : 'recently'}</p>
                   </div>
                   <div className="flex flex-wrap gap-2">
@@ -759,6 +768,8 @@ function TaskReviewsTab() {
                         <button type="button" onClick={() => void review(claim, true)} disabled={busy} className="inline-flex h-11 items-center justify-center gap-2 rounded-lg bg-primary px-4 text-sm font-semibold text-primary-foreground hover:bg-primary/90 disabled:opacity-50">{busy ? <Loader2 className="h-4 w-4 animate-spin" /> : <Gift className="h-4 w-4" />} Approve + send {WELCOME_REWARD_CREDITS}</button>
                       </div>
                     </div>
+                  ) : claim.status === 'approved' && !claim.payout_id ? (
+                    <p className="mt-4 rounded-lg border border-amber-500/25 bg-amber-500/[0.06] px-4 py-3 text-xs leading-5 text-amber-200"><span className="font-semibold">Payout receipt not found.</span> Check this Spyda Wallet ID in Users and its wallet activity before sending a one-time 60-credit compensation.</p>
                   ) : claim.admin_note ? (
                     <p className="mt-4 rounded-lg border border-white/[0.07] bg-black/15 px-4 py-3 text-xs leading-5 text-muted-foreground"><span className="font-semibold text-foreground">Admin note:</span> {claim.admin_note}</p>
                   ) : null}
