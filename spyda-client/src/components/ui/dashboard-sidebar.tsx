@@ -12,6 +12,7 @@ import {
   Hash,
   BookOpen,
   GraduationCap,
+  Gift,
   ChevronDown,
   ChevronRight,
 } from 'lucide-react';
@@ -37,6 +38,7 @@ const spydaNavGroups: NavGroupData[] = [
       { id: 'canvas', title: 'Canvas', icon: LayoutDashboard },
       { id: 'gallery', title: 'Gallery', icon: Image },
       { id: 'history', title: 'History', icon: Clock },
+      { id: 'tasks', title: 'Tasks', icon: Gift, badge: 60 },
     ],
   },
   {

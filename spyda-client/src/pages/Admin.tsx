@@ -21,6 +21,11 @@ import {
   XCircle,
   ArrowLeft,
   Send,
+  Gift,
+  ExternalLink,
+  Clock3,
+  Repeat2,
+  AtSign,
 } from 'lucide-react'
 import { useAuth } from '../lib/AuthContext'
 import {
@@ -37,6 +42,14 @@ import {
   type AdminUser,
   type OverviewStats,
 } from '../lib/admin'
+import {
+  SPYDA_PINNED_POST_URL,
+  WELCOME_REWARD_CREDITS,
+  adminListWelcomeRewardClaims,
+  adminReviewWelcomeRewardClaim,
+  type AdminWelcomeRewardClaim,
+  type WelcomeRewardStatus,
+} from '../lib/rewards'
 
 const fmt = (n: number) => n.toLocaleString()
 
@@ -625,7 +638,138 @@ function UsersTab() {
 }
 
 // ── Shell ─────────────────────────────────────────────────────────────────────
-type TabId = 'overview' | 'coupons' | 'users'
+function TaskReviewsTab() {
+  const [claims, setClaims] = useState<AdminWelcomeRewardClaim[]>([])
+  const [filter, setFilter] = useState<'pending' | 'all'>('pending')
+  const [notes, setNotes] = useState<Record<string, string>>({})
+  const [loading, setLoading] = useState(true)
+  const [reviewingId, setReviewingId] = useState<string | null>(null)
+  const [error, setError] = useState('')
+  const [notice, setNotice] = useState('')
+
+  const load = useCallback(async () => {
+    setLoading(true)
+    setError('')
+    try {
+      const status: WelcomeRewardStatus | undefined = filter === 'pending' ? 'pending' : undefined
+      setClaims(await adminListWelcomeRewardClaims(status))
+    } catch (loadError) {
+      setError(loadError instanceof Error ? loadError.message : 'Could not load task submissions.')
+    } finally {
+      setLoading(false)
+    }
+  }, [filter])
+
+  useEffect(() => { void load() }, [load])
+
+  const review = async (claim: AdminWelcomeRewardClaim, approved: boolean) => {
+    setReviewingId(claim.user_id)
+    setError('')
+    setNotice('')
+    try {
+      const result = await adminReviewWelcomeRewardClaim(claim.user_id, approved, notes[claim.user_id])
+      setClaims(current => current
+        .map(item => item.user_id === claim.user_id
+          ? { ...item, status: result.status, admin_note: notes[claim.user_id]?.trim() || null, credits_awarded: approved ? WELCOME_REWARD_CREDITS : 0, reviewed_at: new Date().toISOString() }
+          : item)
+        .filter(item => filter !== 'pending' || item.status === 'pending'))
+      setNotice(approved
+        ? `${WELCOME_REWARD_CREDITS} credits sent to @${claim.x_handle}. User balance: ${fmt(result.user_balance)}.`
+        : `@${claim.x_handle}'s claim was returned for correction.`)
+    } catch (reviewError) {
+      setError(reviewError instanceof Error ? reviewError.message : 'Could not complete this review.')
+    } finally {
+      setReviewingId(null)
+    }
+  }
+
+  return (
+    <div>
+      <div className="mb-5 flex flex-col gap-4 sm:flex-row sm:items-end sm:justify-between">
+        <div>
+          <div className="flex items-center gap-2 text-[10px] font-semibold uppercase tracking-[0.16em] text-primary"><Gift className="h-3.5 w-3.5" /> Welcome reward</div>
+          <h2 className="mt-2 font-heading text-xl font-semibold">Task Reviews</h2>
+          <p className="mt-1 text-sm text-muted-foreground">Verify X activity before releasing {WELCOME_REWARD_CREDITS} Spyda Credits.</p>
+        </div>
+        <div className="flex items-center gap-2">
+          <div className="flex rounded-lg border border-white/[0.09] bg-white/[0.025] p-1">
+            {(['pending', 'all'] as const).map(option => (
+              <button key={option} type="button" onClick={() => setFilter(option)} className={`h-8 rounded-md px-3 text-xs font-semibold capitalize transition-colors ${filter === option ? 'bg-primary/12 text-primary' : 'text-muted-foreground hover:text-foreground'}`}>{option}</button>
+            ))}
+          </div>
+          <button type="button" onClick={() => void load()} className="inline-flex h-10 items-center gap-2 rounded-lg border border-white/[0.1] bg-white/[0.03] px-3 text-sm text-muted-foreground hover:text-foreground"><RefreshCw className={`h-4 w-4 ${loading ? 'animate-spin' : ''}`} /> Refresh</button>
+        </div>
+      </div>
+
+      {notice && <p role="status" className="mb-4 flex items-center gap-2 rounded-lg border border-primary/25 bg-primary/[0.06] px-4 py-3 text-sm text-primary"><CircleCheck className="h-4 w-4" />{notice}</p>}
+      {error && <p role="alert" className="mb-4 rounded-lg border border-destructive/30 bg-destructive/10 px-4 py-3 text-sm text-destructive">{error}</p>}
+
+      {loading ? (
+        <div className="flex min-h-[280px] items-center justify-center rounded-xl border border-white/[0.08]"><Loader2 className="h-6 w-6 animate-spin text-primary" /></div>
+      ) : claims.length === 0 ? (
+        <div className="flex min-h-[280px] flex-col items-center justify-center rounded-xl border border-dashed border-white/[0.1] bg-white/[0.015] px-6 text-center">
+          <CircleCheck className="h-8 w-8 text-primary" />
+          <h3 className="mt-4 font-heading text-lg font-semibold">Queue cleared</h3>
+          <p className="mt-2 max-w-sm text-sm leading-6 text-muted-foreground">There are no {filter === 'pending' ? 'pending ' : ''}welcome reward claims to review.</p>
+        </div>
+      ) : (
+        <div className="grid gap-4">
+          {claims.map(claim => {
+            const pending = claim.status === 'pending'
+            const busy = reviewingId === claim.user_id
+            return (
+              <article key={claim.user_id} className="overflow-hidden rounded-xl border border-white/[0.09] bg-white/[0.018]">
+                <div className="grid gap-5 border-b border-white/[0.07] p-5 lg:grid-cols-[minmax(0,1fr)_auto] lg:items-start">
+                  <div>
+                    <div className="flex flex-wrap items-center gap-2">
+                      <h3 className="font-heading text-base font-semibold">@{claim.x_handle}</h3>
+                      <span className={`rounded-full border px-2 py-0.5 text-[9px] font-semibold uppercase tracking-wide ${claim.status === 'approved' ? 'border-primary/25 bg-primary/10 text-primary' : claim.status === 'rejected' ? 'border-destructive/25 bg-destructive/10 text-destructive' : 'border-[#8bd3ff]/25 bg-[#8bd3ff]/10 text-[#8bd3ff]'}`}>{claim.status}</span>
+                    </div>
+                    <p className="mt-2 text-xs text-muted-foreground">{claim.email} <span className="mx-1 text-white/20">/</span> <span className="font-mono text-primary/80">{claim.spyda_id}</span></p>
+                    <p className="mt-1 flex items-center gap-1.5 text-[11px] text-muted-foreground"><Clock3 className="h-3.5 w-3.5" /> Submitted {claim.submitted_at ? new Date(claim.submitted_at).toLocaleString() : 'recently'}</p>
+                  </div>
+                  <div className="flex flex-wrap gap-2">
+                    <a href={`https://x.com/${claim.x_handle}`} target="_blank" rel="noreferrer" className="inline-flex h-9 items-center gap-2 rounded-lg border border-white/[0.1] px-3 text-xs font-semibold hover:bg-white/[0.05]"><AtSign className="h-3.5 w-3.5" /> Open profile <ExternalLink className="h-3 w-3" /></a>
+                    <a href={SPYDA_PINNED_POST_URL} target="_blank" rel="noreferrer" className="inline-flex h-9 items-center gap-2 rounded-lg border border-white/[0.1] px-3 text-xs font-semibold hover:bg-white/[0.05]"><Repeat2 className="h-3.5 w-3.5" /> Open post <ExternalLink className="h-3 w-3" /></a>
+                  </div>
+                </div>
+
+                <div className="p-5">
+                  <div className="grid gap-2 sm:grid-cols-3">
+                    {[
+                      ['Follow @spydadesign', claim.follow_spyda],
+                      ['Repost pinned post', claim.repost_pinned],
+                      ['Follow @viceonchain', claim.follow_vice],
+                    ].map(([label, complete]) => (
+                      <div key={String(label)} className="flex items-center gap-2 rounded-lg border border-white/[0.07] bg-black/15 px-3 py-3 text-xs">{complete ? <Check className="h-4 w-4 text-primary" /> : <XCircle className="h-4 w-4 text-destructive" />}{String(label)}</div>
+                    ))}
+                  </div>
+
+                  {pending ? (
+                    <div className="mt-4 grid gap-3 lg:grid-cols-[minmax(0,1fr)_auto] lg:items-end">
+                      <label className="block">
+                        <span className="mb-1.5 block text-[10px] font-semibold uppercase tracking-wide text-muted-foreground">Review note</span>
+                        <input value={notes[claim.user_id] ?? ''} onChange={event => setNotes(current => ({ ...current, [claim.user_id]: event.target.value }))} maxLength={240} placeholder="Optional for approval; recommended when rejecting" className="h-11 w-full rounded-lg border border-white/[0.1] bg-background/60 px-3 text-sm outline-none focus:border-primary/50" />
+                      </label>
+                      <div className="flex gap-2">
+                        <button type="button" onClick={() => void review(claim, false)} disabled={busy} className="inline-flex h-11 items-center justify-center gap-2 rounded-lg border border-destructive/25 bg-destructive/[0.06] px-4 text-sm font-semibold text-destructive hover:bg-destructive/10 disabled:opacity-50"><XCircle className="h-4 w-4" /> Reject</button>
+                        <button type="button" onClick={() => void review(claim, true)} disabled={busy} className="inline-flex h-11 items-center justify-center gap-2 rounded-lg bg-primary px-4 text-sm font-semibold text-primary-foreground hover:bg-primary/90 disabled:opacity-50">{busy ? <Loader2 className="h-4 w-4 animate-spin" /> : <Gift className="h-4 w-4" />} Approve + send {WELCOME_REWARD_CREDITS}</button>
+                      </div>
+                    </div>
+                  ) : claim.admin_note ? (
+                    <p className="mt-4 rounded-lg border border-white/[0.07] bg-black/15 px-4 py-3 text-xs leading-5 text-muted-foreground"><span className="font-semibold text-foreground">Admin note:</span> {claim.admin_note}</p>
+                  ) : null}
+                </div>
+              </article>
+            )
+          })}
+        </div>
+      )}
+    </div>
+  )
+}
+
+type TabId = 'overview' | 'coupons' | 'users' | 'task-reviews'
 
 export default function Admin() {
   const { user, loading, signOut } = useAuth()
@@ -648,6 +792,7 @@ export default function Admin() {
     { id: 'overview', label: 'Overview', icon: LayoutDashboard },
     { id: 'coupons', label: 'Coupons', icon: Ticket },
     { id: 'users', label: 'Users', icon: UsersIcon },
+    { id: 'task-reviews', label: 'Task Reviews', icon: Gift },
   ]
 
   return (
@@ -691,6 +836,7 @@ export default function Admin() {
         {tab === 'overview' && <OverviewTab />}
         {tab === 'coupons' && <CouponsTab />}
         {tab === 'users' && <UsersTab />}
+        {tab === 'task-reviews' && <TaskReviewsTab />}
       </div>
     </div>
   )

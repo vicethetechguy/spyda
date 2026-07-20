@@ -17,6 +17,7 @@ import {
 import { SecurityPanel, SubscriptionView } from '../components/workspace/WorkspaceAccountViews'
 import { WhitepaperView } from '../components/workspace/WorkspaceDocumentationViews'
 import { GuidesView } from '../components/workspace/WorkspaceGuidesView'
+import { TasksView, WelcomeRewardPrompt } from '../components/workspace/WorkspaceTasksView'
 import {
   PanelLeftClose,
   PanelLeftOpen,
@@ -52,6 +53,7 @@ import {
   Ticket
 } from 'lucide-react'
 import { isAdminEmail, redeemCoupon, sendCreditsBySpydaId } from '../lib/admin'
+import { getWelcomeRewardClaim, type WelcomeRewardClaim } from '../lib/rewards'
 
 /* ═══════════════════════════════════════════════
    AI Model Definitions
@@ -537,7 +539,37 @@ export default function Workspace() {
   const [modelMenuOpen, setModelMenuOpen] = useState(false)
   const [profilePic, setProfilePic] = useState<string | null>(null)
   const [walletRefreshKey, setWalletRefreshKey] = useState(0)
+  const [welcomeClaim, setWelcomeClaim] = useState<WelcomeRewardClaim | null>(null)
+  const [showWelcomeReward, setShowWelcomeReward] = useState(false)
   const { user, signOut } = useAuth()
+
+  useEffect(() => {
+    let active = true
+    let timer: number | undefined
+    if (!user || isAdminEmail(user.email)) {
+      setShowWelcomeReward(false)
+      return () => { active = false }
+    }
+
+    getWelcomeRewardClaim().then(claim => {
+      if (!active) return
+      setWelcomeClaim(claim)
+      const alreadySubmitted = claim?.status === 'pending' || claim?.status === 'approved'
+      const dismissed = window.sessionStorage.getItem(`spyda.welcomeReward.dismissed.${user.id}`) === 'true'
+      if (!alreadySubmitted && !dismissed) {
+        timer = window.setTimeout(() => {
+          if (active) setShowWelcomeReward(true)
+        }, 650)
+      }
+    }).catch(() => {
+      // The workspace remains usable while the reward migration is pending.
+    })
+
+    return () => {
+      active = false
+      if (timer) window.clearTimeout(timer)
+    }
+  }, [user])
 
   // Handle logout
   useEffect(() => {
@@ -621,6 +653,7 @@ export default function Workspace() {
     'qa-gate': 'QA',
     gallery: 'Gallery',
     history: 'History',
+    tasks: 'Tasks',
     projects: 'Projects',
     'p-active': 'Active Projects',
     'p-archived': 'Archived Projects',
@@ -1394,6 +1427,10 @@ export default function Workspace() {
           )}
           {activeId === 'gallery' && <GalleryView onNewDesign={() => setActiveId('canvas')} />}
           {activeId === 'history' && <HistoryView onOpenProject={handleOpenProject} onNewDesign={() => setActiveId('canvas')} />}
+          {activeId === 'tasks' && <TasksView onClaimChange={claim => {
+            setWelcomeClaim(claim)
+            if (claim?.status === 'pending' || claim?.status === 'approved') setShowWelcomeReward(false)
+          }} />}
           {['projects', 'p-active', 'p-archived'].includes(activeId) && <ProjectsView initialFilter={activeId === 'p-archived' ? 'archived' : 'active'} onOpenProject={handleOpenProject} onNewDesign={() => setActiveId('canvas')} />}
           {activeId === 'templates' && <TemplatesView onUseTemplate={handleUseTemplate} />}
           {activeId === 'brand-assets' && <BrandAssetsView onUseAsset={handleUseBrandAsset} />}
@@ -1406,6 +1443,19 @@ export default function Workspace() {
           {activeId === 'settings' && <SettingsView profilePic={profilePic} setProfilePic={setProfilePic} onManageSubscription={() => setActiveId('subscription')} />}
         </div>
       </div>
+      {showWelcomeReward && welcomeClaim?.status !== 'pending' && welcomeClaim?.status !== 'approved' && (
+        <WelcomeRewardPrompt
+          onOpenTasks={() => {
+            window.sessionStorage.setItem(`spyda.welcomeReward.dismissed.${user?.id || 'guest'}`, 'true')
+            setShowWelcomeReward(false)
+            setActiveId('tasks')
+          }}
+          onDismiss={() => {
+            window.sessionStorage.setItem(`spyda.welcomeReward.dismissed.${user?.id || 'guest'}`, 'true')
+            setShowWelcomeReward(false)
+          }}
+        />
+      )}
     </div>
   )
 }
