@@ -433,6 +433,20 @@ export function extractJson(text: string) {
   }
 }
 
+function getAssistantContent(payload: any) {
+  const message = payload?.choices?.[0]?.message;
+  const content = message?.content;
+  if (typeof content === "string") return content.trim();
+  if (Array.isArray(content)) {
+    return content
+      .map((part: any) => typeof part === "string" ? part : part?.text || part?.content || "")
+      .filter(Boolean)
+      .join("\n")
+      .trim();
+  }
+  return "";
+}
+
 export function normalizeAiProvider(provider: string = "") {
   return provider.toLowerCase().includes("groq") ? "groq" : "openai";
 }
@@ -495,36 +509,67 @@ export async function analyzeDesignWithGroq(base64Image: string, prompt: string,
   let lastModelError = "";
 
   for (const model of modelCandidates) {
+    const requestBody: Record<string, any> = {
+      model,
+      temperature: 0.1,
+      max_completion_tokens: 7000,
+      response_format: { type: "json_object" },
+      messages: [
+        {
+          role: "system",
+          content: "You are a production JSON API. Return exactly one valid JSON object and no prose, reasoning, or markdown.",
+        },
+        {
+          role: "user",
+          content: [
+            { type: "text", text: prompt },
+            { type: "image_url", image_url: { url: base64Image } },
+          ],
+        },
+      ],
+    };
+
+    if (model.startsWith("qwen/")) {
+      requestBody.reasoning_effort = "none";
+      requestBody.include_reasoning = false;
+    }
+
     const response = await fetch("https://api.groq.com/openai/v1/chat/completions", {
       method: "POST",
       headers: { "Authorization": `Bearer ${groqKey}`, "Content-Type": "application/json" },
-      body: JSON.stringify({
-        model, temperature: 0.2, max_completion_tokens: 3200,
-        messages: [{ role: "user", content: [{ type: "text", text: prompt }, { type: "image_url", image_url: { url: base64Image } }] }]
-      })
+      body: JSON.stringify(requestBody),
     });
 
     if (response.ok) {
       const payload = await response.json();
-      return {
-        ok: true,
-        mode: "groq",
-        analysisModel: model,
-        breakdown: extractJson(payload.choices?.[0]?.message?.content || ""),
-      };
+      const content = getAssistantContent(payload);
+      try {
+        return {
+          ok: true,
+          mode: "groq",
+          analysisModel: model,
+          breakdown: extractJson(content),
+        };
+      } catch (parseError: any) {
+        const finishReason = payload?.choices?.[0]?.finish_reason || "unknown";
+        lastModelError = `${model} returned unusable structured output (${finishReason}): ${parseError?.message || "empty response"}`;
+        continue;
+      }
     }
 
     const errorText = await response.text();
     const modelUnavailable = response.status === 404
       || /model_not_found|model .* does not exist|do not have access to it/i.test(errorText);
-    if (!modelUnavailable) {
+    const outputFormatUnsupported = response.status === 400
+      && /response_format|json_object|reasoning_effort|include_reasoning/i.test(errorText);
+    if (!modelUnavailable && !outputFormatUnsupported) {
       throw new Error(`Groq API Error: ${errorText}`);
     }
     lastModelError = errorText;
   }
 
   throw new Error(
-    `Groq could not access a supported vision model. Tried: ${modelCandidates.join(", ")}. ${lastModelError}`,
+    `Groq could not return a structured flyer breakdown. Tried: ${modelCandidates.join(", ")}. ${lastModelError}`,
   );
 }
 
@@ -622,15 +667,40 @@ export async function analyzeDesign(
   const prompt = getBreakdownPrompt(ocr);
 
   if (normalizeAiProvider(provider) === "groq") {
-    const result = await analyzeDesignWithGroq(base64Image, prompt, apiKeys.groq);
-    const verifiedBreakdown = await verifyBreakdownWithOpenAI(base64Image, result.breakdown, ocr, apiKeys.openai).catch(() => result.breakdown);
-    const normalizedBreakdown = validateDesignBreakdown(enrichBreakdownWithOcrTextAtoms(verifiedBreakdown, ocr), { ...sourceMetadata, provider: "groq+openai" });
-    return {
-      ...result,
-      mode: "groq+openai-verified",
-      breakdown: await addV2DesignIntelligence(normalizedBreakdown, base64Image, ocr),
-      ocr,
-    };
+    try {
+      const result = await analyzeDesignWithGroq(base64Image, prompt, apiKeys.groq);
+      const verifiedBreakdown = await verifyBreakdownWithOpenAI(base64Image, result.breakdown, ocr, apiKeys.openai).catch(() => result.breakdown);
+      const normalizedBreakdown = validateDesignBreakdown(enrichBreakdownWithOcrTextAtoms(verifiedBreakdown, ocr), { ...sourceMetadata, provider: "groq+openai" });
+      return {
+        ...result,
+        mode: "groq+openai-verified",
+        breakdown: await addV2DesignIntelligence(normalizedBreakdown, base64Image, ocr),
+        ocr,
+      };
+    } catch (groqError) {
+      const fallbackOpenAiKey = apiKeys.openai || process.env.OPENAI_API_KEY || "";
+      if (!fallbackOpenAiKey) throw groqError;
+
+      let fallbackBreakdown: any;
+      try {
+        fallbackBreakdown = await analyzeDesignWithOpenAI(base64Image, prompt, fallbackOpenAiKey);
+      } catch (openAiError: any) {
+        const groqMessage = groqError instanceof Error ? groqError.message : "Groq analysis failed.";
+        throw new Error(`${groqMessage} OpenAI fallback also failed: ${openAiError?.message || "unknown error"}`);
+      }
+      const normalizedBreakdown = validateDesignBreakdown(
+        enrichBreakdownWithOcrTextAtoms(fallbackBreakdown, ocr),
+        { ...sourceMetadata, provider: "openai-fallback" },
+      );
+      return {
+        ok: true,
+        mode: "openai-analysis-fallback",
+        analysisModel,
+        breakdown: await addV2DesignIntelligence(normalizedBreakdown, base64Image, ocr),
+        ocr,
+        warning: groqError instanceof Error ? groqError.message : "Groq analysis was unavailable.",
+      };
+    }
   }
 
   const openaiKey = apiKeys.openai || process.env.OPENAI_API_KEY || "";

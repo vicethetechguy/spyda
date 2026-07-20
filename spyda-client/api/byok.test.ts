@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it, vi } from 'vitest'
-import { analyzeDesignWithGroq, analyzeDesignWithOpenAI } from './_utils.js'
+import { analyzeDesignWithGroq, analyzeDesignWithOpenAI, extractJson } from './_utils.js'
 
 describe('bring your API key routing', () => {
   afterEach(() => vi.unstubAllGlobals())
@@ -32,6 +32,15 @@ describe('bring your API key routing', () => {
     expect(request).toHaveBeenCalledOnce()
     const headers = request.mock.calls[0]?.[1]?.headers as Record<string, string> | undefined
     expect(headers?.Authorization).toBe('Bearer gsk-user-key')
+    const body = JSON.parse(String(request.mock.calls[0]?.[1]?.body || '{}')) as {
+      model?: string
+      response_format?: { type?: string }
+      reasoning_effort?: string
+    }
+    expect(body.response_format?.type).toBe('json_object')
+    if (body.model?.startsWith('qwen/')) {
+      expect(body.reasoning_effort).toBe('none')
+    }
   })
 
   it('retries with another supported Groq vision model when the preferred model is unavailable', async () => {
@@ -61,5 +70,36 @@ describe('bring your API key routing', () => {
     const secondBody = JSON.parse(String(request.mock.calls[1]?.[1]?.body || '{}')) as { model: string }
     expect(secondBody.model).not.toBe(firstBody.model)
     expect(result.ok).toBe(true)
+  })
+
+  it('tries another Groq vision model when a successful response contains no JSON', async () => {
+    const request = vi.fn(async () => {
+      if (request.mock.calls.length === 1) {
+        return {
+          ok: true,
+          status: 200,
+          json: async () => ({
+            choices: [{ finish_reason: 'stop', message: { content: 'I analyzed the flyer.' } }],
+          }),
+        }
+      }
+      return {
+        ok: true,
+        status: 200,
+        json: async () => ({ choices: [{ message: { content: '{"design":{"editableComponents":[]}}' } }] }),
+      }
+    })
+    vi.stubGlobal('fetch', request)
+
+    const result = await analyzeDesignWithGroq('data:image/png;base64,test', 'Analyze as JSON.', 'gsk-user-key')
+
+    expect(request).toHaveBeenCalledTimes(2)
+    expect(result.breakdown).toEqual({ design: { editableComponents: [] } })
+  })
+
+  it('extracts JSON from multipart assistant content', () => {
+    expect(extractJson('Result:\\n```json\\n{"design":{"editableComponents":[]}}\\n```')).toEqual({
+      design: { editableComponents: [] },
+    })
   })
 })
