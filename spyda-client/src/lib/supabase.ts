@@ -24,6 +24,9 @@ export const supabase = createClient(supabaseUrl || '', supabaseAnonKey || '', {
     autoRefreshToken: true,
     detectSessionInUrl: true,
   },
+  global: {
+    fetch: (input, init) => fetch(input, { ...init, cache: 'no-store' }),
+  },
 })
 
 export function clearStoredSupabaseSession() {

@@ -1,4 +1,4 @@
-const CACHE_NAME = "spyda-shell-v5";
+const CACHE_NAME = "spyda-shell-v6";
 const APP_SHELL = [
   "/",
   "/workspace",
@@ -33,6 +33,10 @@ self.addEventListener("activate", (event) => {
 self.addEventListener("fetch", (event) => {
   const request = event.request;
   const url = new URL(request.url);
+
+  // Supabase and every other external service must always reach the network.
+  // Caching those responses leaves balances, transactions, and auth state stale.
+  if (url.origin !== self.location.origin) return;
 
   if (request.method !== "GET" || url.pathname.startsWith("/api/")) return;
 

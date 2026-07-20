@@ -18,6 +18,7 @@ import { SecurityPanel, SubscriptionView } from '../components/workspace/Workspa
 import { WhitepaperView } from '../components/workspace/WorkspaceDocumentationViews'
 import { GuidesView } from '../components/workspace/WorkspaceGuidesView'
 import { TasksView, WelcomeRewardPrompt } from '../components/workspace/WorkspaceTasksView'
+import { WalletNotificationCenter } from '../components/workspace/WalletNotificationCenter'
 import {
   PanelLeftClose,
   PanelLeftOpen,
@@ -61,6 +62,7 @@ import {
 } from '../lib/admin'
 import { getWelcomeRewardClaim, type WelcomeRewardClaim } from '../lib/rewards'
 import { formatSpydaCouponCode, formatSpydaWalletId } from '../lib/code-format'
+import { parseWalletTransaction, type WalletTransaction } from '../lib/wallet'
 
 /* ═══════════════════════════════════════════════
    AI Model Definitions
@@ -1385,6 +1387,7 @@ export default function Workspace() {
                 <RotateCcw className="w-3.5 h-3.5" /> <span className="hidden sm:inline">Reset</span>
               </button>
             )}
+            <WalletNotificationCenter userId={user?.id} onOpenWallet={() => setActiveId('wallet')} />
             <button 
               onClick={() => setActiveId('settings')}
               className="w-8 h-8 rounded-full bg-gradient-to-br from-[#22c55e] to-[#16a34a] flex items-center justify-center text-xs font-bold text-primary-foreground shadow-lg shadow-primary/20 overflow-hidden ring-2 ring-transparent hover:ring-primary/50 transition-all cursor-pointer"
@@ -2805,16 +2808,6 @@ type CreditTier = {
   recommended?: boolean
 }
 
-type CreditTransaction = {
-  id: string
-  activity_type: 'funded' | 'spent' | 'earned' | 'adjustment'
-  source: string
-  description: string
-  amount: number
-  balance_after: number
-  created_at: string
-}
-
 function SpydaCreditIcon({ className = '' }: { className?: string }) {
   return <img src="/assets/spyda-credit.png" alt="" aria-hidden="true" className={`shrink-0 object-contain ${className}`} />
 }
@@ -2833,8 +2826,10 @@ function WalletView({ onFund, onSend }: { onFund: () => void; onSend: () => void
   const [creditsSpent, setCreditsSpent] = useState(0)
   const [byokEnabled, setByokEnabled] = useState(false)
   const [loading, setLoading] = useState(true)
+  const [refreshing, setRefreshing] = useState(false)
+  const [lastRefreshedAt, setLastRefreshedAt] = useState<Date | null>(null)
   const [balanceError, setBalanceError] = useState('')
-  const [activities, setActivities] = useState<CreditTransaction[]>([])
+  const [activities, setActivities] = useState<WalletTransaction[]>([])
   const [activityLoading, setActivityLoading] = useState(true)
   const [activityError, setActivityError] = useState('')
   const [activityLimit, setActivityLimit] = useState(20)
@@ -2886,15 +2881,7 @@ function WalletView({ onFund, onSend }: { onFund: () => void; onSend: () => void
         .range(0, activityLimit - 1)
 
       if (error) throw error
-      setActivities((data ?? []).map(row => ({
-        id: String(row.id),
-        activity_type: row.activity_type as CreditTransaction['activity_type'],
-        source: String(row.source || 'wallet'),
-        description: String(row.description || 'Spyda credit activity'),
-        amount: Number(row.amount || 0),
-        balance_after: Number(row.balance_after || 0),
-        created_at: String(row.created_at),
-      })))
+      setActivities((data ?? []).map(parseWalletTransaction))
       setActivityTotal(Number(count || 0))
       setActivityError('')
     } catch (error) {
@@ -2905,37 +2892,63 @@ function WalletView({ onFund, onSend }: { onFund: () => void; onSend: () => void
     }
   }, [activityLimit, user])
 
+  const refreshWallet = useCallback(async () => {
+    setRefreshing(true)
+    await Promise.all([loadBalance(), loadActivity()])
+    setLastRefreshedAt(new Date())
+    setRefreshing(false)
+  }, [loadActivity, loadBalance])
+
   useEffect(() => {
-    void loadBalance()
-    void loadActivity()
-    const refreshWallet = () => {
-      void loadBalance()
-      void loadActivity()
-    }
+    void refreshWallet()
     const onVisibilityChange = () => {
-      if (document.visibilityState === 'visible') refreshWallet()
+      if (document.visibilityState === 'visible') void refreshWallet()
     }
-    const refreshTimer = window.setInterval(refreshWallet, 15_000)
+    const refreshTimer = window.setInterval(() => void refreshWallet(), 30_000)
     const walletChannel = user
       ? supabase
-          .channel(`wallet-balance-${user.id}`)
+          .channel(`wallet-live-${user.id}`)
           .on(
             'postgres_changes',
             { event: 'UPDATE', schema: 'public', table: 'profiles', filter: `id=eq.${user.id}` },
-            refreshWallet,
+            payload => {
+              const profile = payload.new as Record<string, unknown>
+              setBalance(Number(profile.wallet_balance || 0))
+              setTokenBalance(Number(profile.spyda_token_balance || 0))
+              setCreditsSpent(Number(profile.credits_spent_total || 0))
+              setLastRefreshedAt(new Date())
+            },
+          )
+          .on(
+            'postgres_changes',
+            { event: 'INSERT', schema: 'public', table: 'credit_transactions', filter: `user_id=eq.${user.id}` },
+            payload => {
+              const transaction = parseWalletTransaction(payload.new)
+              setActivities(current => {
+                const exists = current.some(item => item.id === transaction.id)
+                if (!exists) setActivityTotal(total => total + 1)
+                return [
+                  transaction,
+                  ...current.filter(item => item.id !== transaction.id),
+                ].slice(0, activityLimit)
+              })
+              setBalance(transaction.balance_after)
+              setLastRefreshedAt(new Date())
+            },
           )
           .subscribe()
       : null
 
-    window.addEventListener('focus', refreshWallet)
+    const onFocus = () => void refreshWallet()
+    window.addEventListener('focus', onFocus)
     document.addEventListener('visibilitychange', onVisibilityChange)
     return () => {
       window.clearInterval(refreshTimer)
-      window.removeEventListener('focus', refreshWallet)
+      window.removeEventListener('focus', onFocus)
       document.removeEventListener('visibilitychange', onVisibilityChange)
       if (walletChannel) void supabase.removeChannel(walletChannel)
     }
-  }, [loadActivity, loadBalance, user])
+  }, [activityLimit, refreshWallet, user])
 
   const CREDITS_PER_GENERATION = byokEnabled ? SPYDA_BYOK_ROUND_CREDITS : SPYDA_AI_ROUND_CREDITS
   const generationsRemaining = Math.floor(balance / CREDITS_PER_GENERATION)
@@ -3013,9 +3026,14 @@ function WalletView({ onFund, onSend }: { onFund: () => void; onSend: () => void
                     <span className="text-sm font-medium text-white/85">{selectedAsset.shortName}</span>
                   </div>
                 </div>
-                <button type="button" onClick={() => { setLoading(true); void loadBalance(); void loadActivity() }} aria-label="Refresh balance and activity" className="inline-flex h-9 w-9 items-center justify-center rounded-lg border border-white/[0.18] bg-white/[0.08] text-white/80 backdrop-blur-sm transition-colors hover:bg-white/[0.16]">
-                  <RotateCcw className={`h-4 w-4 ${loading ? 'animate-spin' : ''}`} />
-                </button>
+                <div className="flex items-center gap-2">
+                  <span aria-live="polite" className="hidden text-[9px] uppercase tracking-wide text-white/45 sm:block">
+                    {refreshing ? 'Syncing' : lastRefreshedAt ? 'Live' : 'Connecting'}
+                  </span>
+                  <button type="button" onClick={() => void refreshWallet()} disabled={refreshing} aria-label="Refresh balance and activity" title={lastRefreshedAt ? `Last updated ${lastRefreshedAt.toLocaleTimeString()}` : 'Refresh wallet'} className="inline-flex h-9 w-9 items-center justify-center rounded-lg border border-white/[0.18] bg-white/[0.08] text-white/80 backdrop-blur-sm transition-colors hover:bg-white/[0.16] disabled:opacity-60">
+                    <RotateCcw className={`h-4 w-4 ${loading || refreshing ? 'animate-spin' : ''}`} />
+                  </button>
+                </div>
               </div>
 
               <div className="my-6 flex items-end justify-between gap-4">
