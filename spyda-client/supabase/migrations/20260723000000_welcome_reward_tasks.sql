@@ -367,3 +367,6 @@ $$;
 
 revoke all on function public.admin_review_welcome_reward_claim(uuid, boolean, text) from public;
 grant execute on function public.admin_review_welcome_reward_claim(uuid, boolean, text) to authenticated;
+
+-- Make newly created RPCs immediately discoverable through the Supabase API.
+notify pgrst, 'reload schema';

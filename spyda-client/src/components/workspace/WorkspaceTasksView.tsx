@@ -34,6 +34,12 @@ const taskIcons = {
 } satisfies Record<WelcomeTaskId, typeof AtSign>
 
 function taskErrorMessage(error: unknown, fallback: string): string {
+  if (error && typeof error === 'object' && 'code' in error) {
+    const code = String((error as { code?: unknown }).code || '')
+    if (code === 'PGRST202') {
+      return 'The Spyda rewards service is being connected. Please try again shortly.'
+    }
+  }
   if (error instanceof Error && error.message) return error.message
   if (error && typeof error === 'object' && 'message' in error) {
     const message = String((error as { message?: unknown }).message || '').trim()
