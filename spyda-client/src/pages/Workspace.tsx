@@ -3000,7 +3000,7 @@ function WalletView({ onFund, onSend }: { onFund: () => void; onSend: () => void
             <div className="absolute inset-0 bg-[linear-gradient(135deg,#0a0d0c_0%,#0f1d17_34%,#153826_62%,#1d5a38_86%,#2f8f55_112%)]" />
             <div className="absolute -right-24 -top-28 h-80 w-80 rounded-full bg-primary/[0.22] blur-[110px]" />
             <div className="absolute -bottom-32 -left-20 h-80 w-80 rounded-full bg-[#88a8ff]/[0.12] blur-[110px]" />
-            <div className="absolute inset-0 opacity-[0.12] [background-image:linear-gradient(rgba(255,255,255,.5)_1px,transparent_1px),linear-gradient(90deg,rgba(255,255,255,.5)_1px,transparent_1px)] [background-size:46px_46px]" />
+            <div className="absolute inset-0 opacity-[0.035] [background-image:linear-gradient(rgba(255,255,255,.5)_1px,transparent_1px),linear-gradient(90deg,rgba(255,255,255,.5)_1px,transparent_1px)] [background-size:46px_46px]" />
             <div className="absolute inset-0 bg-[linear-gradient(115deg,transparent_32%,rgba(255,255,255,.07)_46%,transparent_58%)] transition-transform duration-700 group-hover:translate-x-10" />
             <img src="/assets/spyda-credit.png" alt="" aria-hidden="true" className="absolute -bottom-14 -right-10 h-60 w-60 rotate-[18deg] object-contain opacity-[0.07]" />
 
