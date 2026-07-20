@@ -546,23 +546,27 @@ export default function Workspace() {
   useEffect(() => {
     let active = true
     let timer: number | undefined
+    setShowWelcomeReward(false)
+
     if (!user || isAdminEmail(user.email)) {
-      setShowWelcomeReward(false)
       return () => { active = false }
     }
+
+    setWelcomeClaim(null)
+    timer = window.setTimeout(() => {
+      if (active) setShowWelcomeReward(true)
+    }, 650)
 
     getWelcomeRewardClaim().then(claim => {
       if (!active) return
       setWelcomeClaim(claim)
       const alreadySubmitted = claim?.status === 'pending' || claim?.status === 'approved'
-      const dismissed = window.sessionStorage.getItem(`spyda.welcomeReward.dismissed.${user.id}`) === 'true'
-      if (!alreadySubmitted && !dismissed) {
-        timer = window.setTimeout(() => {
-          if (active) setShowWelcomeReward(true)
-        }, 650)
+      if (alreadySubmitted) {
+        if (timer) window.clearTimeout(timer)
+        setShowWelcomeReward(false)
       }
     }).catch(() => {
-      // The workspace remains usable while the reward migration is pending.
+      // Keep the campaign visible even if the claim check is temporarily unavailable.
     })
 
     return () => {
@@ -1446,12 +1450,10 @@ export default function Workspace() {
       {showWelcomeReward && welcomeClaim?.status !== 'pending' && welcomeClaim?.status !== 'approved' && (
         <WelcomeRewardPrompt
           onOpenTasks={() => {
-            window.sessionStorage.setItem(`spyda.welcomeReward.dismissed.${user?.id || 'guest'}`, 'true')
             setShowWelcomeReward(false)
             setActiveId('tasks')
           }}
           onDismiss={() => {
-            window.sessionStorage.setItem(`spyda.welcomeReward.dismissed.${user?.id || 'guest'}`, 'true')
             setShowWelcomeReward(false)
           }}
         />
