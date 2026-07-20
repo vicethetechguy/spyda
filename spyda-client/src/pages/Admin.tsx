@@ -50,6 +50,7 @@ import {
   type AdminWelcomeRewardClaim,
   type WelcomeRewardStatus,
 } from '../lib/rewards'
+import { formatSpydaWalletId } from '../lib/code-format'
 
 const fmt = (n: number) => n.toLocaleString()
 
@@ -525,9 +526,11 @@ function UsersTab() {
             <span className="mb-1.5 block text-[10px] font-semibold uppercase tracking-wide text-muted-foreground">Recipient Spyda ID</span>
             <input
               value={recipientSpydaId}
-              onChange={event => setRecipientSpydaId(event.target.value.toUpperCase())}
+              onChange={event => setRecipientSpydaId(formatSpydaWalletId(event.target.value))}
               placeholder="SPY-XXXX-XXXX"
+              maxLength={13}
               autoComplete="off"
+              spellCheck={false}
               className="h-11 w-full rounded-lg border border-white/[0.1] bg-background/60 px-3 font-mono text-sm uppercase outline-none focus:border-primary/50"
             />
           </label>

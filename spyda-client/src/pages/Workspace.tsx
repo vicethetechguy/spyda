@@ -60,6 +60,7 @@ import {
   type AdminWalletRecipient,
 } from '../lib/admin'
 import { getWelcomeRewardClaim, type WelcomeRewardClaim } from '../lib/rewards'
+import { formatSpydaCouponCode, formatSpydaWalletId } from '../lib/code-format'
 
 /* ═══════════════════════════════════════════════
    AI Model Definitions
@@ -3310,7 +3311,7 @@ function AdminWalletSendView({ onBack }: { onBack: () => void }) {
             <form onSubmit={reviewTransfer} className="mt-8 space-y-5">
               <label className="block">
                 <span className="mb-2 block text-xs font-semibold">Recipient Spyda ID</span>
-                <input value={recipientSpydaId} onChange={event => { setRecipientSpydaId(event.target.value.toUpperCase()); setRecipientPreview(null); setError('') }} autoComplete="off" placeholder="SPY-XXXX-XXXX" className="h-12 w-full rounded-lg border border-white/[0.1] bg-background/60 px-4 font-mono text-sm uppercase tracking-wide outline-none focus:border-primary/55" />
+                <input value={recipientSpydaId} onChange={event => { setRecipientSpydaId(formatSpydaWalletId(event.target.value)); setRecipientPreview(null); setError('') }} autoComplete="off" spellCheck={false} maxLength={13} placeholder="SPY-XXXX-XXXX" className="h-12 w-full rounded-lg border border-white/[0.1] bg-background/60 px-4 font-mono text-sm uppercase tracking-wide outline-none focus:border-primary/55" />
                 <span className="mt-2 block text-xs text-muted-foreground">The user can find this ID on their Spyda Wallet card.</span>
               </label>
               <label className="block">
@@ -3506,9 +3507,12 @@ function CouponRedeemCard({ onRedeemed }: { onRedeemed: (creditsAdded: number) =
         <input
           type="text"
           value={code}
-          onChange={event => { setCode(event.target.value.toUpperCase()); if (state !== 'idle') { setState('idle'); setMessage('') } }}
+          onChange={event => { setCode(formatSpydaCouponCode(event.target.value)); if (state !== 'idle') { setState('idle'); setMessage('') } }}
           onKeyDown={event => { if (event.key === 'Enter') handleRedeem() }}
           placeholder="SPYDA-XXXX-XXXX"
+          maxLength={15}
+          autoComplete="off"
+          spellCheck={false}
           aria-label="Coupon code"
           className="h-24 w-full flex-1 rounded-md border border-white/[0.12] bg-background/60 px-6 font-mono text-2xl uppercase tracking-[0.18em] outline-none placeholder:tracking-[0.18em] placeholder:text-muted-foreground/60 focus:border-primary/60 sm:h-20 sm:text-xl"
         />
