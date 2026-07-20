@@ -3029,7 +3029,7 @@ function WalletView({ onFund, onSend }: { onFund: () => void; onSend: () => void
                 </div>
               </div>
 
-              <div className="flex flex-col gap-3 border-t border-white/[0.12] pt-4 text-[11px] text-white/55 sm:flex-row sm:items-end sm:justify-between">
+              <div className="flex flex-col gap-3 pt-4 text-[11px] text-white/55 sm:flex-row sm:items-end sm:justify-between">
                 <div><p className="uppercase tracking-[0.14em]">Wallet ID</p><p className="mt-1 font-mono text-xs font-medium tracking-[0.14em] text-white/90">{walletId}</p></div>
                 <div className="sm:text-right"><p className="uppercase tracking-[0.14em]">Account</p><p className="mt-1 max-w-[230px] truncate font-medium text-white/90">{user?.email || 'Signed out'}</p></div>
               </div>

@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState } from 'react'
+import { useCallback, useEffect, useRef, useState } from 'react'
 import type { ElementType, FormEvent } from 'react'
 import { Link } from 'react-router-dom'
 import {
@@ -26,8 +26,11 @@ import {
   Clock3,
   Repeat2,
   AtSign,
+  Bell,
+  CheckCheck,
 } from 'lucide-react'
 import { useAuth } from '../lib/AuthContext'
+import { supabase } from '../lib/supabase'
 import {
   ADMIN_EMAIL,
   isAdminEmail,
@@ -38,6 +41,9 @@ import {
   adjustCredits,
   sendCreditsBySpydaId,
   overviewStats,
+  listAdminNotifications,
+  markAdminNotificationsRead,
+  type AdminNotification,
   type Coupon,
   type AdminUser,
   type OverviewStats,
@@ -53,6 +59,127 @@ import {
 import { formatSpydaWalletId } from '../lib/code-format'
 
 const fmt = (n: number) => n.toLocaleString()
+type TabId = 'overview' | 'coupons' | 'users' | 'task-reviews'
+
+function notificationTarget(eventType: string): TabId {
+  if (eventType === 'task_submitted') return 'task-reviews'
+  if (eventType === 'coupon_redeemed') return 'coupons'
+  if (eventType === 'user_joined') return 'users'
+  return 'overview'
+}
+
+function AdminNotificationCenter({ onNavigate }: { onNavigate: (tab: TabId) => void }) {
+  const [notifications, setNotifications] = useState<AdminNotification[]>([])
+  const [open, setOpen] = useState(false)
+  const [loading, setLoading] = useState(true)
+  const [error, setError] = useState('')
+  const panelRef = useRef<HTMLDivElement>(null)
+
+  const load = useCallback(async () => {
+    try {
+      setNotifications(await listAdminNotifications())
+      setError('')
+    } catch (loadError) {
+      setError(loadError instanceof Error ? loadError.message : 'Notifications are unavailable.')
+    } finally {
+      setLoading(false)
+    }
+  }, [])
+
+  useEffect(() => {
+    void load()
+    const timer = window.setInterval(() => void load(), 15_000)
+    const onFocus = () => void load()
+    const channel = supabase
+      .channel('spyda-admin-notifications')
+      .on('postgres_changes', { event: 'INSERT', schema: 'public', table: 'admin_notifications' }, () => void load())
+      .subscribe()
+
+    window.addEventListener('focus', onFocus)
+    return () => {
+      window.clearInterval(timer)
+      window.removeEventListener('focus', onFocus)
+      void supabase.removeChannel(channel)
+    }
+  }, [load])
+
+  useEffect(() => {
+    if (!open) return
+    const closeOnOutsideClick = (event: MouseEvent) => {
+      if (panelRef.current && !panelRef.current.contains(event.target as Node)) setOpen(false)
+    }
+    document.addEventListener('mousedown', closeOnOutsideClick)
+    return () => document.removeEventListener('mousedown', closeOnOutsideClick)
+  }, [open])
+
+  const unread = notifications.filter(item => !item.read_at).length
+
+  useEffect(() => {
+    const baseTitle = 'Spyda Admin'
+    document.title = unread ? `(${unread}) ${baseTitle}` : baseTitle
+    return () => { document.title = 'Spyda' }
+  }, [unread])
+
+  const markAllRead = async () => {
+    try {
+      await markAdminNotificationsRead()
+      const now = new Date().toISOString()
+      setNotifications(current => current.map(item => ({ ...item, read_at: item.read_at || now })))
+    } catch (markError) {
+      setError(markError instanceof Error ? markError.message : 'Could not mark notifications as read.')
+    }
+  }
+
+  const openNotification = async (notification: AdminNotification) => {
+    if (!notification.read_at) {
+      void markAdminNotificationsRead([notification.id]).catch(() => undefined)
+      setNotifications(current => current.map(item => item.id === notification.id
+        ? { ...item, read_at: new Date().toISOString() }
+        : item))
+    }
+    setOpen(false)
+    onNavigate(notificationTarget(notification.event_type))
+  }
+
+  return (
+    <div ref={panelRef} className="relative">
+      <button type="button" onClick={() => setOpen(value => !value)} aria-label={`Notifications${unread ? `, ${unread} unread` : ''}`} className="relative inline-flex h-9 w-9 items-center justify-center rounded-lg border border-white/[0.1] bg-white/[0.03] text-muted-foreground transition-colors hover:text-foreground">
+        <Bell className="h-4 w-4" />
+        {unread > 0 && <span className="absolute -right-1.5 -top-1.5 inline-flex min-h-5 min-w-5 items-center justify-center rounded-full border-2 border-[#060608] bg-primary px-1 text-[9px] font-bold text-primary-foreground">{unread > 99 ? '99+' : unread}</span>}
+      </button>
+
+      {open && (
+        <div className="fixed inset-x-3 top-[72px] z-50 overflow-hidden rounded-xl border border-white/[0.1] bg-[#090b0a] shadow-[0_24px_80px_rgba(0,0,0,.7)] sm:absolute sm:inset-x-auto sm:right-0 sm:top-12 sm:w-[390px]">
+          <div className="flex items-center justify-between gap-3 border-b border-white/[0.08] px-4 py-3.5">
+            <div><p className="font-heading text-sm font-semibold">Activity</p><p className="mt-0.5 text-[10px] text-muted-foreground">{unread} unread notification{unread === 1 ? '' : 's'}</p></div>
+            <button type="button" onClick={() => void markAllRead()} disabled={!unread} className="inline-flex h-8 items-center gap-1.5 rounded-lg px-2.5 text-[10px] font-semibold text-primary hover:bg-primary/[0.08] disabled:opacity-40"><CheckCheck className="h-3.5 w-3.5" /> Mark all read</button>
+          </div>
+
+          <div className="max-h-[min(65vh,520px)] overflow-y-auto [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
+            {loading ? (
+              <div className="flex min-h-40 items-center justify-center"><Loader2 className="h-5 w-5 animate-spin text-primary" /></div>
+            ) : error && !notifications.length ? (
+              <div className="p-5 text-center text-xs leading-5 text-amber-300">{error}</div>
+            ) : notifications.length ? notifications.map(notification => (
+              <button key={notification.id} type="button" onClick={() => void openNotification(notification)} className={`block w-full border-b border-white/[0.06] px-4 py-3.5 text-left transition-colors last:border-0 hover:bg-white/[0.035] ${notification.read_at ? '' : 'bg-primary/[0.035]'}`}>
+                <div className="flex items-start gap-3">
+                  <span className={`mt-1 h-2 w-2 shrink-0 rounded-full ${notification.read_at ? 'bg-white/15' : 'bg-primary shadow-[0_0_12px_rgba(157,250,176,.6)]'}`} />
+                  <span className="min-w-0 flex-1">
+                    <span className="block truncate text-xs font-semibold">{notification.title}</span>
+                    <span className="mt-1 block text-[11px] leading-5 text-muted-foreground">{notification.message}</span>
+                    <span className="mt-2 block text-[9px] uppercase tracking-wide text-muted-foreground">{notification.created_at ? new Date(notification.created_at).toLocaleString() : 'Just now'}</span>
+                  </span>
+                </div>
+              </button>
+            )) : (
+              <div className="flex min-h-44 flex-col items-center justify-center px-5 text-center"><Bell className="h-6 w-6 text-muted-foreground" /><p className="mt-3 text-sm font-semibold">No activity yet</p><p className="mt-1 text-xs text-muted-foreground">New Spyda activity will appear here.</p></div>
+            )}
+          </div>
+        </div>
+      )}
+    </div>
+  )
+}
 
 function SpydaMark({ className = '' }: { className?: string }) {
   return (
@@ -783,8 +910,6 @@ function TaskReviewsTab() {
   )
 }
 
-type TabId = 'overview' | 'coupons' | 'users' | 'task-reviews'
-
 export default function Admin() {
   const { user, loading, signOut } = useAuth()
   const [tab, setTab] = useState<TabId>('overview')
@@ -821,6 +946,7 @@ export default function Admin() {
             </div>
           </div>
           <div className="flex items-center gap-2">
+            <AdminNotificationCenter onNavigate={setTab} />
             <Link to="/workspace" className="hidden h-9 items-center rounded-lg border border-white/[0.1] bg-white/[0.03] px-3 text-sm text-muted-foreground hover:text-foreground sm:inline-flex">
               Workspace
             </Link>

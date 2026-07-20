@@ -57,6 +57,25 @@ export type OverviewStats = {
   credits_from_coupons: number
 }
 
+export type AdminNotification = {
+  id: string
+  event_type: string
+  title: string
+  message: string
+  actor_user_id: string | null
+  metadata: Record<string, unknown>
+  read_at: string | null
+  created_at: string
+}
+
+function supabaseError(error: unknown, fallback: string): Error {
+  if (error && typeof error === 'object' && 'message' in error) {
+    const message = String((error as { message?: unknown }).message || '').trim()
+    if (message) return new Error(message)
+  }
+  return new Error(fallback)
+}
+
 // ── Coupons ──────────────────────────────────────────────────────────────────
 
 export function parseAdminCreditTransfer(value: unknown, amount: number): AdminCreditTransfer {
@@ -87,7 +106,7 @@ export function parseAdminCreditTransfer(value: unknown, amount: number): AdminC
 
 export async function generateCoupon(amount: number): Promise<Coupon> {
   const { data, error } = await supabase.rpc('generate_coupon', { p_credit_amount: amount })
-  if (error) throw error
+  if (error) throw supabaseError(error, 'Could not generate a coupon.')
   return data as Coupon
 }
 
@@ -166,4 +185,30 @@ export async function overviewStats(): Promise<OverviewStats> {
     coupons_redeemed: Number(s.coupons_redeemed ?? 0),
     credits_from_coupons: Number(s.credits_from_coupons ?? 0),
   }
+}
+
+export async function listAdminNotifications(limit = 30): Promise<AdminNotification[]> {
+  const { data, error } = await supabase.rpc('admin_list_notifications', {
+    p_limit: Math.max(1, Math.min(100, Math.round(limit))),
+  })
+  if (error) throw supabaseError(error, 'Could not load admin notifications.')
+  return (data ?? []).map((row: Record<string, unknown>) => ({
+    id: String(row.id),
+    event_type: String(row.event_type || 'activity'),
+    title: String(row.title || 'Spyda activity'),
+    message: String(row.message || ''),
+    actor_user_id: row.actor_user_id ? String(row.actor_user_id) : null,
+    metadata: row.metadata && typeof row.metadata === 'object'
+      ? row.metadata as Record<string, unknown>
+      : {},
+    read_at: row.read_at ? String(row.read_at) : null,
+    created_at: String(row.created_at || ''),
+  }))
+}
+
+export async function markAdminNotificationsRead(ids?: string[]): Promise<void> {
+  const { error } = await supabase.rpc('admin_mark_notifications_read', {
+    p_ids: ids?.length ? ids : null,
+  })
+  if (error) throw supabaseError(error, 'Could not update admin notifications.')
 }
