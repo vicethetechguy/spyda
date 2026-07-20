@@ -105,7 +105,10 @@ export function parseAdminCreditTransfer(value: unknown, amount: number): AdminC
 }
 
 export async function generateCoupon(amount: number): Promise<Coupon> {
-  const { data, error } = await supabase.rpc('generate_coupon', { p_credit_amount: amount })
+  const { data, error } = await supabase.rpc('generate_coupon', {
+    p_credit_amount: amount,
+    p_code: null,
+  })
   if (error) throw supabaseError(error, 'Could not generate a coupon.')
   return data as Coupon
 }
