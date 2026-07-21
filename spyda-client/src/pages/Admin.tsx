@@ -183,9 +183,11 @@ function AdminNotificationCenter({ onNavigate }: { onNavigate: (tab: TabId) => v
 
 function SpydaMark({ className = '' }: { className?: string }) {
   return (
-    <div className={`flex items-center justify-center rounded-[8px] bg-brand-gradient font-heading font-bold text-white shadow-sm ${className}`}>
-      S
-    </div>
+    <img
+      src="/assets/spyda-logo.png"
+      alt="Spyda"
+      className={`shrink-0 object-contain ${className}`}
+    />
   )
 }
 

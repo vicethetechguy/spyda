@@ -95,9 +95,11 @@ function WorkspaceSwitcher({
         className="flex items-center justify-between px-2 py-2 mb-4 rounded-lg hover:bg-white/5 cursor-pointer transition-colors select-none group"
       >
         <div className="flex items-center gap-3">
-          <div className="w-8 h-8 rounded-[6px] bg-brand-gradient text-white flex items-center justify-center font-heading font-bold text-[14px] shadow-sm">
-            S
-          </div>
+          <img
+            src="/assets/spyda-logo.png"
+            alt="Spyda"
+            className="h-8 w-8 shrink-0 object-contain"
+          />
           <div className="flex flex-col overflow-hidden">
             <span className="text-[13px] font-heading font-medium leading-none mb-1 text-foreground truncate max-w-[120px]">
               {current}
