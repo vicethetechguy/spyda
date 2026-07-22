@@ -215,7 +215,7 @@ export function TasksView({
 
   return (
     <div className="mx-auto w-full max-w-[1120px] px-4 py-6 sm:px-6 lg:px-8 lg:py-10">
-      <section className="overflow-hidden rounded-xl border border-white/[0.09] bg-white/[0.02]">
+      {claim?.status !== 'approved' && <section className="overflow-hidden rounded-xl border border-white/[0.09] bg-white/[0.02]">
         <div className="relative border-b border-white/[0.07] px-5 py-7 sm:px-8 sm:py-9">
           <div className="absolute right-0 top-0 h-56 w-56 bg-primary/[0.07] blur-[90px]" />
           <div className="relative grid gap-7 lg:grid-cols-[minmax(0,1fr)_260px] lg:items-end">
@@ -291,6 +291,7 @@ export function TasksView({
           )}
         </div>
       </section>
+      }
       <CommunityTasksSection />
     </div>
   )
