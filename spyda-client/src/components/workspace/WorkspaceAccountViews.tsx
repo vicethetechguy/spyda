@@ -53,7 +53,7 @@ const PLANS: SubscriptionPlan[] = [
 ]
 
 const PAYMENT_OPTIONS = [
-  { id: 'wallet', name: 'Wallet Funding', price: 'Any amount', detail: '$1 = 100 Spyda credits', description: 'Fund your Spyda Wallet for pay-as-you-go design work.', features: ['Credits stay in your wallet', 'No recurring payment', '20 credits per generation', 'Top up again at any time'], texture: 'starter' },
+  { id: 'wallet', name: 'Wallet Funding', price: 'Any amount', detail: '$1 = 100 Spyda credits', description: 'Fund your Spyda Wallet for pay-as-you-go design work.', features: ['Credits stay in your wallet', '20 credits: Groq + GPT-Image 2', '30 credits: GPT-Image 2 only', 'Top up again at any time'], texture: 'starter' },
   { id: 'creator', name: 'Creator', price: 'NGN 12,000', detail: '30 days of access', description: 'For creators producing campaigns regularly.', features: ['1,200 credits per access period', 'Unlimited saved projects', 'Brand asset library', 'Priority generation'], texture: 'creator' },
   { id: 'studio', name: 'Studio', price: 'NGN 30,000', detail: '30 days of access', description: 'For teams and high-volume design work.', features: ['3,500 credits per access period', 'Everything in Creator', 'Faster processing queue', 'Advanced brand controls'], texture: 'pro' },
   { id: 'byok', name: 'Bring Your API Key', price: '5 credits', detail: 'per AI generation', description: 'Use your own OpenAI API billing with Spyda editing and QA.', features: ['Connect your OpenAI API key', 'Optional Groq analysis key', '5 Spyda credits per generation', 'Manage keys from Settings'], texture: 'free' },

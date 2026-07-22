@@ -77,12 +77,19 @@ type AiModel = {
 }
 
 const AI_MODELS: AiModel[] = [
-  { id: 'openai', label: 'GPT-Image 2', description: 'OpenAI vision + generation', provider: 'openai' },
-  { id: 'groq', label: 'Groq + GPT-Image 2', description: 'Groq analysis, OpenAI generation', provider: 'groq' },
+  { id: 'openai', label: 'GPT-Image 2', description: 'OpenAI vision + generation · 30 credits', provider: 'openai' },
+  { id: 'groq', label: 'Groq + GPT-Image 2', description: 'Groq analysis, OpenAI generation · 20 credits', provider: 'groq' },
 ]
 
-const SPYDA_AI_ROUND_CREDITS = 20
+const SPYDA_GROQ_GPT_IMAGE_ROUND_CREDITS = 20
+const SPYDA_GPT_IMAGE_ONLY_ROUND_CREDITS = 30
 const SPYDA_BYOK_ROUND_CREDITS = 5
+
+function getManagedGenerationCredits(provider: string): number {
+  return provider === 'openai'
+    ? SPYDA_GPT_IMAGE_ONLY_ROUND_CREDITS
+    : SPYDA_GROQ_GPT_IMAGE_ROUND_CREDITS
+}
 
 type SpydaApiKeys = { openai: string; groq: string }
 
@@ -113,14 +120,20 @@ async function readSpydaCreditBalance(userId?: string): Promise<number | null> {
   return error ? null : Math.max(0, Number(data?.wallet_balance || 0))
 }
 
-// Spends Spyda credits atomically on the server and awards 1 Spyda token for
-// every full 1,000 credits the user has spent over their lifetime. Returns the
-// number of tokens awarded by this spend (0 if none), or null if it failed.
-async function spendSpydaCredits(userId: string | undefined, amount: number): Promise<number | null> {
-  if (!userId || amount <= 0) return 0
-  const { data, error } = await supabase.rpc('spend_credits', { p_amount: amount })
+// The database decides the amount from the selected model, rather than trusting
+// a browser-provided price. It also awards SPYDA tokens at the 1,000-credit mark.
+async function chargeGenerationCredits(
+  userId: string | undefined,
+  provider: string,
+  byok: boolean,
+): Promise<number | null> {
+  if (!userId) return 0
+  const { data, error } = await supabase.rpc('charge_generation_credits', {
+    p_model_mode: provider,
+    p_byok: byok,
+  })
   if (error) {
-    console.error('Error spending Spyda credits:', error)
+    console.error('Error charging Spyda credits:', error)
     return null
   }
   const row = Array.isArray(data) ? data[0] : data
@@ -936,7 +949,11 @@ export default function Workspace() {
 
     try {
       const apiKeys = options?.instant ? { openai: '', groq: '' } : await loadSpydaApiKeys(user?.id)
-      const roundCredits = options?.instant ? 0 : apiKeys.openai ? SPYDA_BYOK_ROUND_CREDITS : SPYDA_AI_ROUND_CREDITS
+      const roundCredits = options?.instant
+        ? 0
+        : apiKeys.openai
+          ? SPYDA_BYOK_ROUND_CREDITS
+          : getManagedGenerationCredits(aiModel.provider)
       const availableCredits = await readSpydaCreditBalance(user?.id)
       if (roundCredits > 0 && availableCredits !== null && availableCredits < roundCredits) {
         setGenerateError(`This round needs ${roundCredits} Spyda credits. Fund your wallet before generating.`)
@@ -1241,7 +1258,10 @@ export default function Workspace() {
           : imageSrc
         const pendingQa: GenerationQaReport = { ok: true, skipped: true, pending: true, creditsSpent: roundCredits }
         const normalizedImageSrc = await finalizeRound(assetLockedImageSrc, pendingQa)
-        await spendSpydaCredits(user?.id, roundCredits)
+        const chargeResult = await chargeGenerationCredits(user?.id, aiModel.provider, Boolean(apiKeys.openai))
+        if (chargeResult === null) {
+          console.warn('The design was generated, but the wallet charge could not be recorded.')
+        }
 
         void (async () => {
           try {
@@ -2974,7 +2994,7 @@ function WalletView({ onFund, onSend }: { onFund: () => void; onSend: () => void
     }
   }, [activityLimit, refreshWallet, user])
 
-  const CREDITS_PER_GENERATION = byokEnabled ? SPYDA_BYOK_ROUND_CREDITS : SPYDA_AI_ROUND_CREDITS
+  const CREDITS_PER_GENERATION = byokEnabled ? SPYDA_BYOK_ROUND_CREDITS : SPYDA_GROQ_GPT_IMAGE_ROUND_CREDITS
   const generationsRemaining = Math.floor(balance / CREDITS_PER_GENERATION)
   const fiatBalance = Number(user?.user_metadata?.spyda_fiat_balance || 0)
   const creditsToNextToken = 1000 - (creditsSpent % 1000)
@@ -3149,7 +3169,8 @@ function WalletView({ onFund, onSend }: { onFund: () => void; onSend: () => void
           <section className="rounded-lg border border-white/[0.08] bg-white/[0.025] p-5">
             <div className="flex items-center justify-between"><h3 className="font-heading text-base font-semibold">Usage economics</h3><Zap className="h-4 w-4 text-primary" /></div>
             <div className="mt-5 space-y-4">
-              <div className="flex items-end justify-between gap-3 border-b border-white/[0.07] pb-4"><div><p className="text-xs text-muted-foreground">Managed generation</p><p className="mt-1 text-sm font-semibold">20 credits</p></div><span className="text-[10px] uppercase text-muted-foreground">per round</span></div>
+              <div className="flex items-end justify-between gap-3 border-b border-white/[0.07] pb-4"><div><p className="text-xs text-muted-foreground">Groq + GPT-Image 2</p><p className="mt-1 text-sm font-semibold">20 credits</p></div><span className="text-[10px] uppercase text-muted-foreground">per round</span></div>
+              <div className="flex items-end justify-between gap-3 border-b border-white/[0.07] pb-4"><div><p className="text-xs text-muted-foreground">GPT-Image 2 only</p><p className="mt-1 text-sm font-semibold">30 credits</p></div><span className="text-[10px] uppercase text-muted-foreground">per round</span></div>
               <div className="flex items-end justify-between gap-3"><div><p className="text-xs text-muted-foreground">Bring your own key</p><p className="mt-1 text-sm font-semibold">5 credits</p></div><span className="text-[10px] uppercase text-muted-foreground">per round</span></div>
             </div>
             <p className="mt-5 text-xs leading-5 text-muted-foreground">Your current balance supports about {generationsRemaining.toLocaleString()} generation{generationsRemaining !== 1 ? 's' : ''} at the active {byokEnabled ? 'BYOK' : 'managed'} rate.</p>
@@ -3426,7 +3447,7 @@ function FundView({ onBack }: { onBack: () => void }) {
     fetchBalance()
   }, [user])
 
-  const CREDITS_PER_GENERATION = byokEnabled ? SPYDA_BYOK_ROUND_CREDITS : SPYDA_AI_ROUND_CREDITS
+  const CREDITS_PER_GENERATION = byokEnabled ? SPYDA_BYOK_ROUND_CREDITS : SPYDA_GROQ_GPT_IMAGE_ROUND_CREDITS
   const selectedGenerations = Math.floor(selectedTier.credits / CREDITS_PER_GENERATION)
   const localPrice = new Intl.NumberFormat('en-NG', { style: 'currency', currency: 'NGN', maximumFractionDigits: 0 }).format(selectedTier.amountUSD * USD_TO_NGN)
 

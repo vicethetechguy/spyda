@@ -217,7 +217,7 @@ export function WhitepaperView() {
               <div className="mt-2 flex h-12 items-center rounded-lg border border-white/[0.1] bg-black/20 px-3 focus-within:border-primary/50"><SpydaTokenIcon className="h-5 w-5" /><input id="whitepaper-credit-spend" type="number" min="0" max="1000000000" step="100" value={creditSpend} onChange={event => setCreditSpend(event.target.value)} className="min-w-0 flex-1 bg-transparent px-3 font-heading text-lg font-semibold outline-none" /><span className="text-xs text-muted-foreground">credits</span></div>
               <div className="my-4 flex justify-center"><ArrowDown className="h-4 w-4 animate-bounce text-primary" /></div>
               <div className="rounded-lg border border-primary/20 bg-primary/[0.055] p-5 text-center"><p className="text-[10px] font-semibold uppercase text-muted-foreground">Pre-launch allocation</p><div className="mt-3 flex items-center justify-center gap-2"><SpydaTokenIcon className="h-8 w-8" /><p className="font-heading text-4xl font-semibold">{earnedSpyda.toLocaleString(undefined, { maximumFractionDigits: 3 })}</p></div><p className="mt-2 text-xs font-semibold text-primary">SPYDA accrued</p></div>
-              <p className="mt-4 text-xs leading-5 text-muted-foreground">At current rates, one managed 20-credit generation accrues 0.02 SPYDA. One 5-credit BYOK generation accrues 0.005 SPYDA.</p>
+              <p className="mt-4 text-xs leading-5 text-muted-foreground">At current rates, one Groq + GPT-Image 2 generation costs 20 credits and accrues 0.02 SPYDA. GPT-Image 2 alone costs 30 credits. One 5-credit BYOK generation accrues 0.005 SPYDA.</p>
             </div>
           </div>
         </WhitepaperChapter>
