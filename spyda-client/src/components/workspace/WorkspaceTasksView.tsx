@@ -356,7 +356,15 @@ function CommunityTasksSection() {
   }
 
   if (loading) return null
-  if (!tasks.length && !error) return null
+  if (!tasks.length && !error) {
+    return (
+      <section className="mt-6 flex min-h-[250px] flex-col items-center justify-center rounded-xl border border-dashed border-white/[0.11] bg-white/[0.015] px-6 text-center">
+        <span className="inline-flex h-12 w-12 items-center justify-center rounded-full border border-primary/25 bg-primary/[0.08] text-primary"><Gift className="h-5 w-5" /></span>
+        <h2 className="mt-4 font-heading text-xl font-semibold">No new tasks available</h2>
+        <p className="mt-2 max-w-sm text-sm leading-6 text-muted-foreground">You are all caught up. New Spyda opportunities and rewards will appear here when they are live.</p>
+      </section>
+    )
+  }
 
   return (
     <section className="mt-6 overflow-hidden rounded-xl border border-white/[0.09] bg-white/[0.02]">
