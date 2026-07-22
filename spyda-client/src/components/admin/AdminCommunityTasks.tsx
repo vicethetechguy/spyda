@@ -12,6 +12,13 @@ import {
 
 const emptyDraft = { title: '', description: '', actionUrl: '', actionLabel: 'Open task', verificationHint: 'Paste the link or handle that proves you completed this task.', rewardCredits: '60' }
 
+function taskLoadError(error: unknown): string {
+  const value = error && typeof error === 'object' ? error as { code?: unknown; message?: unknown } : null
+  if (value?.code === 'PGRST202') return 'The task database update has not been applied yet. Run the latest Spyda Supabase migration, then refresh this page.'
+  if (typeof value?.message === 'string' && value.message.trim()) return value.message
+  return 'Could not load community tasks.'
+}
+
 export function AdminCommunityTasks() {
   const [tasks, setTasks] = useState<AdminCommunityTask[]>([])
   const [claims, setClaims] = useState<AdminCommunityTaskClaim[]>([])
@@ -31,7 +38,7 @@ export function AdminCommunityTasks() {
       setClaims(nextClaims)
       setError('')
     } catch (loadError) {
-      setError(loadError instanceof Error ? loadError.message : 'Could not load community tasks.')
+      setError(taskLoadError(loadError))
     } finally {
       setLoading(false)
     }

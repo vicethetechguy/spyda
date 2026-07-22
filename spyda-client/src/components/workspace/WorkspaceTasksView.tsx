@@ -1,4 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState, type FormEvent } from 'react'
+import { useAuth } from '../../lib/AuthContext'
+import { supabase } from '../../lib/supabase'
 import {
   ArrowRight,
   AtSign,
@@ -11,7 +13,6 @@ import {
   Loader2,
   Repeat2,
   ShieldCheck,
-  Sparkles,
   X,
 } from 'lucide-react'
 import {
@@ -219,7 +220,6 @@ export function TasksView({
           <div className="absolute right-0 top-0 h-56 w-56 bg-primary/[0.07] blur-[90px]" />
           <div className="relative grid gap-7 lg:grid-cols-[minmax(0,1fr)_260px] lg:items-end">
             <div>
-              <div className="flex items-center gap-2 text-[10px] font-semibold uppercase tracking-[0.18em] text-primary"><Sparkles className="h-3.5 w-3.5" /> Welcome campaign</div>
               <h2 className="mt-4 max-w-[620px] font-heading text-3xl font-semibold leading-tight sm:text-[42px]">Complete three tasks. Earn <span className="text-gradient-green">60 Spyda Credits.</span></h2>
               <p className="mt-3 max-w-[620px] text-sm leading-6 text-muted-foreground">Support Spyda on X, submit your handle once, and receive credits after a quick admin verification.</p>
             </div>
@@ -297,6 +297,7 @@ export function TasksView({
 }
 
 function CommunityTasksSection() {
+  const { user } = useAuth()
   const [tasks, setTasks] = useState<CommunityTask[]>([])
   const [proofs, setProofs] = useState<Record<string, string>>({})
   const [busyId, setBusyId] = useState<string | null>(null)
@@ -318,6 +319,22 @@ function CommunityTasksSection() {
   }, [])
 
   useEffect(() => { void load() }, [load])
+
+  useEffect(() => {
+    if (!user) return
+    const refresh = () => void load()
+    const interval = window.setInterval(refresh, 15_000)
+    const channel = supabase
+      .channel(`spyda-community-task-claims-${user.id}`)
+      .on('postgres_changes', { event: 'UPDATE', schema: 'public', table: 'community_task_claims', filter: `user_id=eq.${user.id}` }, refresh)
+      .subscribe()
+    window.addEventListener('focus', refresh)
+    return () => {
+      window.clearInterval(interval)
+      window.removeEventListener('focus', refresh)
+      void supabase.removeChannel(channel)
+    }
+  }, [load, user])
 
   const submit = async (task: CommunityTask) => {
     const proof = proofs[task.id] || ''
