@@ -57,12 +57,14 @@ import {
   type WelcomeRewardStatus,
 } from '../lib/rewards'
 import { formatSpydaWalletId } from '../lib/code-format'
+import { AdminCommunityTasks } from '../components/admin/AdminCommunityTasks'
 
 const fmt = (n: number) => n.toLocaleString()
-type TabId = 'overview' | 'coupons' | 'users' | 'task-reviews'
+type TabId = 'overview' | 'coupons' | 'users' | 'task-reviews' | 'tasks'
 
 function notificationTarget(eventType: string): TabId {
   if (eventType === 'task_submitted') return 'task-reviews'
+  if (eventType === 'community_task_submitted') return 'tasks'
   if (eventType === 'coupon_redeemed') return 'coupons'
   if (eventType === 'user_joined') return 'users'
   return 'overview'
@@ -934,6 +936,7 @@ export default function Admin() {
     { id: 'coupons', label: 'Coupons', icon: Ticket },
     { id: 'users', label: 'Users', icon: UsersIcon },
     { id: 'task-reviews', label: 'Task Reviews', icon: Gift },
+    { id: 'tasks', label: 'Tasks', icon: Gift },
   ]
 
   return (
@@ -979,6 +982,7 @@ export default function Admin() {
         {tab === 'coupons' && <CouponsTab />}
         {tab === 'users' && <UsersTab />}
         {tab === 'task-reviews' && <TaskReviewsTab />}
+        {tab === 'tasks' && <AdminCommunityTasks />}
       </div>
     </div>
   )

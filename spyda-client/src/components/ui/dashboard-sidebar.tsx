@@ -38,7 +38,7 @@ const spydaNavGroups: NavGroupData[] = [
       { id: 'canvas', title: 'Canvas', icon: LayoutDashboard },
       { id: 'gallery', title: 'Gallery', icon: Image },
       { id: 'history', title: 'History', icon: Clock },
-      { id: 'tasks', title: 'Tasks', icon: Gift, badge: 3 },
+      { id: 'tasks', title: 'Tasks', icon: Gift },
     ],
   },
   {
@@ -260,12 +260,14 @@ export function SidebarNav({
   onSelect,
   activeWorkspace,
   onWorkspaceSelect,
+  taskBadge,
 }: {
   className?: string;
   activeId?: string;
   onSelect?: (id: string) => void;
   activeWorkspace?: string;
   onWorkspaceSelect?: (ws: string) => void;
+  taskBadge?: number;
 }) {
   const [internalId, setInternalId] = useState('canvas');
   const currentId = activeId !== undefined ? activeId : internalId;
@@ -291,7 +293,7 @@ export function SidebarNav({
             {group.items.map((item) => (
               <NavItem
                 key={item.id}
-                item={item}
+                item={item.id === 'tasks' ? { ...item, badge: taskBadge } : item}
                 activeId={currentId}
                 onSelect={handleSelect}
               />

@@ -61,6 +61,7 @@ import {
   type AdminWalletRecipient,
 } from '../lib/admin'
 import { getWelcomeRewardClaim, type WelcomeRewardClaim } from '../lib/rewards'
+import { getCommunityTaskBadgeCount } from '../lib/community-tasks'
 import { formatSpydaCouponCode, formatSpydaWalletId } from '../lib/code-format'
 import { parseWalletTransaction, type WalletTransaction } from '../lib/wallet'
 
@@ -550,6 +551,7 @@ export default function Workspace() {
   const [walletRefreshKey, setWalletRefreshKey] = useState(0)
   const [welcomeClaim, setWelcomeClaim] = useState<WelcomeRewardClaim | null>(null)
   const [showWelcomeReward, setShowWelcomeReward] = useState(false)
+  const [communityTaskBadge, setCommunityTaskBadge] = useState(0)
   const { user, signOut } = useAuth()
 
   const handleWelcomeClaimChange = useCallback((claim: WelcomeRewardClaim | null) => {
@@ -588,6 +590,27 @@ export default function Workspace() {
     return () => {
       active = false
       if (timer) window.clearTimeout(timer)
+    }
+  }, [user])
+
+  useEffect(() => {
+    if (!user || isAdminEmail(user.email)) {
+      setCommunityTaskBadge(0)
+      return
+    }
+
+    let active = true
+    const load = () => getCommunityTaskBadgeCount().then(count => {
+      if (active) setCommunityTaskBadge(count)
+    }).catch(() => undefined)
+    void load()
+    const timer = window.setInterval(load, 30_000)
+    const refresh = () => void load()
+    window.addEventListener('spyda-community-tasks-updated', refresh)
+    return () => {
+      active = false
+      window.clearInterval(timer)
+      window.removeEventListener('spyda-community-tasks-updated', refresh)
     }
   }, [user])
 
@@ -1307,6 +1330,7 @@ export default function Workspace() {
         <SidebarNav
           className="w-[260px] h-full"
           activeId={activeId}
+          taskBadge={(welcomeClaim?.status === 'pending' || welcomeClaim?.status === 'approved' ? 0 : 3) + communityTaskBadge || undefined}
           onSelect={(id) => {
             setActiveId(id)
             if (window.innerWidth < 1024) setSidebarOpen(false)

@@ -26,6 +26,7 @@ import {
   type WelcomeRewardClaim,
   type WelcomeTaskId,
 } from '../../lib/rewards'
+import { listCommunityTasks, submitCommunityTaskClaim, type CommunityTask } from '../../lib/community-tasks'
 
 const taskIcons = {
   follow_spyda: AtSign,
@@ -290,6 +291,81 @@ export function TasksView({
           )}
         </div>
       </section>
+      <CommunityTasksSection />
     </div>
+  )
+}
+
+function CommunityTasksSection() {
+  const [tasks, setTasks] = useState<CommunityTask[]>([])
+  const [proofs, setProofs] = useState<Record<string, string>>({})
+  const [busyId, setBusyId] = useState<string | null>(null)
+  const [loading, setLoading] = useState(true)
+  const [error, setError] = useState('')
+
+  const load = useCallback(async () => {
+    setLoading(true)
+    try {
+      const next = await listCommunityTasks()
+      setTasks(next)
+      setProofs(Object.fromEntries(next.map(task => [task.id, task.proof || ''])))
+      setError('')
+    } catch (loadError) {
+      setError(taskErrorMessage(loadError, 'Spyda could not load new tasks.'))
+    } finally {
+      setLoading(false)
+    }
+  }, [])
+
+  useEffect(() => { void load() }, [load])
+
+  const submit = async (task: CommunityTask) => {
+    const proof = proofs[task.id] || ''
+    if (proof.trim().length < 2) {
+      setError(`Add your proof for ${task.title} before submitting.`)
+      return
+    }
+    setBusyId(task.id)
+    try {
+      await submitCommunityTaskClaim(task.id, proof)
+      window.dispatchEvent(new CustomEvent('spyda-community-tasks-updated'))
+      await load()
+    } catch (submitError) {
+      setError(taskErrorMessage(submitError, 'Spyda could not submit this task.'))
+    } finally {
+      setBusyId(null)
+    }
+  }
+
+  if (loading) return null
+  if (!tasks.length && !error) return null
+
+  return (
+    <section className="mt-6 overflow-hidden rounded-xl border border-white/[0.09] bg-white/[0.02]">
+      <div className="border-b border-white/[0.07] px-5 py-6 sm:px-8">
+        <div className="flex flex-wrap items-center justify-between gap-3">
+          <div>
+            <p className="text-[10px] font-semibold uppercase tracking-[0.18em] text-primary">New opportunities</p>
+            <h2 className="mt-2 font-heading text-2xl font-semibold">Earn while you build with Spyda.</h2>
+          </div>
+          <button type="button" onClick={() => void load()} className="inline-flex h-9 items-center rounded-lg border border-white/[0.1] px-3 text-xs font-semibold text-muted-foreground hover:text-foreground">Refresh</button>
+        </div>
+      </div>
+      <div className="p-4 sm:p-6">
+        {error && <p role="alert" className="mb-4 rounded-lg border border-destructive/30 bg-destructive/10 px-4 py-3 text-sm text-destructive">{error}</p>}
+        {!tasks.length ? <p className="py-5 text-sm text-muted-foreground">There are no new tasks right now.</p> : <div className="grid gap-4 md:grid-cols-2">
+          {tasks.map(task => {
+            const complete = task.claim_status === 'approved'
+            const pending = task.claim_status === 'pending'
+            return <article key={task.id} className={`rounded-xl border p-5 ${complete ? 'border-primary/25 bg-primary/[0.035]' : 'border-white/[0.08] bg-black/10'}`}>
+              <div className="flex items-start justify-between gap-3"><div><h3 className="font-heading text-base font-semibold">{task.title}</h3><p className="mt-2 text-xs leading-5 text-muted-foreground">{task.description}</p></div><span className="shrink-0 rounded-full bg-primary/10 px-2.5 py-1 text-xs font-semibold text-primary">+{task.reward_credits} credits</span></div>
+              {task.action_url && <a href={task.action_url} target="_blank" rel="noreferrer" className="mt-4 inline-flex h-9 items-center gap-2 rounded-lg border border-white/[0.1] px-3 text-xs font-semibold hover:bg-white/[0.05]">{task.action_label}<ExternalLink className="h-3.5 w-3.5" /></a>}
+              {complete ? <p className="mt-4 flex items-center gap-2 text-xs font-semibold text-primary"><Check className="h-4 w-4" /> {task.credits_awarded} credits awarded</p> : pending ? <p className="mt-4 flex items-center gap-2 text-xs font-semibold text-[#8bd3ff]"><Clock3 className="h-4 w-4" /> Proof submitted for review</p> : <div className="mt-4"><label className="block text-[10px] font-semibold uppercase tracking-wide text-muted-foreground">Proof of completion</label><p className="mt-1 text-xs leading-5 text-muted-foreground">{task.verification_hint}</p><div className="mt-3 flex gap-2"><input value={proofs[task.id] || ''} onChange={event => setProofs(current => ({ ...current, [task.id]: event.target.value }))} placeholder="Link, @handle, or short proof" className="h-10 min-w-0 flex-1 rounded-lg border border-white/[0.1] bg-background/70 px-3 text-xs outline-none focus:border-primary/50" /><button type="button" onClick={() => void submit(task)} disabled={busyId === task.id} className="inline-flex h-10 shrink-0 items-center gap-2 rounded-lg bg-primary px-3 text-xs font-semibold text-primary-foreground disabled:opacity-50">{busyId === task.id ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <ShieldCheck className="h-3.5 w-3.5" />} Submit</button></div></div>}
+              {task.claim_status === 'rejected' && task.admin_note && <p className="mt-3 rounded-lg border border-amber-500/25 bg-amber-500/[0.06] p-3 text-xs leading-5 text-amber-200">{task.admin_note}</p>}
+            </article>
+          })}
+        </div>}
+      </div>
+    </section>
   )
 }
