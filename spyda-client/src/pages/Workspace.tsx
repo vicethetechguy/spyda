@@ -223,15 +223,8 @@ type AtomEdit = {
   value: string
   assetName?: string
   assetDataUrl?: string
-  backgroundStatus?: 'removed' | 'already-transparent' | 'kept-original'
   /** User-adjusted placement box (percent of the source image); overrides the detected atom box. */
   box?: AtomBox
-}
-
-type EssentialImage = {
-  name: string
-  dataUrl: string
-  backgroundStatus?: AtomEdit['backgroundStatus']
 }
 
 type GenerationReferenceImage = {
@@ -325,51 +318,6 @@ function imageFileToDataUrl(file: File, maxWidth = 1024, maxHeight = 1024, quali
     }
     reader.onerror = () => reject(new Error('Spyda could not read this uploaded image. Try uploading it again.'))
   })
-}
-
-async function imageHasTransparency(imageSrc: string): Promise<boolean> {
-  const image = await new Promise<HTMLImageElement>((resolve, reject) => {
-    const element = new window.Image()
-    element.onload = () => resolve(element)
-    element.onerror = () => reject(new Error('Spyda could not inspect this uploaded image.'))
-    element.src = imageSrc
-  })
-  const width = image.naturalWidth || image.width
-  const height = image.naturalHeight || image.height
-  const canvas = document.createElement('canvas')
-  canvas.width = width
-  canvas.height = height
-  const context = canvas.getContext('2d', { willReadFrequently: true })
-  if (!context) return false
-  context.drawImage(image, 0, 0, width, height)
-  const pixels = context.getImageData(0, 0, width, height).data
-  for (let offset = 3; offset < pixels.length; offset += 16) {
-    if (pixels[offset] < 250) return true
-  }
-  return false
-}
-
-async function prepareTransparentUpload(
-  imageSrc: string,
-  apiKeys: SpydaApiKeys,
-): Promise<{ dataUrl: string; backgroundStatus: AtomEdit['backgroundStatus'] }> {
-  if (await imageHasTransparency(imageSrc)) {
-    return { dataUrl: imageSrc, backgroundStatus: 'already-transparent' }
-  }
-
-  try {
-    const response = await fetch('/api/remove-background', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json', ...apiKeyRequestHeaders(apiKeys) },
-      body: JSON.stringify({ image: imageSrc }),
-    })
-    const data = await readApiJson<{ ok: boolean; image?: string }>(response)
-    if (!response.ok || !data?.ok || !data.image) throw new Error('Background removal was unavailable.')
-    return { dataUrl: data.image, backgroundStatus: 'removed' }
-  } catch (error) {
-    console.warn('Spyda background removal failed; keeping original upload.', error)
-    return { dataUrl: imageSrc, backgroundStatus: 'kept-original' }
-  }
 }
 
 async function dataUrlToBlob(dataUrl: string) {
@@ -711,9 +659,7 @@ export default function Workspace() {
   const [uploadedFile, setUploadedFile] = useState<File | null>(null)
   const [uploadedPreview, setUploadedPreview] = useState<string | null>(null)
   const [currentProjectId, setCurrentProjectId] = useState<string | null>(null)
-  const [essentialsImage, setEssentialsImage] = useState<EssentialImage | null>(null)
-  const [backgroundRemovalAtomId, setBackgroundRemovalAtomId] = useState<string | null>(null)
-  const [isRemovingEssentialsBackground, setIsRemovingEssentialsBackground] = useState(false)
+  const [essentialsImage, setEssentialsImage] = useState<{ name: string; dataUrl: string } | null>(null)
   const [breakdown, setBreakdown] = useState<BreakdownResult | null>(null)
   const [isAnalyzing, setIsAnalyzing] = useState(false)
   const [isGenerating, setIsGenerating] = useState(false)
@@ -838,12 +784,6 @@ export default function Workspace() {
     setActiveId('canvas')
   }, [])
 
-  const handlePrepareBrandAsset = useCallback(async (imageSrc: string) => {
-    const apiKeys = await loadSpydaApiKeys(user?.id)
-    const prepared = await prepareTransparentUpload(imageSrc, apiKeys)
-    return prepared.dataUrl
-  }, [user?.id])
-
   const handleDesignUpload = useCallback(async (file: File) => {
     const projectId = typeof crypto !== 'undefined' && 'randomUUID' in crypto
       ? crypto.randomUUID()
@@ -936,56 +876,41 @@ export default function Workspace() {
 
   /* ── Generate handler ── */
   const handleAtomImageUpload = useCallback(async (section: EditableComponent, file: File) => {
-    setBackgroundRemovalAtomId(section.id)
-    try {
-      const uploadMime = file.type === 'image/png' ? 'image/png' : 'image/jpeg'
-      const uploadedDataUrl = await imageFileToDataUrl(file, 1024, 1024, 0.88, uploadMime)
-      const apiKeys = await loadSpydaApiKeys(user?.id)
-      const prepared = await prepareTransparentUpload(uploadedDataUrl, apiKeys)
-      const isLogo = /logo|brand mark|wordmark/i.test(`${section.type} ${section.name} ${section.content || ''}`)
-      const assetDataUrl = isLogo ? await trimImageWhitespace(prepared.dataUrl) : prepared.dataUrl
-      let measuredBox: AtomBox | undefined
-      const activeParent = generatedImage || uploadedPreview
-      if (activeParent) {
-        const parentSize = await getImageSize(activeParent)
-        const detectedBox = parseAtomBox(section.boundingBox, parentSize)
-        if (detectedBox) measuredBox = isLogo ? await refineLogoBox(activeParent, detectedBox) : detectedBox
-        if (!measuredBox) {
-          const assetSize = await getImageSize(assetDataUrl)
-          const width = isLogo ? 18 : 28
-          const height = Math.min(45, Math.max(4, (width * parentSize.width * assetSize.height) / (parentSize.height * assetSize.width)))
-          measuredBox = clampBox({ x: (100 - width) / 2, y: (100 - height) / 2, width, height })
-        }
+    // PNG keeps logo/asset transparency intact for exact-size compositing
+    const uploadedDataUrl = await imageFileToDataUrl(file, 1024, 1024, 0.92, 'image/png')
+    const isLogo = /logo|brand mark|wordmark/i.test(`${section.type} ${section.name} ${section.content || ''}`)
+    const assetDataUrl = isLogo ? await trimImageWhitespace(uploadedDataUrl) : uploadedDataUrl
+    const assetName = file.name
+    let measuredBox: AtomBox | undefined
+    const activeParent = generatedImage || uploadedPreview
+    if (activeParent) {
+      const parentSize = await getImageSize(activeParent)
+      const detectedBox = parseAtomBox(section.boundingBox, parentSize)
+      if (detectedBox) measuredBox = isLogo ? await refineLogoBox(activeParent, detectedBox) : detectedBox
+      if (!measuredBox) {
+        const assetSize = await getImageSize(assetDataUrl)
+        const width = isLogo ? 18 : 28
+        const height = Math.min(45, Math.max(4, (width * parentSize.width * assetSize.height) / (parentSize.height * assetSize.width)))
+        measuredBox = clampBox({ x: (100 - width) / 2, y: (100 - height) / 2, width, height })
       }
-      setAtomEdits(prev => ({
-        ...prev,
-        [section.id]: {
-          ...prev[section.id],
-          mode: 'customize',
-          value: prev[section.id]?.value || '',
-          assetName: file.name,
-          assetDataUrl,
-          backgroundStatus: prepared.backgroundStatus,
-          box: measuredBox || prev[section.id]?.box,
-        },
-      }))
-    } finally {
-      setBackgroundRemovalAtomId(null)
     }
-  }, [generatedImage, uploadedPreview, user?.id])
+    setAtomEdits(prev => ({
+      ...prev,
+      [section.id]: {
+        ...prev[section.id],
+        mode: 'customize',
+        value: prev[section.id]?.value || '',
+        assetName,
+        assetDataUrl,
+        box: measuredBox || prev[section.id]?.box,
+      },
+    }))
+  }, [generatedImage, uploadedPreview])
 
   const handleEssentialsImageUpload = useCallback(async (file: File) => {
-    setIsRemovingEssentialsBackground(true)
-    try {
-      const uploadMime = file.type === 'image/png' ? 'image/png' : 'image/jpeg'
-      const uploadedDataUrl = await imageFileToDataUrl(file, 768, 768, 0.82, uploadMime)
-      const apiKeys = await loadSpydaApiKeys(user?.id)
-      const prepared = await prepareTransparentUpload(uploadedDataUrl, apiKeys)
-      setEssentialsImage({ name: file.name, dataUrl: prepared.dataUrl, backgroundStatus: prepared.backgroundStatus })
-    } finally {
-      setIsRemovingEssentialsBackground(false)
-    }
-  }, [user?.id])
+    const dataUrl = await imageFileToDataUrl(file, 768, 768, 0.78)
+    setEssentialsImage({ name: file.name, dataUrl })
+  }, [])
 
   const handleDeleteAtom = useCallback((sectionId: string) => {
     setAtomEdits(prev => ({
@@ -1538,8 +1463,6 @@ export default function Workspace() {
               atomEdits={atomEdits}
               brandEdits={brandEdits}
               essentialsImage={essentialsImage}
-              backgroundRemovalAtomId={backgroundRemovalAtomId}
-              isRemovingEssentialsBackground={isRemovingEssentialsBackground}
               essentialPrompts={essentialPrompts}
               onUpload={handleDesignUpload}
               onAtomImageUpload={handleAtomImageUpload}
@@ -1572,7 +1495,7 @@ export default function Workspace() {
           {activeId === 'tasks' && <TasksView onClaimChange={handleWelcomeClaimChange} />}
           {['projects', 'p-active', 'p-archived'].includes(activeId) && <ProjectsView initialFilter={activeId === 'p-archived' ? 'archived' : 'active'} onOpenProject={handleOpenProject} onNewDesign={() => setActiveId('canvas')} />}
           {activeId === 'templates' && <TemplatesView onUseTemplate={handleUseTemplate} />}
-          {activeId === 'brand-assets' && <BrandAssetsView onUseAsset={handleUseBrandAsset} onPrepareImage={handlePrepareBrandAsset} />}
+          {activeId === 'brand-assets' && <BrandAssetsView onUseAsset={handleUseBrandAsset} />}
           {activeId === 'whitepaper' && <WhitepaperView />}
           {activeId === 'guides' && <GuidesView />}
           {activeId === 'wallet' && <WalletView key={walletRefreshKey} onFund={() => setActiveId('fund')} onSend={() => setActiveId('wallet-send')} />}
@@ -2070,7 +1993,6 @@ function StudioView({
   generationQa: _generationQa, analysisStage, generationStage,
   analyzeError, generateError, atomEdits, brandEdits,
   essentialsImage,
-  backgroundRemovalAtomId, isRemovingEssentialsBackground,
   essentialPrompts,
   onUpload, onAtomImageUpload, onEssentialsImageUpload, onRemoveEssentialsImage, onDeleteAtom, onGenerate, onInstantPaste, onReset,
   onAtomEdit, onAtomBoxChange, onBrandEdit, onEssentialPromptChange
@@ -2087,9 +2009,7 @@ function StudioView({
   analyzeError: string | null
   generateError: string | null
   atomEdits: Record<string, AtomEdit>
-  essentialsImage: EssentialImage | null
-  backgroundRemovalAtomId: string | null
-  isRemovingEssentialsBackground: boolean
+  essentialsImage: { name: string; dataUrl: string } | null
   essentialPrompts: string[]
   brandEdits: BrandEdits
   onUpload: (file: File) => void
@@ -2422,7 +2342,6 @@ function StudioView({
                 onImageUpload={onAtomImageUpload}
                 selectionLocked={atomEdits[section.id]?.mode !== 'customize' && totalChangeCount >= 3}
                 onDelete={onDeleteAtom}
-                isRemovingBackground={backgroundRemovalAtomId === section.id}
               />
             ))}
 
@@ -2573,7 +2492,7 @@ function StudioView({
                   <div className="min-w-0">
                     <p className="text-xs font-semibold text-foreground">Essential visual</p>
                     <p className="mt-0.5 truncate text-[11px] text-muted-foreground">
-                      {isRemovingEssentialsBackground ? 'Removing background...' : essentialsImage?.name || 'Logo, product, screenshot, or exact visual reference'}
+                      {essentialsImage?.name || 'Logo, product, screenshot, or exact visual reference'}
                     </p>
                   </div>
                   <div className="flex shrink-0 items-center gap-2">
@@ -2592,11 +2511,10 @@ function StudioView({
                     <button
                       type="button"
                       onClick={() => essentialsInputRef.current?.click()}
-                      disabled={isRemovingEssentialsBackground}
                       className="inline-flex h-9 items-center gap-2 rounded-lg border border-[#8bd3ff]/25 bg-[#8bd3ff]/[0.06] px-3 text-xs font-semibold text-[#8bd3ff] transition-colors hover:bg-[#8bd3ff]/10"
                     >
-                      {isRemovingEssentialsBackground ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Upload className="h-3.5 w-3.5" />}
-                      {isRemovingEssentialsBackground ? 'Preparing' : essentialsImage ? 'Replace' : 'Upload'}
+                      <Upload className="h-3.5 w-3.5" />
+                      {essentialsImage ? 'Replace' : 'Upload'}
                     </button>
                     <input
                       ref={essentialsInputRef}
@@ -2611,15 +2529,6 @@ function StudioView({
                     />
                   </div>
                 </div>
-                {essentialsImage && (
-                  <p className="mt-3 text-[11px] leading-relaxed text-[#8bd3ff]/85">
-                    {essentialsImage.backgroundStatus === 'removed'
-                      ? 'Background removed automatically. This exact visual will be treated as a transparent reference.'
-                      : essentialsImage.backgroundStatus === 'already-transparent'
-                        ? 'This visual already has a transparent background.'
-                        : 'Spyda kept the original background because cleanup was unavailable.'}
-                  </p>
-                )}
               </div>
             </div>
 
@@ -2668,7 +2577,7 @@ function StudioView({
    ═══════════════════════════════════════════════ */
 
 function AtomCard({
-  section, index, edit, onEdit, onImageUpload, selectionLocked, onDelete, isRemovingBackground
+  section, index, edit, onEdit, onImageUpload, selectionLocked, onDelete
 }: {
   section: EditableComponent
   index: number
@@ -2677,7 +2586,6 @@ function AtomCard({
   onImageUpload: (section: EditableComponent, file: File) => void
   selectionLocked: boolean
   onDelete: (sectionId: string) => void
-  isRemovingBackground: boolean
 }) {
   const imageInputRef = useRef<HTMLInputElement>(null)
   const [menuOpen, setMenuOpen] = useState(false)
@@ -2764,10 +2672,9 @@ function AtomCard({
               <div className="flex items-center gap-3">
                 <button
                   onClick={() => imageInputRef.current?.click()}
-                  disabled={isRemovingBackground}
-                  className="inline-flex h-9 items-center gap-2 rounded-lg border border-primary/20 bg-primary/5 px-4 text-xs font-semibold text-primary transition-colors hover:bg-primary/10 disabled:cursor-wait disabled:opacity-60"
+                  className="inline-flex h-9 items-center gap-2 rounded-lg border border-primary/20 bg-primary/5 px-4 text-xs font-semibold text-primary hover:bg-primary/10 transition-colors"
                 >
-                  {isRemovingBackground ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Upload className="w-3.5 h-3.5" />} {isRemovingBackground ? 'Removing background' : edit?.assetDataUrl ? 'Replace' : 'Upload'} Asset
+                  <Upload className="w-3.5 h-3.5" /> {edit?.assetDataUrl ? 'Replace' : 'Upload'} Asset
                 </button>
                 <input
                   ref={imageInputRef}
@@ -2787,7 +2694,6 @@ function AtomCard({
               </div>
               {edit?.assetDataUrl && (
                 <p className="rounded-lg border border-primary/15 bg-primary/[0.04] px-3 py-2 text-[11px] leading-relaxed text-primary/90">
-                  {edit.backgroundStatus === 'removed' ? 'Background removed automatically. ' : edit.backgroundStatus === 'already-transparent' ? 'This asset already has a transparent background. ' : 'Spyda kept the original background because cleanup was unavailable. '}
                   Empty logo padding is removed automatically. Move the asset on the Source, then drag any corner handle to set its exact size before reconstruction.
                 </p>
               )}

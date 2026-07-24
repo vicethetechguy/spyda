@@ -689,7 +689,7 @@ async function imageAssetDataUrl(file: File) {
   })
 }
 
-export function BrandAssetsView({ onUseAsset, onPrepareImage }: { onUseAsset: (asset: BrandAsset) => void; onPrepareImage: (imageSrc: string) => Promise<string> }) {
+export function BrandAssetsView({ onUseAsset }: { onUseAsset: (asset: BrandAsset) => void }) {
   const [assets, setAssets] = useState<BrandAsset[]>(() => readJson(BRAND_ASSETS_KEY, []))
   const [color, setColor] = useState('#22C55E')
   const [colorName, setColorName] = useState('Primary green')
@@ -712,13 +712,7 @@ export function BrandAssetsView({ onUseAsset, onPrepareImage }: { onUseAsset: (a
   }
   const uploadImage = async (file?: File) => {
     if (!file) return
-    try {
-      const imageSrc = await imageAssetDataUrl(file)
-      add({ kind: 'image', name: file.name.replace(/\.[^.]+$/, ''), value: await onPrepareImage(imageSrc) })
-      setError('')
-    } catch (caught) {
-      setError(caught instanceof Error ? caught.message : 'Could not save this asset.')
-    }
+    try { add({ kind: 'image', name: file.name.replace(/\.[^.]+$/, ''), value: await imageAssetDataUrl(file) }); setError('') } catch (caught) { setError(caught instanceof Error ? caught.message : 'Could not save this asset.') }
   }
 
   return (
