@@ -449,43 +449,97 @@ function getImageDimensionsFromSrc(imageSrc: string): Promise<{ width: number; h
   })
 }
 
-function resizeImageToDimensions(imageSrc: string, width: number, height: number): Promise<string> {
+function getImageDimensionsFromFile(file: File): Promise<{ width: number; height: number }> {
+  const objectUrl = URL.createObjectURL(file)
+  return getImageDimensionsFromSrc(objectUrl).finally(() => URL.revokeObjectURL(objectUrl))
+}
+
+function parseOutputDimensions(value: string): { width: number; height: number } | null {
+  const match = value.match(/(\d{3,4})\s*x\s*(\d{3,4})/i)
+  return match ? { width: Number(match[1]), height: Number(match[2]) } : null
+}
+
+/** Crop only when needed to match the requested aspect ratio; never downscale. */
+function preserveImageQualityAtAspect(imageSrc: string, targetWidth: number, targetHeight: number): Promise<string> {
   return new Promise((resolve, reject) => {
     const img = new window.Image()
     img.crossOrigin = 'anonymous'
     img.onload = () => {
-      const canvas = document.createElement('canvas')
-      canvas.width = width
-      canvas.height = height
-      const ctx = canvas.getContext('2d')
-      if (!ctx) {
-        reject(new Error('Could not resize child source.'))
+      const sourceWidth = img.naturalWidth || img.width
+      const sourceHeight = img.naturalHeight || img.height
+      const targetRatio = targetWidth / targetHeight
+      const imageRatio = sourceWidth / sourceHeight
+      if (Math.abs(imageRatio - targetRatio) / targetRatio < 0.002) {
+        resolve(imageSrc)
         return
       }
-
-      const targetRatio = width / height
-      const imageRatio = img.width / img.height
       let cropX = 0
       let cropY = 0
-      let cropWidth = img.width
-      let cropHeight = img.height
+      let cropWidth = sourceWidth
+      let cropHeight = sourceHeight
 
       if (imageRatio > targetRatio) {
-        cropWidth = img.height * targetRatio
-        cropX = (img.width - cropWidth) / 2
+        cropWidth = sourceHeight * targetRatio
+        cropX = (sourceWidth - cropWidth) / 2
       } else if (imageRatio < targetRatio) {
-        cropHeight = img.width / targetRatio
-        cropY = (img.height - cropHeight) / 2
+        cropHeight = sourceWidth / targetRatio
+        cropY = (sourceHeight - cropHeight) / 2
       }
 
+      const canvas = document.createElement('canvas')
+      canvas.width = Math.max(1, Math.round(cropWidth))
+      canvas.height = Math.max(1, Math.round(cropHeight))
+      const ctx = canvas.getContext('2d')
+      if (!ctx) {
+        reject(new Error('Could not prepare the full-quality child source.'))
+        return
+      }
       ctx.fillStyle = '#ffffff'
-      ctx.fillRect(0, 0, width, height)
-      ctx.drawImage(img, cropX, cropY, cropWidth, cropHeight, 0, 0, width, height)
+      ctx.fillRect(0, 0, canvas.width, canvas.height)
+      ctx.imageSmoothingEnabled = true
+      ctx.imageSmoothingQuality = 'high'
+      ctx.drawImage(img, cropX, cropY, cropWidth, cropHeight, 0, 0, canvas.width, canvas.height)
       resolve(canvas.toDataURL('image/png'))
     }
-    img.onerror = () => reject(new Error('Spyda received an unreadable generated image. Apply the round again.'))
+    img.onerror = () => reject(new Error('Spyda received an unreadable full-quality image. Apply the round again.'))
     img.src = imageSrc
   })
+}
+
+async function downloadImageAt4K(imageSrc: string, fileName: string) {
+  const image = await new Promise<HTMLImageElement>((resolve, reject) => {
+    const element = new window.Image()
+    element.crossOrigin = 'anonymous'
+    element.onload = () => resolve(element)
+    element.onerror = () => reject(new Error('Spyda could not prepare the 4K download.'))
+    element.src = imageSrc
+  })
+  const sourceWidth = image.naturalWidth || image.width
+  const sourceHeight = image.naturalHeight || image.height
+  const scale = 4096 / Math.max(sourceWidth, sourceHeight)
+  const width = Math.max(1, Math.round(sourceWidth * scale))
+  const height = Math.max(1, Math.round(sourceHeight * scale))
+  const canvas = document.createElement('canvas')
+  canvas.width = width
+  canvas.height = height
+  const context = canvas.getContext('2d')
+  if (!context) throw new Error('Spyda could not prepare the 4K download.')
+  context.fillStyle = '#ffffff'
+  context.fillRect(0, 0, width, height)
+  context.imageSmoothingEnabled = true
+  context.imageSmoothingQuality = 'high'
+  context.drawImage(image, 0, 0, width, height)
+  const blob = await new Promise<Blob>((resolve, reject) => {
+    canvas.toBlob(output => output ? resolve(output) : reject(new Error('Spyda could not encode the 4K download.')), 'image/png')
+  })
+  const objectUrl = URL.createObjectURL(blob)
+  const anchor = document.createElement('a')
+  anchor.href = objectUrl
+  anchor.download = fileName
+  document.body.appendChild(anchor)
+  anchor.click()
+  anchor.remove()
+  window.setTimeout(() => URL.revokeObjectURL(objectUrl), 1000)
 }
 
 function getImageSizeChoice(imageSrc: string): Promise<string> {
@@ -960,9 +1014,14 @@ export default function Workspace() {
         return
       }
       const activeSourcePreview = generatedImage || uploadedPreview || ''
-      const sourceDimensions = await getImageDimensionsFromSrc(uploadedPreview || '')
-      const sourceImageSize = await getImageSizeChoice(uploadedPreview || '')
+      const sourceDimensions = generatedImage
+        ? await getImageDimensionsFromSrc(generatedImage)
+        : await getImageDimensionsFromFile(uploadedFile)
+      const sourceImageSize = await getImageSizeChoice(activeSourcePreview)
       const chosenOutputSize = brandEdits.outputSize === 'match-reference' ? sourceImageSize : brandEdits.outputSize
+      const requestedOutputDimensions = brandEdits.outputSize === 'match-reference'
+        ? sourceDimensions
+        : parseOutputDimensions(brandEdits.outputSize) || sourceDimensions
       const previewSize = await getImageSize(activeSourcePreview)
       const layoutGridGuide = buildLayoutGridGuide(
         (breakdown.design?.editableComponents || []).map(section => ({
@@ -1046,7 +1105,11 @@ export default function Workspace() {
         : activeSourcePreview
 
       const finalizeRound = async (imageSrc: string, qa: GenerationQaReport | null) => {
-        const normalizedImageSrc = await resizeImageToDimensions(imageSrc, sourceDimensions.width, sourceDimensions.height)
+        const normalizedImageSrc = await preserveImageQualityAtAspect(
+          imageSrc,
+          requestedOutputDimensions.width,
+          requestedOutputDimensions.height,
+        )
         const selectedIds = new Set(selectedAtoms.map(atom => atom.id))
         const nextBreakdown: BreakdownResult = {
           ...breakdown,
@@ -1136,7 +1199,7 @@ export default function Workspace() {
         compositeMode: true,
         clientCorrectionLoop: true,
         deferQa: true,
-        quality: 'medium',
+        quality: 'premium',
         creditsSpent: roundCredits,
         billingMode: apiKeys.openai ? 'bring-your-api-key' : 'spyda-managed-api',
         architectureVersion: breakdown.architectureVersion || 'spyda-v1-compatibility',
@@ -2033,6 +2096,21 @@ function StudioView({
   const [desktopAtomsPanel, setDesktopAtomsPanel] = useState(() => typeof window === 'undefined' || window.innerWidth >= 1024)
   const [showGridSystem, setShowGridSystem] = useState(false)
   const [sourceCanvasSize, setSourceCanvasSize] = useState<{ width: number; height: number } | null>(null)
+  const [isDownloading4K, setIsDownloading4K] = useState(false)
+  const [downloadError, setDownloadError] = useState<string | null>(null)
+
+  const handle4KDownload = async () => {
+    if (!generatedImage || isDownloading4K) return
+    setIsDownloading4K(true)
+    setDownloadError(null)
+    try {
+      await downloadImageAt4K(generatedImage, `spyda-output-4k-${Date.now()}.png`)
+    } catch (error) {
+      setDownloadError(error instanceof Error ? error.message : 'Spyda could not prepare the 4K download.')
+    } finally {
+      setIsDownloading4K(false)
+    }
+  }
 
   useEffect(() => {
     const desktopQuery = window.matchMedia('(min-width: 1024px)')
@@ -2179,16 +2257,19 @@ function StudioView({
                 {totalChangeCount}/3 changes ready
               </span>
               {generatedImage && (
-                <a
-                  href={generatedImage}
-                  download={`spyda-output-${Date.now()}.png`}
+                <button
+                  type="button"
+                  onClick={handle4KDownload}
+                  disabled={isDownloading4K}
                   className="inline-flex h-8 items-center gap-1.5 rounded-lg bg-primary px-3 text-[11px] font-bold text-primary-foreground transition-colors hover:bg-primary/90"
                 >
-                  <Download className="h-3.5 w-3.5" /> Download
-                </a>
+                  {isDownloading4K ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Download className="h-3.5 w-3.5" />}
+                  {isDownloading4K ? 'Preparing 4K' : 'Download 4K'}
+                </button>
               )}
             </div>
           </div>
+          {downloadError && <p className="mb-3 text-right text-[11px] text-destructive">{downloadError}</p>}
           {generatedImage || uploadedPreview ? (
             <div
               className="relative flex w-full items-center justify-center overflow-hidden rounded-xl border border-primary/20 bg-white/[0.02] p-3"

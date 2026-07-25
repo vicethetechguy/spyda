@@ -133,7 +133,7 @@ const GUIDE_SECTIONS: GuideSection[] = [
         steps: [
           'On each atom, choose Same (protect it), Customize (change it), or Delete (remove it).',
           'For text atoms, type the exact replacement copy — Spyda treats it as literal content.',
-          'For image and logo atoms, upload a replacement file and drag it into exact position.',
+          'For image and logo atoms, upload a transparent PNG with the background already removed, then drag it into exact position.',
           'Use the 3 Essentials slots for changes the detected atoms do not cover.',
           'Keep each round to 3 focused changes — small rounds keep the layout faithful.',
         ],
@@ -152,6 +152,7 @@ const GUIDE_SECTIONS: GuideSection[] = [
           'Review the Intent & Fidelity score, detected issues, and what was confirmed as solid.',
           'Check layout, text, asset, and replacement-size verdicts individually.',
           'If QA flags problems, apply the Suggested Corrective Essentials with one click and regenerate.',
+          'When the result is ready, return to the Canvas and use Download 4K for a lossless high-resolution PNG.',
         ],
         proTip: 'QA runs in the background — your design is usable immediately while the report finishes.',
       },
@@ -182,6 +183,23 @@ const GUIDE_SECTIONS: GuideSection[] = [
     accent: '#c9b8ff',
     guides: [
       {
+        id: 'prepare-transparent-assets',
+        title: 'Prepare Images Before Uploading',
+        summary: 'Get clean replacements by preparing every logo, product image, and subject before it enters Spyda.',
+        minutes: 3,
+        xp: 20,
+        difficulty: 'Starter',
+        icon: Upload,
+        steps: [
+          'Before uploading, remove the background from every replacement logo, product, photo, or subject image.',
+          'Save the finished asset as a transparent PNG. JPG and JPEG files cannot keep a transparent background.',
+          'Do not upload screenshots, white-background logos, or images with a coloured box behind the subject.',
+          'Keep the visible artwork clean and tightly framed; Spyda will place the file inside the footprint of the original atom.',
+          'Use the same prepared transparent file anywhere you need that logo or picture: Design Atoms, Essentials, or Brand Assets.',
+        ],
+        proTip: 'A transparent PNG lets Spyda preserve your exact logo or picture without carrying its old background into the reconstructed flyer.',
+      },
+      {
         id: 'brand-lockin',
         title: 'Brand Lock-in',
         summary: 'Upload and enforce your logos, brand colors, and typography across generations.',
@@ -190,7 +208,7 @@ const GUIDE_SECTIONS: GuideSection[] = [
         difficulty: 'Core',
         icon: Palette,
         steps: [
-          'Open Brand Assets and save your logos, HEX colors, and font choices once.',
+          'Open Brand Assets and save your transparent PNG logos, HEX colors, and font choices once.',
           'On the Canvas, flip the Brand Constants toggle ON to apply them to every reconstruction.',
           'Set heading and body fonts, primary, secondary, and accent colors, and a visual style.',
           'Uploaded logos are placed at exact size and protected — the model never redraws them.',

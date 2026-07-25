@@ -1120,7 +1120,7 @@ function buildImageEditForm({
   form.append("size", size);
   form.append("quality", quality);
   form.append("output_format", "webp");
-  form.append("output_compression", "86");
+  form.append("output_compression", "95");
 
   for (const [index, image] of referenceImages.entries()) {
     const blob = dataUrlToBlob(image.dataUrl);
@@ -1244,7 +1244,7 @@ export async function generateDesign({ recipe, openaiKey: providedOpenAiKey = ""
 
   if (isGptImageModel(actualModel)) {
     requestBody.output_format = "webp";
-    requestBody.output_compression = 86;
+    requestBody.output_compression = 95;
   } else {
     requestBody.response_format = "b64_json";
   }
