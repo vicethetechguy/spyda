@@ -53,6 +53,17 @@ describe('approved difference QA contract', () => {
     expect(Math.abs((width / height) - 0.8)).toBeLessThan(0.015)
   })
 
+  it('requests the maximum valid GPT-Image 2 resolution for high-resolution exports', () => {
+    const size = mapOutputSize('', 'Portrait 1024 x 1536', 'gpt-image-2', { width: 1080, height: 1350 }, true, true)
+    const [width, height] = size.split('x').map(Number)
+
+    expect(width % 16).toBe(0)
+    expect(height % 16).toBe(0)
+    expect(width * height).toBeGreaterThan(8_000_000)
+    expect(width * height).toBeLessThanOrEqual(8_294_400)
+    expect(Math.abs((width / height) - 0.8)).toBeLessThan(0.015)
+  })
+
   it('separates approved brand and text edits from protected content', () => {
     const contract = buildApprovedDifferenceContract(recipe)
 

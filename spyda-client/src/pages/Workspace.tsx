@@ -371,8 +371,8 @@ function imageSourceToBlob(imageSrc: string, maxWidth = 1024, maxHeight = 1024, 
 function prepareMaskedGenerationInput(
   imageSrc: string,
   editBoxes: AtomBox[],
-  maxWidth = 1024,
-  maxHeight = 1536,
+  maxWidth = 3840,
+  maxHeight = 3840,
 ): Promise<{ imageBlob: Blob; maskBlob: Blob | null }> {
   return new Promise((resolve, reject) => {
     const img = new window.Image()
@@ -402,7 +402,7 @@ function prepareMaskedGenerationInput(
       })
 
       try {
-        const imageBlob = await toWebp(imageCanvas, 0.86)
+        const imageBlob = await toWebp(imageCanvas, 0.98)
         if (!editBoxes.length) {
           resolve({ imageBlob, maskBlob: null })
           return
@@ -516,7 +516,7 @@ async function downloadImageAt4K(imageSrc: string, fileName: string) {
   })
   const sourceWidth = image.naturalWidth || image.width
   const sourceHeight = image.naturalHeight || image.height
-  const scale = 4096 / Math.max(sourceWidth, sourceHeight)
+  const scale = 3840 / Math.max(sourceWidth, sourceHeight)
   const width = Math.max(1, Math.round(sourceWidth * scale))
   const height = Math.max(1, Math.round(sourceHeight * scale))
   const canvas = document.createElement('canvas')
@@ -1200,6 +1200,7 @@ export default function Workspace() {
         clientCorrectionLoop: true,
         deferQa: true,
         quality: 'premium',
+        highResolutionOutput: true,
         creditsSpent: roundCredits,
         billingMode: apiKeys.openai ? 'bring-your-api-key' : 'spyda-managed-api',
         architectureVersion: breakdown.architectureVersion || 'spyda-v1-compatibility',

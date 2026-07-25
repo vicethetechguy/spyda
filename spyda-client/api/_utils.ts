@@ -34,16 +34,19 @@ function parseRequestedDimensions(value: string) {
   return match ? { width: Number(match[1]), height: Number(match[2]) } : null;
 }
 
-export function normalizeGptImage2Dimensions(dimensions: { width: number; height: number }) {
+export function normalizeGptImage2Dimensions(
+  dimensions: { width: number; height: number },
+  maximizeResolution = false,
+) {
   const sourceWidth = Math.max(1, Number(dimensions.width) || 1);
   const sourceHeight = Math.max(1, Number(dimensions.height) || 1);
   const sourcePixels = sourceWidth * sourceHeight;
   const minPixels = 655_360;
   const maxPixels = 8_294_400;
   const maxEdge = 3840;
-  let scale = 1;
-  if (sourcePixels < minPixels) scale = Math.sqrt((minPixels * 1.01) / sourcePixels);
-  if (sourcePixels > maxPixels) scale = Math.sqrt(maxPixels / sourcePixels);
+  let scale = maximizeResolution ? Math.sqrt(maxPixels / sourcePixels) : 1;
+  if (!maximizeResolution && sourcePixels < minPixels) scale = Math.sqrt((minPixels * 1.01) / sourcePixels);
+  if (!maximizeResolution && sourcePixels > maxPixels) scale = Math.sqrt(maxPixels / sourcePixels);
   if (Math.max(sourceWidth, sourceHeight) * scale > maxEdge) {
     scale = Math.min(scale, maxEdge / Math.max(sourceWidth, sourceHeight));
   }
@@ -82,6 +85,7 @@ export function mapOutputSize(
   model: string = "",
   sourceDimensions?: { width: number; height: number } | null,
   matchReference = false,
+  maximizeResolution = false,
 ) {
   const sizeChoice = imageSize.toLowerCase();
   const normalized = format.toLowerCase();
@@ -92,7 +96,7 @@ export function mapOutputSize(
     const requested = matchReference && sourceDimensions
       ? sourceDimensions
       : parseRequestedDimensions(imageSize) || sourceDimensions;
-    if (requested?.width && requested?.height) return normalizeGptImage2Dimensions(requested);
+    if (requested?.width && requested?.height) return normalizeGptImage2Dimensions(requested, maximizeResolution);
   }
 
   if (sizeChoice.includes("story") || sizeChoice.includes("reel") || sizeChoice.includes("shorts") || sizeChoice.includes("portrait") || sizeChoice.includes("4:5") || sizeChoice.includes("9:16") || sizeChoice.includes("a4-portrait") || sizeChoice.includes("1080x1920") || sizeChoice.includes("1080x1350") || sizeChoice.includes("1024x1536") || sizeChoice.includes("2480x3508")) return portraitSize;
@@ -1120,7 +1124,7 @@ function buildImageEditForm({
   form.append("size", size);
   form.append("quality", quality);
   form.append("output_format", "webp");
-  form.append("output_compression", "95");
+  form.append("output_compression", "10");
 
   for (const [index, image] of referenceImages.entries()) {
     const blob = dataUrlToBlob(image.dataUrl);
@@ -1198,6 +1202,7 @@ export async function generateDesign({ recipe, openaiKey: providedOpenAiKey = ""
     actualModel,
     recipe?.sourceDimensions,
     recipe?.matchReference === true,
+    recipe?.highResolutionOutput === true,
   );
   const quality = mapQuality(recipe?.quality, actualModel);
   const referenceImages = getImageEditInputs(recipe);
@@ -1244,7 +1249,7 @@ export async function generateDesign({ recipe, openaiKey: providedOpenAiKey = ""
 
   if (isGptImageModel(actualModel)) {
     requestBody.output_format = "webp";
-    requestBody.output_compression = 95;
+    requestBody.output_compression = 10;
   } else {
     requestBody.response_format = "b64_json";
   }
