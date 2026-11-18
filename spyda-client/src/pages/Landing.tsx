@@ -44,6 +44,7 @@ import {
   getInstallPrompt,
 } from '../lib/pwa-install'
 import BrandMark from '../components/brand/BrandMark'
+import HeroField from '../components/HeroField'
 
 function SectionLabel({ children }: { children: React.ReactNode }) {
   return (
@@ -415,6 +416,7 @@ export default function Landing() {
 
       <main>
         <section className="relative border-b border-white/[0.06] px-4 pb-14 pt-28 sm:pt-32">
+          <HeroField className="inset-x-0 top-0 h-[440px] sm:h-[520px] lg:h-[580px]" />
           <div className="absolute inset-0 grid-pattern opacity-30" />
           <div className="absolute inset-x-0 top-0 h-px bg-gradient-to-r from-transparent via-primary/40 to-transparent" />
           <div className="relative mx-auto max-w-6xl">

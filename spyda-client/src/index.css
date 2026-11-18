@@ -491,6 +491,51 @@
   background-size: 60px 60px;
 }
 
+/* Hero field.
+   The mesh-gradient canvas is decoration behind a white headline, so nothing
+   may depend on it. The fallback is a plausible still of the shader and paints
+   on the first frame; the canvas fades in on top of it.
+
+   The scrim carries the legibility. It sinks the field to page background at
+   the bottom, so the section ends clean above the mockup, and darkens the ends
+   of the box, so contrast holds whichever pose the shader happens to be in. */
+.hero-field-fallback {
+  background:
+    radial-gradient(70% 82% at 18% 4%, rgba(13, 90, 64, 0.92), transparent 74%),
+    radial-gradient(64% 74% at 86% 0%, rgba(8, 47, 72, 0.95), transparent 76%),
+    radial-gradient(96% 96% at 50% 42%, rgba(10, 69, 54, 0.62), transparent 84%),
+    #061d13;
+}
+
+.hero-field-canvas {
+  animation: hero-field-in 1.4s ease-out both;
+}
+
+@keyframes hero-field-in {
+  from { opacity: 0; }
+  to { opacity: 1; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .hero-field-canvas {
+    animation: none;
+  }
+}
+
+.hero-field-scrim {
+  background:
+    linear-gradient(
+      180deg,
+      rgb(5 5 6 / 0.7) 0%,
+      rgb(5 5 6 / 0.22) 12%,
+      rgb(5 5 6 / 0.04) 30%,
+      rgb(5 5 6 / 0.22) 62%,
+      rgb(5 5 6 / 0.78) 88%,
+      hsl(var(--background)) 100%
+    ),
+    radial-gradient(120% 78% at 50% 24%, transparent 42%, rgb(5 5 6 / 0.7) 100%);
+}
+
 /* Noise Texture */
 .noise {
   position: relative;
