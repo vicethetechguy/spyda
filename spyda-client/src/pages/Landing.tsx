@@ -43,6 +43,7 @@ import {
   clearInstallPrompt,
   getInstallPrompt,
 } from '../lib/pwa-install'
+import BrandMark from '../components/brand/BrandMark'
 
 function SectionLabel({ children }: { children: React.ReactNode }) {
   return (
@@ -380,9 +381,9 @@ export default function Landing() {
   return (
     <div className="min-h-screen overflow-x-hidden bg-background font-sans text-foreground">
       <header className="fixed left-1/2 top-3 z-50 w-[min(1120px,calc(100%-1.25rem))] -translate-x-1/2">
-        <div className="flex h-14 items-center justify-between rounded-lg border border-white/[0.09] bg-[#050506]/85 px-3 shadow-[0_18px_60px_rgba(0,0,0,0.38)] backdrop-blur-2xl sm:px-4">
+        <div className="glass glass-strong glass-blur flex h-14 items-center justify-between rounded-lg border border-white/[0.09] px-3 shadow-[0_18px_60px_rgba(0,0,0,0.38)] sm:px-4">
           <Link to="/" className="flex items-center gap-2.5" aria-label="Spyda home">
-            <img src="/assets/spyda-logo-drive.webp" alt="" className="h-8 w-8 object-contain" />
+            <BrandMark size={32} />
             <span className="font-heading text-lg font-semibold">Spyda</span>
           </Link>
           <nav className="hidden items-center gap-6 md:flex">
@@ -639,7 +640,7 @@ export default function Landing() {
 
       {installHint && (
         <div className="fixed inset-0 z-[100] flex items-end justify-center bg-black/70 p-3 backdrop-blur-sm sm:items-center" role="presentation" onClick={() => setInstallHint(null)}>
-          <div className="w-full max-w-md rounded-lg border border-white/[0.1] bg-[#0b0d0c] p-5 shadow-[0_24px_80px_rgba(0,0,0,0.55)]" role="dialog" aria-modal="true" aria-labelledby="install-spyda-title" onClick={event => event.stopPropagation()}>
+          <div className="w-full max-w-md rounded-lg border glass glass-strong p-5 shadow-[0_24px_80px_rgba(0,0,0,0.55)]" role="dialog" aria-modal="true" aria-labelledby="install-spyda-title" onClick={event => event.stopPropagation()}>
             <div className="flex items-start justify-between gap-4">
               <div className="flex items-center gap-3">
                 <img src="/assets/spyda-icon-192.png" alt="" className="h-11 w-11 object-contain" />
@@ -660,7 +661,7 @@ export default function Landing() {
 
       <footer className="border-t border-white/[0.07] px-4 py-9">
         <div className="mx-auto flex max-w-6xl flex-col gap-6 sm:flex-row sm:items-center sm:justify-between">
-          <div className="flex items-center gap-2.5"><img src="/assets/spyda-logo-drive.webp" alt="" className="h-7 w-7 object-contain opacity-70" /><span className="font-heading text-sm font-semibold">Spyda</span><span className="text-xs text-muted-foreground">&copy; 2026</span></div>
+          <div className="flex items-center gap-2.5"><BrandMark size={28} className="opacity-70" /><span className="font-heading text-sm font-semibold">Spyda</span><span className="text-xs text-muted-foreground">&copy; 2026</span></div>
           <p className="text-xs text-muted-foreground">Premium design today. Participation in what comes next.</p>
           <div className="inline-flex w-fit items-center gap-2 rounded-lg border border-white/[0.09] bg-white/[0.025] px-3 py-2 text-[10px] text-muted-foreground">
             <span>Built by</span><img src="/assets/vigency-logo-footer.png" alt="Vigency" className="h-4 w-auto opacity-70" />

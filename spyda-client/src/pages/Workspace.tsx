@@ -6,6 +6,8 @@ import { buildLayoutGridGuide, type LayoutGridGuide } from '../lib/layout-grid'
 import type { LegacyBreakdown as BreakdownResult, LegacyEditableComponent as EditableComponent } from '../core/design-document'
 import { usePaystackPayment } from 'react-paystack'
 import SidebarNav from '../components/ui/dashboard-sidebar'
+import AmbientField from '../components/AmbientField'
+import BrandMark from '../components/brand/BrandMark'
 import {
   BrandAssetsView,
   HistoryView,
@@ -1400,7 +1402,10 @@ export default function Workspace() {
   }, [])
 
   return (
-    <div className="flex h-[100dvh] bg-background text-foreground font-sans overflow-hidden">
+    <div className="relative isolate flex h-[100dvh] bg-background text-foreground font-sans overflow-hidden">
+      {/* Depth for the glass chrome. Content below paints over it in DOM order. */}
+      <AmbientField />
+
       {/* Mobile Sidebar Backdrop */}
       {sidebarOpen && (
         <div 
@@ -1425,7 +1430,7 @@ export default function Workspace() {
       {/* Main */}
       <div className="flex-1 flex flex-col min-w-0 min-h-0">
         {/* Top Bar */}
-        <div className="relative z-50 h-14 shrink-0 border-b border-white/[0.06] bg-[#060608]/80 backdrop-blur-xl flex items-center justify-between px-4">
+        <div className="glass glass-strong relative z-50 h-14 shrink-0 border-b border-white/[0.06] flex items-center justify-between px-4">
           <div className="flex min-w-0 items-center gap-2 sm:gap-3">
             <button
               type="button"
@@ -1468,7 +1473,7 @@ export default function Workspace() {
               {modelMenuOpen && (
                 <>
                   <div className="fixed inset-0 z-40" onClick={() => setModelMenuOpen(false)} />
-                  <div className="absolute right-0 top-10 z-50 w-64 rounded-xl border border-white/[0.08] bg-[#0a0a0c] shadow-2xl py-1.5 animate-fade-in">
+                  <div className="glass glass-strong glass-blur absolute right-0 top-10 z-50 w-64 rounded-xl border shadow-2xl py-1.5 animate-fade-in">
                     <div className="px-3 py-2 text-[10px] font-bold tracking-[0.14em] uppercase text-muted-foreground/50">AI Model</div>
                     {AI_MODELS.map(m => (
                       <button
@@ -2164,8 +2169,8 @@ function StudioView({
       >
         <div className="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 w-[600px] h-[600px] rounded-full bg-primary/[0.04] blur-[120px] pointer-events-none" />
         <div className="relative z-10 text-center max-w-lg">
-          <div className={`mx-auto mb-8 w-20 h-20 rounded-2xl bg-gradient-to-br from-primary/20 to-primary/5 border border-primary/20 flex items-center justify-center transition-transform ${isDragging ? 'scale-110' : ''}`}>
-            <Upload className="w-8 h-8 text-primary" strokeWidth={1.5} />
+          <div className={`mx-auto mb-8 transition-transform ${isDragging ? 'scale-110' : ''}`}>
+            <BrandMark size={96} />
           </div>
           <h2 className="font-heading text-3xl font-bold mb-3">Drop your reference</h2>
           <p className="text-muted-foreground mb-8">Upload a flyer, poster, or ad to begin. Spyda will break it down into editable design atoms.</p>

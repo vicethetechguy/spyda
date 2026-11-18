@@ -2,6 +2,9 @@ type SpydaSplashProps = {
   message?: string
 }
 
+/* The splash only lives for 1.5s — shorter than the liquid-metal mask solve —
+   so the mark is plain here and the wordmark carries the motion instead. */
+
 export default function SpydaSplash({ message = 'Preparing your design web' }: SpydaSplashProps) {
   return (
     <div className="spyda-splash" role="status" aria-live="polite">
