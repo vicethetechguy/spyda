@@ -3,6 +3,7 @@ import { Group, Image as KonvaImage, Layer, Rect, Stage, Text, Transformer } fro
 import type Konva from 'konva'
 import type { DesignDocument, DesignObject, PercentBox } from '../../core/design-document'
 import { resolveFamily } from '../../lib/fonts'
+import { fitFontSize } from '../../lib/text-fit'
 
 /**
  * The editable canvas.
@@ -55,12 +56,48 @@ function documentAspect(document: DesignDocument, backgroundImage: HTMLImageElem
   return 1
 }
 
-/** Font size in document pixels, scaled into the current viewport. */
-function resolvedFontSize(object: DesignObject, boxHeightPx: number, scale: number) {
+let measuringContext: CanvasRenderingContext2D | null | undefined
+
+function measureContext() {
+  if (measuringContext === undefined) {
+    measuringContext = typeof document !== 'undefined'
+      ? document.createElement('canvas').getContext('2d')
+      : null
+  }
+  return measuringContext
+}
+
+/**
+ * Font size in display pixels. A declared size is the person's choice and is
+ * honoured; a missing one is fitted so the whole text shows inside its box.
+ */
+function resolvedFontSize(
+  object: DesignObject,
+  box: { width: number; height: number },
+  scale: number,
+  fontFamily: string,
+  bold: boolean,
+) {
   const declared = object.style.fontSize
   if (declared && declared > 0) return declared * scale
-  // A missing size must still produce readable text rather than 0px.
-  return Math.max(8, boxHeightPx * 0.62)
+
+  const text = object.content.text || ''
+  const context = measureContext()
+  // Without a canvas to measure on, a size from the height still renders something.
+  if (!context || !text.trim()) return Math.max(8, box.height * 0.62)
+
+  const letterSpacing = object.style.letterSpacing ?? 0
+  return fitFontSize({
+    text,
+    width: box.width,
+    height: box.height,
+    lineHeight: object.style.lineHeight || 1.2,
+    maxSize: Math.max(8, box.height * 0.9),
+    measure: (value, size) => {
+      context.font = `${bold ? 'bold ' : ''}${size}px ${fontFamily}`
+      return context.measureText(value).width + letterSpacing * value.length
+    },
+  })
 }
 
 function usesTextMetrics(object: DesignObject) {
@@ -271,7 +308,10 @@ export default function LayerCanvas({
                   if (node) commitGeometry(object, node)
                 }}
               >
-                {usesTextMetrics(object) ? (
+                {usesTextMetrics(object) ? (() => {
+                  const fontFamily = resolveFamily(object.style.fontFamily, missingFonts)
+                  const bold = Number(object.style.fontWeight) >= 600
+                  return (
                   <Text
                     text={object.content.text || ''}
                     width={widthPx}
@@ -279,15 +319,16 @@ export default function LayerCanvas({
                     wrap="word"
                     align={object.style.textAlign || 'left'}
                     verticalAlign="middle"
-                    fontFamily={resolveFamily(object.style.fontFamily, missingFonts)}
-                    fontSize={resolvedFontSize(object, heightPx, display.scale)}
-                    fontStyle={Number(object.style.fontWeight) >= 600 ? 'bold' : 'normal'}
+                    fontFamily={fontFamily}
+                    fontSize={resolvedFontSize(object, { width: widthPx, height: heightPx }, display.scale, fontFamily, bold)}
+                    fontStyle={bold ? 'bold' : 'normal'}
                     fill={object.style.fill || '#ffffff'}
                     lineHeight={object.style.lineHeight || 1.2}
                     letterSpacing={object.style.letterSpacing ?? 0}
                     listening={false}
                   />
-                ) : source ? (
+                  )
+                })() : source ? (
                   <KonvaImage
                     image={source}
                     width={widthPx}

@@ -1,6 +1,8 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
+import { Link } from 'react-router-dom'
 import {
   AlertTriangle,
+  Layers,
   Archive,
   ArchiveRestore,
   Clock3,
@@ -214,6 +216,7 @@ export function HistoryView({ onOpenProject, onNewDesign }: { onOpenProject: (pr
                 </div>
                 <div className="flex items-center gap-2">
                   <button type="button" onClick={() => onOpenProject(project)} className="h-9 rounded-lg bg-primary px-4 text-xs font-semibold text-primary-foreground">Open</button>
+                  {project.breakdown && <Link to={`/editor/${encodeURIComponent(project.id)}`} title="Edit layers" aria-label={`Edit layers of ${project.name}`} className="flex h-9 w-9 items-center justify-center rounded-lg border border-white/[0.08] text-muted-foreground hover:border-primary/30 hover:text-primary"><Layers className="h-4 w-4" /></Link>}
                   <button type="button" onClick={() => setPendingDelete(project.id)} aria-label={`Delete ${project.name}`} title="Delete" className="flex h-9 w-9 items-center justify-center rounded-lg border border-white/[0.08] text-muted-foreground hover:border-red-500/30 hover:text-red-300"><Trash2 className="h-4 w-4" /></button>
                 </div>
               </div>
@@ -269,6 +272,7 @@ export function ProjectsView({ initialFilter, onOpenProject, onNewDesign }: { in
                 <p className="mt-1 text-xs text-muted-foreground">Updated {formatDate(project.updatedAt)}</p>
                 <div className="mt-4 flex items-center gap-2">
                   <button type="button" onClick={() => onOpenProject(project)} className="h-9 flex-1 rounded-lg bg-primary text-xs font-semibold text-primary-foreground">Open</button>
+                  {project.breakdown && <Link to={`/editor/${encodeURIComponent(project.id)}`} title="Edit layers" aria-label={`Edit layers of ${project.name}`} className="flex h-9 w-9 items-center justify-center rounded-lg border border-white/[0.08] text-muted-foreground hover:border-primary/30 hover:text-primary"><Layers className="h-4 w-4" /></Link>}
                   <button type="button" onClick={() => updateProject(project.id, { archived: !project.archived })} title={project.archived ? 'Restore project' : 'Archive project'} aria-label={project.archived ? 'Restore project' : 'Archive project'} className="flex h-9 w-9 items-center justify-center rounded-lg border border-white/[0.08] text-muted-foreground hover:text-foreground">{project.archived ? <ArchiveRestore className="h-4 w-4" /> : <Archive className="h-4 w-4" />}</button>
                   <button type="button" onClick={() => setPendingDelete(project.id)} title="Delete project" aria-label="Delete project" className="flex h-9 w-9 items-center justify-center rounded-lg border border-white/[0.08] text-muted-foreground hover:border-red-500/30 hover:text-red-300"><Trash2 className="h-4 w-4" /></button>
                 </div>

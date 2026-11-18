@@ -270,7 +270,7 @@ export default function Editor() {
   }, [applyIntent])
 
   const handleToggleVisibility = useCallback((object: DesignObject) => {
-    applyIntent({ objectId: object.id, property: 'removed', value: object.status.visible })
+    applyIntent({ objectId: object.id, property: 'visible', value: !object.status.visible })
   }, [applyIntent])
 
   useEffect(() => {

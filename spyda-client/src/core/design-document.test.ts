@@ -104,6 +104,31 @@ describe('Design Document compatibility boundary', () => {
     expect(legacy.designDocument).toEqual(document)
   })
 
+  it('keeps editor state across a save and reload', () => {
+    const document = adaptBreakdownToDesignDocument(currentBreakdown)
+    const headline = document.objects.find(object => object.id === 'headline')!
+    headline.style.fill = '#ff3366'
+    headline.style.fontFamily = 'Space Grotesk'
+    headline.style.fontSize = 64
+    headline.style.fontWeight = '700'
+    headline.style.textAlign = 'center'
+    headline.transform.rotation = 4
+    headline.transform.opacity = 0.8
+    const logo = document.objects.find(object => object.id === 'brand-logo')!
+    logo.content.assetRef = 'asset:42'
+    logo.status.visible = false
+
+    const reloaded = adaptBreakdownToDesignDocument(designDocumentToLegacyBreakdown(document, currentBreakdown))
+    const savedHeadline = reloaded.objects.find(object => object.id === 'headline')!
+    expect(savedHeadline.style).toMatchObject({
+      fill: '#ff3366', fontFamily: 'Space Grotesk', fontSize: 64, fontWeight: '700', textAlign: 'center',
+    })
+    expect(savedHeadline.transform).toMatchObject({ rotation: 4, opacity: 0.8 })
+    const savedLogo = reloaded.objects.find(object => object.id === 'brand-logo')!
+    expect(savedLogo.content.assetRef).toBe('asset:42')
+    expect(savedLogo.status.visible).toBe(false)
+  })
+
   it('adds the canonical document at the existing analysis boundary', () => {
     const breakdown = validateDesignBreakdown(currentBreakdown, {
       designId: 'project-123',

@@ -1,4 +1,8 @@
-import { ArrowDown, ArrowUp, Copy, Eye, EyeOff, Lock, Trash2 } from 'lucide-react'
+import {
+  ArrowDown, ArrowUp, BadgeCheck, Copy, Eye, EyeOff, Image as ImageIcon, Lock,
+  MousePointerClick, QrCode, Shapes, Sparkles, Square, Trash2, Type,
+  type LucideIcon,
+} from 'lucide-react'
 import type { DesignObject } from '../../core/design-document'
 
 /**
@@ -24,6 +28,16 @@ function kindLabel(object: DesignObject) {
   return object.kind
 }
 
+const KIND_ICONS: Partial<Record<DesignObject['kind'], LucideIcon>> = {
+  text: Type,
+  image: ImageIcon,
+  logo: BadgeCheck,
+  icon: Sparkles,
+  'qr-code': QrCode,
+  action: MousePointerClick,
+  background: Square,
+}
+
 function layerTitle(object: DesignObject) {
   const text = object.content.text?.trim()
   if (text) return text
@@ -41,7 +55,10 @@ export default function LayerList({
   onDuplicate,
   onRemove,
 }: LayerListProps) {
-  const ordered = [...objects].sort((left, right) => right.zIndex - left.zIndex)
+  // Removed layers live on in history so undo can bring them back, not in the list.
+  const ordered = objects
+    .filter(object => !object.status.removed)
+    .sort((left, right) => right.zIndex - left.zIndex)
 
   if (!ordered.length) {
     return (
@@ -74,13 +91,7 @@ export default function LayerList({
                 className="flex min-w-0 flex-1 items-center gap-2 text-left"
                 aria-pressed={selected}
               >
-                <span
-                  aria-hidden
-                  className={[
-                    'h-6 w-6 shrink-0 rounded border',
-                    hidden ? 'border-white/10 bg-transparent' : 'border-white/15 bg-white/10',
-                  ].join(' ')}
-                />
+                <LayerSwatch object={object} hidden={hidden} />
                 <span className="min-w-0">
                   <span className={[
                     'block truncate text-[13px] font-medium',
@@ -149,5 +160,28 @@ export default function LayerList({
         )
       })}
     </ul>
+  )
+}
+
+/** What the layer is at a glance: its kind, tinted with its own colour if it has one. */
+function LayerSwatch({ object, hidden }: { object: DesignObject; hidden: boolean }) {
+  const Icon = KIND_ICONS[object.kind] ?? Shapes
+  const fill = object.style.fill
+  return (
+    <span
+      aria-hidden
+      className={[
+        'relative flex h-6 w-6 shrink-0 items-center justify-center rounded border',
+        hidden ? 'border-white/10 text-muted-foreground/40' : 'border-white/15 bg-white/[0.06] text-muted-foreground',
+      ].join(' ')}
+    >
+      <Icon className="h-3.5 w-3.5" />
+      {fill && !hidden ? (
+        <span
+          className="absolute -bottom-0.5 -right-0.5 h-2 w-2 rounded-full border border-black/50"
+          style={{ backgroundColor: fill }}
+        />
+      ) : null}
+    </span>
   )
 }

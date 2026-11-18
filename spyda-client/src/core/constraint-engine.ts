@@ -36,7 +36,7 @@ export type DesignEditIntent = {
   objectId: string
   property:
     | 'text' | 'assetRef' | 'fill' | 'stroke' | 'opacity'
-    | 'removed' | 'bounds' | 'rotation'
+    | 'removed' | 'visible' | 'bounds' | 'rotation'
     | 'fontFamily' | 'fontSize' | 'fontWeight' | 'textAlign'
     | 'zIndex' | 'duplicate'
   value: unknown
@@ -45,7 +45,7 @@ export type DesignEditIntent = {
 
 /** Intents that are not property edits on `protection.editableProperties`. */
 const STRUCTURAL_PROPERTIES: ReadonlyArray<DesignEditIntent['property']> = [
-  'removed', 'bounds', 'rotation', 'zIndex', 'duplicate',
+  'removed', 'visible', 'bounds', 'rotation', 'zIndex', 'duplicate',
 ]
 
 type DuplicateSpec = { id: string; name?: string; zIndex?: number }
@@ -129,6 +129,8 @@ export function applyDesignEdits(referenceInput: DesignDocument, intents: Design
     if (intent.property === 'stroke') object.style.stroke = String(intent.value ?? '') || null
     if (intent.property === 'opacity') object.transform.opacity = Math.min(1, Math.max(0, Number(intent.value)))
     if (intent.property === 'removed') object.status.removed = Boolean(intent.value)
+    // Hiding is reversible from the layer list; removing takes the layer out of it.
+    if (intent.property === 'visible') object.status.visible = Boolean(intent.value)
     if (intent.property === 'bounds' && intent.explicitGeometryChange) object.transform.bounds = intent.value as DesignObject['transform']['bounds']
     if (intent.property === 'rotation' && intent.explicitGeometryChange) object.transform.rotation = Number(intent.value)
     if (intent.property === 'fontFamily') object.style.fontFamily = String(intent.value ?? '') || null

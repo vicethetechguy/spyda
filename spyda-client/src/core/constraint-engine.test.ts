@@ -29,6 +29,15 @@ describe('Constraint Engine and render planning', () => {
     expect(enforced.violations.map(item => item.code)).toEqual(expect.arrayContaining(['canvas-size-changed', 'bounds-changed']))
   })
 
+  it('hides and shows a layer without removing it', () => {
+    const hidden = applyDesignEdits(referenceDocument(), [{ objectId: 'logo', property: 'visible', value: false }])
+    expect(hidden.violations).toEqual([])
+    expect(hidden.document.objects[0].status).toMatchObject({ visible: false, removed: false })
+
+    const shown = applyDesignEdits(hidden.document, [{ objectId: 'logo', property: 'visible', value: true }])
+    expect(shown.document.objects[0].status).toMatchObject({ visible: true, removed: false })
+  })
+
   it('avoids image generation for measured asset swaps', () => {
     const plan = planRenderStrategy(referenceDocument(), [{ objectId: 'logo', kind: 'asset-replacement', hasMeasuredBounds: true }])
     expect(plan.mode).toBe('deterministic-composite')
