@@ -97,6 +97,17 @@ function canvasToBlob(canvas: HTMLCanvasElement, type = 'image/png', quality?: n
   })
 }
 
+/** The untouched flyer as an element, ready for matting and cropping. */
+export function loadSourceImage(src: string): Promise<HTMLImageElement> {
+  return new Promise((resolve, reject) => {
+    const image = new Image()
+    image.decoding = 'async'
+    image.onload = () => resolve(image)
+    image.onerror = () => reject(new Error('The reference image could not be loaded.'))
+    image.src = src
+  })
+}
+
 /**
  * Builds the cut-out producer for one flyer and its matte. Every layer reuses the
  * same raster and matte, so adding layers does not add segmentation cost.

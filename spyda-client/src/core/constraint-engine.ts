@@ -24,11 +24,41 @@ export type ConstraintProfile = {
   }>
 }
 
+/**
+ * The single edit vocabulary. The canvas, the typed-instruction door, the undo
+ * log and the animation sampler all speak this and nothing else.
+ *
+ * `bounds`, `rotation`, `zIndex` and `duplicate` change structure, so they are
+ * allowed even when a layer protects its measured geometry - they still report
+ * violations for locked layers.
+ */
 export type DesignEditIntent = {
   objectId: string
-  property: 'text' | 'assetRef' | 'fill' | 'stroke' | 'opacity' | 'removed' | 'bounds' | 'rotation'
+  property:
+    | 'text' | 'assetRef' | 'fill' | 'stroke' | 'opacity'
+    | 'removed' | 'bounds' | 'rotation'
+    | 'fontFamily' | 'fontSize' | 'fontWeight' | 'textAlign'
+    | 'zIndex' | 'duplicate'
   value: unknown
   explicitGeometryChange?: boolean
+}
+
+/** Intents that are not property edits on `protection.editableProperties`. */
+const STRUCTURAL_PROPERTIES: ReadonlyArray<DesignEditIntent['property']> = [
+  'removed', 'bounds', 'rotation', 'zIndex', 'duplicate',
+]
+
+type DuplicateSpec = { id: string; name?: string; zIndex?: number }
+
+function readDuplicateSpec(value: unknown): DuplicateSpec | null {
+  if (!value || typeof value !== 'object') return null
+  const spec = value as Record<string, unknown>
+  if (typeof spec.id !== 'string' || !spec.id) return null
+  return {
+    id: spec.id,
+    name: typeof spec.name === 'string' ? spec.name : undefined,
+    zIndex: typeof spec.zIndex === 'number' ? Math.round(spec.zIndex) : undefined,
+  }
 }
 
 function cloneDocument(document: DesignDocument) {
@@ -41,6 +71,14 @@ function sameBounds(left: DesignObject['transform']['bounds'], right: DesignObje
     && Math.abs(left.y - right.y) <= tolerance
     && Math.abs(left.width - right.width) <= tolerance
     && Math.abs(left.height - right.height) <= tolerance
+}
+
+const TEXT_ALIGNMENTS = ['left', 'center', 'right', 'justify'] as const
+
+function readTextAlign(value: unknown): DesignObject['style']['textAlign'] {
+  return TEXT_ALIGNMENTS.includes(value as typeof TEXT_ALIGNMENTS[number])
+    ? value as DesignObject['style']['textAlign']
+    : null
 }
 
 export function buildConstraintProfile(document: DesignDocument, layout: LayoutIntelligenceModel): ConstraintProfile {
@@ -80,7 +118,7 @@ export function applyDesignEdits(referenceInput: DesignDocument, intents: Design
       violations.push({ code: 'geometry-not-explicit', severity: 'error', objectId: object.id, message: `${object.name} geometry can change only through an explicit geometry edit.` })
       continue
     }
-    if (!object.protection.editableProperties.includes(intent.property) && !['removed', 'bounds', 'rotation'].includes(intent.property)) {
+    if (!object.protection.editableProperties.includes(intent.property) && !STRUCTURAL_PROPERTIES.includes(intent.property)) {
       violations.push({ code: 'property-protected', severity: 'error', objectId: object.id, message: `${intent.property} is not editable on ${object.name}.` })
       continue
     }
@@ -93,9 +131,39 @@ export function applyDesignEdits(referenceInput: DesignDocument, intents: Design
     if (intent.property === 'removed') object.status.removed = Boolean(intent.value)
     if (intent.property === 'bounds' && intent.explicitGeometryChange) object.transform.bounds = intent.value as DesignObject['transform']['bounds']
     if (intent.property === 'rotation' && intent.explicitGeometryChange) object.transform.rotation = Number(intent.value)
+    if (intent.property === 'fontFamily') object.style.fontFamily = String(intent.value ?? '') || null
+    if (intent.property === 'fontSize') object.style.fontSize = Number(intent.value) > 0 ? Number(intent.value) : null
+    if (intent.property === 'fontWeight') object.style.fontWeight = String(intent.value ?? '') || null
+    if (intent.property === 'textAlign') object.style.textAlign = readTextAlign(intent.value)
+    if (intent.property === 'zIndex') object.zIndex = Math.round(Number(intent.value))
+
+    if (intent.property === 'duplicate') {
+      const spec = readDuplicateSpec(intent.value)
+      if (!spec) {
+        violations.push({ code: 'duplicate-needs-id', severity: 'error', objectId: object.id, message: 'A duplicate needs a new object id.' })
+        continue
+      }
+      if (candidate.objects.some(item => item.id === spec.id)) {
+        violations.push({ code: 'duplicate-id-taken', severity: 'error', objectId: object.id, message: `Object id ${spec.id} is already used.` })
+        continue
+      }
+      const copy = structuredClone(object)
+      copy.id = spec.id
+      copy.name = spec.name || `${object.name} copy`
+      copy.zIndex = spec.zIndex ?? object.zIndex + 1
+      copy.status.removed = false
+      copy.status.consumed = false
+      candidate.objects.push(copy)
+      const section = candidate.sections.find(item => item.id === copy.sectionId)
+      if (section && !section.objectIds.includes(copy.id)) section.objectIds.push(copy.id)
+    }
   }
 
   return { document: candidate, violations }
+}
+
+export function applyEditIntent(document: DesignDocument, intent: DesignEditIntent) {
+  return applyDesignEdits(document, [intent])
 }
 
 export function enforceDesignConstraints(referenceInput: DesignDocument, candidateInput: DesignDocument) {

@@ -94,6 +94,63 @@ function isCutoutTarget(object: DesignObject) {
   return CUTOUT_KINDS.includes(object.kind) && !object.status.removed
 }
 
+/**
+ * The full flyer as a layer, for documents that never had one.
+ *
+ * Analyses rarely describe their own backdrop, but without it the document is
+ * not self-sufficient: the canvas would show cut-outs floating on nothing and a
+ * later deterministic render would export them on transparent black. The
+ * backdrop is locked, because moving the flyer itself is not an edit.
+ */
+function createBackgroundLayer(document: DesignDocument, assetRef: string): DesignObject {
+  const lowest = document.objects.reduce((min, object) => Math.min(min, object.zIndex), 0)
+  return {
+    id: 'background',
+    name: 'Background',
+    kind: 'background',
+    sectionId: document.sections[0]?.id ?? 'main-section',
+    zIndex: lowest - 1,
+    transform: {
+      bounds: { x: 0, y: 0, width: 100, height: 100 },
+      rotation: 0,
+      opacity: 1,
+      coordinateSpace: 'normalized-percent',
+    },
+    content: { text: null, description: 'Full flyer', assetRef, altText: null },
+    style: {
+      description: 'Full-frame flyer',
+      fill: null,
+      stroke: null,
+      fontFamily: null,
+      fontSize: null,
+      fontWeight: null,
+      textAlign: null,
+      lineHeight: null,
+      letterSpacing: null,
+      borderRadius: null,
+      effects: [],
+    },
+    constraints: {
+      lockPosition: true,
+      lockSize: true,
+      lockAspectRatio: true,
+      lockRotation: true,
+      preserveLayerOrder: true,
+      stayInsideCanvas: true,
+      fit: 'cover',
+    },
+    protection: {
+      locked: true,
+      editableProperties: ['assetRef'],
+      protectedProperties: ['x', 'y', 'width', 'height', 'rotation', 'zIndex', 'identity'],
+    },
+    relationships: { parentId: null, childIds: [], anchoredToIds: [], groupId: null },
+    source: { provider: 'layer-extraction', confidence: 1, evidence: ['full-frame-background'] },
+    status: { visible: true, removed: false, consumed: false },
+    legacy: {},
+  }
+}
+
 export async function extractLayers({
   document,
   produceCutout,
@@ -107,13 +164,19 @@ export async function extractLayers({
   const cutouts: CutoutRecord[] = []
 
   const background = next.objects.find(object => object.kind === 'background')
-  if (background && produceBackground) {
+  if (produceBackground) {
     try {
       const blob = await produceBackground()
       if (blob) {
-        const id = await saveAsset(blob)
-        background.content.assetRef = `asset:${id}`
-        addEvidence(background, 'full-frame-background')
+        const assetRef = `asset:${await saveAsset(blob)}`
+        if (background) {
+          background.content.assetRef = assetRef
+          addEvidence(background, 'full-frame-background')
+        } else {
+          const created = createBackgroundLayer(next, assetRef)
+          next.objects.unshift(created)
+          next.sections.find(section => section.id === created.sectionId)?.objectIds.unshift(created.id)
+        }
       }
     } catch (error) {
       warnings.push(`Background asset failed: ${error instanceof Error ? error.message : 'unknown error'}`)

@@ -53,8 +53,10 @@ import {
   LockKeyhole,
   DollarSign,
   ChevronRight,
-  Ticket
+  Ticket,
+  Layers
 } from 'lucide-react'
+import { Link } from 'react-router-dom'
 import {
   isAdminEmail,
   lookupSpydaWallet,
@@ -2904,6 +2906,7 @@ function GalleryView({ onNewDesign }: { onNewDesign: () => void }) {
                   </div>
                   <div className="absolute right-2 top-2 flex items-center gap-2 sm:right-3 sm:top-3">
                     {typeof project.qa?.score === 'number' && <div className="hidden rounded-md border border-primary/20 bg-black/65 px-2 py-1 text-[10px] font-semibold text-primary backdrop-blur-sm sm:block">{project.qa.score}% match</div>}
+                    {project.breakdown && <Link to={`/editor/${encodeURIComponent(project.id)}`} aria-label={`Edit layers of ${project.name}`} title="Edit layers" className="inline-flex h-8 w-8 items-center justify-center rounded-md border border-white/10 bg-black/65 text-white transition-colors hover:bg-black/85"><Layers className="h-4 w-4" /></Link>}
                     {preview && <a href={preview} download={downloadName(project)} aria-label={`Download ${project.name}`} title="Download design" className="inline-flex h-8 w-8 items-center justify-center rounded-md border border-white/10 bg-black/65 text-white transition-colors hover:bg-black/85"><Download className="h-4 w-4" /></a>}
                   </div>
                 </div>

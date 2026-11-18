@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react'
+import { Suspense, lazy, useEffect, useState } from 'react'
 import { BrowserRouter, Routes, Route, Navigate } from 'react-router-dom'
 import { AuthProvider, useAuth } from './lib/AuthContext'
 import Landing from './pages/Landing'
@@ -8,6 +8,10 @@ import Admin from './pages/Admin'
 import SpydaSplash from './components/SpydaSplash'
 import WorkspaceErrorBoundary from './components/WorkspaceErrorBoundary'
 import { supabase } from './lib/supabase'
+
+// The layer editor pulls in Konva and the cut-out tooling, so it stays off the
+// critical path and only downloads when a project is actually opened in it.
+const Editor = lazy(() => import('./pages/Editor'))
 
 function ProtectedRoute({ children }: { children: React.ReactNode }) {
   const { session, loading } = useAuth()
@@ -74,6 +78,13 @@ function App() {
               <WorkspaceErrorBoundary>
                 <Workspace />
               </WorkspaceErrorBoundary>
+            </ProtectedRoute>
+          } />
+          <Route path="/editor/:projectId" element={
+            <ProtectedRoute>
+              <Suspense fallback={<SpydaSplash message="Opening the layer editor" />}>
+                <Editor />
+              </Suspense>
             </ProtectedRoute>
           } />
           <Route path="*" element={<Navigate to="/" replace />} />

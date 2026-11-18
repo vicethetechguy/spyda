@@ -27,6 +27,17 @@ export type SegmentFlyerOptions = {
 
 const matteCache = new Map<string, Promise<FlyerMatte>>()
 
+/** `data:` and `blob:` sources are already bytes; everything else is downloaded. */
+async function toLocalSource(source: string) {
+  if (/^(data|blob):/i.test(source)) {
+    return { url: source, release: () => undefined }
+  }
+  const response = await fetch(source)
+  if (!response.ok) throw new Error(`Could not read the flyer (${response.status}).`)
+  const url = URL.createObjectURL(await response.blob())
+  return { url, release: () => URL.revokeObjectURL(url) }
+}
+
 /**
  * Cheap session key for a data URL. Sampling every 97th character is enough to
  * tell flyers apart without hashing megabytes on the main thread.
@@ -56,27 +67,39 @@ async function runSegmentation(sourceDataUrl: string, options: SegmentFlyerOptio
 
   if (options.signal?.aborted) throw new DOMException('Segmentation cancelled.', 'AbortError')
 
-  // The model is chosen for size: quantised weights are a fraction of the fp32
-  // model and the spike showed no quality difference on our samples.
-  const blob = await removeBackground(sourceDataUrl, { model: options.model ?? 'isnet_quint8' })
+  /**
+   * The model library treats anything that is not a `data:` or `blob:` URL as a
+   * path inside its own hosted model directory, so handing it an ordinary image
+   * URL sends it to a CDN that answers 404 with an HTML page. Downloading first
+   * keeps `/assets/...` and remote project previews working.
+   */
+  const local = await toLocalSource(sourceDataUrl)
 
-  if (options.signal?.aborted) throw new DOMException('Segmentation cancelled.', 'AbortError')
+  try {
+    // The model is chosen for size: quantised weights are a fraction of the fp32
+    // model and the spike showed no quality difference on our samples.
+    const blob = await removeBackground(local.url, { model: options.model ?? 'isnet_quint8' })
 
-  const bitmap = await createImageBitmap(blob)
-  const canvas = document.createElement('canvas')
-  canvas.width = bitmap.width
-  canvas.height = bitmap.height
-  const context = canvas.getContext('2d', { willReadFrequently: true })
-  if (!context) throw new Error('Canvas 2D context is unavailable, so no matte can be built.')
+    if (options.signal?.aborted) throw new DOMException('Segmentation cancelled.', 'AbortError')
 
-  context.drawImage(bitmap, 0, 0)
-  bitmap.close()
+    const bitmap = await createImageBitmap(blob)
+    const canvas = document.createElement('canvas')
+    canvas.width = bitmap.width
+    canvas.height = bitmap.height
+    const context = canvas.getContext('2d', { willReadFrequently: true })
+    if (!context) throw new Error('Canvas 2D context is unavailable, so no matte can be built.')
 
-  return {
-    canvas,
-    width: canvas.width,
-    height: canvas.height,
-    opaqueRatio: measureOpaqueRatio(context, canvas.width, canvas.height),
+    context.drawImage(bitmap, 0, 0)
+    bitmap.close()
+
+    return {
+      canvas,
+      width: canvas.width,
+      height: canvas.height,
+      opaqueRatio: measureOpaqueRatio(context, canvas.width, canvas.height),
+    }
+  } finally {
+    local.release()
   }
 }
 

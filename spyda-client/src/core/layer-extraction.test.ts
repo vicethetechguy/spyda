@@ -218,6 +218,27 @@ describe('Layer extraction', () => {
     })
   })
 
+  it('adds a locked full-frame background when the analysis described none', () => {
+    const document = flyerDocument()
+    document.objects = document.objects.filter(object => object.kind !== 'background')
+
+    return extractLayers({
+      document,
+      produceCutout: async () => draft(0.4),
+      produceBackground: async () => new Blob(['full flyer'], { type: 'image/jpeg' }),
+      saveAsset: sequentialAssets(),
+    }).then(result => {
+      const background = objectById(result.document, 'background')
+      expect(background.kind).toBe('background')
+      expect(background.content.assetRef).toBe('asset:1')
+      expect(background.transform.bounds).toEqual({ x: 0, y: 0, width: 100, height: 100 })
+      // the backdrop is the flyer, not a thing to drag around
+      expect(background.protection.locked).toBe(true)
+      expect(result.document.objects[0].id).toBe('background')
+      expect(objectById(result.document, 'product-photo').content.assetRef).toBe('asset:2')
+    })
+  })
+
   it('skips removed layers and reports layers with no measurable bounds', () => {
     const document = flyerDocument()
     objectById(document, 'star-icon').status.removed = true
