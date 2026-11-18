@@ -420,17 +420,17 @@ function GuideCard({ guide, accent, completed, expanded, onToggleExpand, onToggl
 }) {
   const GuideIcon = guide.icon
   return (
-    <article className={`group relative flex flex-col overflow-hidden rounded-xl border transition-all duration-300 ${completed ? 'border-primary/30 bg-primary/[0.035]' : 'border-white/[0.07] bg-white/[0.02] hover:-translate-y-0.5 hover:border-white/[0.16] hover:bg-white/[0.03]'}`}>
+    <article className={`group relative flex flex-col overflow-hidden rounded-xl border transition-all duration-300 ${completed ? 'border-primary/30 bg-primary/[0.035]' : 'border-white/[0.07] bg-surface hover:-translate-y-0.5 hover:border-white/[0.16] hover:bg-white/[0.03]'}`}>
       <div className="pointer-events-none absolute -right-12 -top-12 h-32 w-32 rounded-full opacity-0 blur-3xl transition-opacity duration-300 group-hover:opacity-100" style={{ backgroundColor: `${accent}14` }} />
 
       <button type="button" onClick={onToggleExpand} aria-expanded={expanded} className="relative flex flex-1 flex-col p-5 text-left">
         <div className="flex items-start justify-between gap-3">
-          <span className={`flex h-10 w-10 shrink-0 items-center justify-center rounded-lg border transition-colors ${completed ? 'border-primary/35 bg-primary/[0.1]' : 'border-white/[0.09] bg-white/[0.03]'}`}>
+          <span className={`flex h-10 w-10 shrink-0 items-center justify-center rounded-lg border transition-colors ${completed ? 'border-primary/35 bg-primary/[0.1]' : 'border-white/[0.09] bg-surface-raised'}`}>
             {completed ? <Check className="h-[18px] w-[18px] text-primary" strokeWidth={2.4} /> : <GuideIcon className="h-[18px] w-[18px]" strokeWidth={1.7} style={{ color: accent }} />}
           </span>
           <div className="flex items-center gap-1.5">
             <span className={`rounded-md border px-2 py-0.5 text-[9px] font-bold uppercase tracking-[0.1em] ${DIFFICULTY_STYLES[guide.difficulty]}`}>{guide.difficulty}</span>
-            <span className="inline-flex items-center gap-1 rounded-md border border-white/[0.08] bg-white/[0.03] px-2 py-0.5 text-[9px] font-bold uppercase tracking-[0.1em] text-muted-foreground"><Zap className="h-2.5 w-2.5 text-primary" /> {guide.xp} XP</span>
+            <span className="inline-flex items-center gap-1 rounded-md border border-white/[0.08] bg-surface-raised px-2 py-0.5 text-[9px] font-bold uppercase tracking-[0.1em] text-muted-foreground"><Zap className="h-2.5 w-2.5 text-primary" /> {guide.xp} XP</span>
           </div>
         </div>
 
@@ -452,7 +452,7 @@ function GuideCard({ guide, accent, completed, expanded, onToggleExpand, onToggl
             <ol className="space-y-2.5">
               {guide.steps.map((step, index) => (
                 <li key={index} className="flex items-start gap-2.5 text-[13px] leading-6 text-foreground/85">
-                  <span className="mt-0.5 flex h-5 w-5 shrink-0 items-center justify-center rounded-full border border-white/[0.1] bg-white/[0.04] text-[10px] font-bold" style={{ color: accent }}>{index + 1}</span>
+                  <span className="mt-0.5 flex h-5 w-5 shrink-0 items-center justify-center rounded-full border border-white/[0.1] bg-surface-raised text-[10px] font-bold" style={{ color: accent }}>{index + 1}</span>
                   {step}
                 </li>
               ))}
@@ -466,7 +466,7 @@ function GuideCard({ guide, accent, completed, expanded, onToggleExpand, onToggl
             <button
               type="button"
               onClick={onToggleComplete}
-              className={`mt-4 inline-flex h-9 w-full items-center justify-center gap-2 rounded-lg text-xs font-bold transition-colors ${completed ? 'border border-white/[0.1] bg-white/[0.03] text-muted-foreground hover:bg-white/[0.06] hover:text-foreground' : 'bg-primary text-primary-foreground hover:bg-primary/90'}`}
+              className={`mt-4 inline-flex h-9 w-full items-center justify-center gap-2 rounded-lg text-xs font-bold transition-colors ${completed ? 'border border-white/[0.1] bg-surface-raised text-muted-foreground hover:bg-white/[0.06] hover:text-foreground' : 'bg-primary text-primary-foreground hover:bg-primary/90'}`}
             >
               {completed ? (<><RefreshCw className="h-3.5 w-3.5" /> Mark as not done</>) : (<><Check className="h-3.5 w-3.5" strokeWidth={2.6} /> Mark complete · +{guide.xp} XP</>)}
             </button>
@@ -542,7 +542,7 @@ export function GuidesView() {
                 {GUIDE_SECTIONS.map(section => {
                   const earned = section.guides.every(guide => completed.has(guide.id))
                   return (
-                    <span key={section.id} title={`${section.badgeName} — complete every guide in ${section.title}`} className={`inline-flex items-center gap-1.5 rounded-md border px-2.5 py-1.5 text-[10px] font-bold uppercase tracking-[0.08em] transition-colors ${earned ? 'border-primary/35 bg-primary/[0.1] text-primary' : 'border-white/[0.08] bg-white/[0.02] text-muted-foreground/50'}`}>
+                    <span key={section.id} title={`${section.badgeName} — complete every guide in ${section.title}`} className={`inline-flex items-center gap-1.5 rounded-md border px-2.5 py-1.5 text-[10px] font-bold uppercase tracking-[0.08em] transition-colors ${earned ? 'border-primary/35 bg-primary/[0.1] text-primary' : 'border-white/[0.08] bg-surface text-muted-foreground/50'}`}>
                       {earned ? <Medal className="h-3 w-3" /> : <LockKeyhole className="h-3 w-3" />} {section.badgeName}
                     </span>
                   )
@@ -575,7 +575,7 @@ export function GuidesView() {
                   <div className="h-full rounded-full bg-[linear-gradient(90deg,#9dfab0,#5eead4)] transition-[width] duration-700" style={{ width: `${stats.rankProgress}%` }} />
                 </div>
               </div>
-              <div className="mt-4 grid grid-cols-3 divide-x divide-white/[0.07] rounded-lg border border-white/[0.07] bg-white/[0.02] text-center">
+              <div className="mt-4 grid grid-cols-3 divide-x divide-white/[0.07] rounded-lg border border-white/[0.07] bg-surface text-center">
                 <div className="px-2 py-2.5"><p className="font-heading text-base font-semibold">{stats.doneCount}<span className="text-[10px] text-muted-foreground">/{ALL_GUIDES.length}</span></p><p className="text-[9px] font-semibold uppercase tracking-[0.08em] text-muted-foreground">Guides</p></div>
                 <div className="px-2 py-2.5"><p className="font-heading text-base font-semibold">{stats.earnedXp}<span className="text-[10px] text-muted-foreground">/{TOTAL_XP}</span></p><p className="text-[9px] font-semibold uppercase tracking-[0.08em] text-muted-foreground">XP</p></div>
                 <div className="px-2 py-2.5"><p className="font-heading text-base font-semibold">{stats.badges.length}<span className="text-[10px] text-muted-foreground">/{GUIDE_SECTIONS.length}</span></p><p className="text-[9px] font-semibold uppercase tracking-[0.08em] text-muted-foreground">Badges</p></div>
@@ -611,7 +611,7 @@ export function GuidesView() {
                     </div>
                   </div>
                   <div className="flex items-center gap-2.5">
-                    <span className={`inline-flex items-center gap-1.5 rounded-md border px-2.5 py-1.5 text-[10px] font-bold uppercase tracking-[0.08em] ${badgeEarned ? 'border-primary/35 bg-primary/[0.1] text-primary' : 'border-white/[0.08] bg-white/[0.02] text-muted-foreground'}`}>
+                    <span className={`inline-flex items-center gap-1.5 rounded-md border px-2.5 py-1.5 text-[10px] font-bold uppercase tracking-[0.08em] ${badgeEarned ? 'border-primary/35 bg-primary/[0.1] text-primary' : 'border-white/[0.08] bg-surface text-muted-foreground'}`}>
                       {badgeEarned ? <Award className="h-3.5 w-3.5" /> : <Layers3 className="h-3.5 w-3.5" />}
                       {badgeEarned ? `${section.badgeName} earned` : `${sectionDone}/${section.guides.length} complete`}
                     </span>

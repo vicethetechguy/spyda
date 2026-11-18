@@ -145,7 +145,7 @@ function AdminNotificationCenter({ onNavigate }: { onNavigate: (tab: TabId) => v
 
   return (
     <div ref={panelRef} className="relative">
-      <button type="button" onClick={() => setOpen(value => !value)} aria-label={`Notifications${unread ? `, ${unread} unread` : ''}`} className="relative inline-flex h-9 w-9 items-center justify-center rounded-lg border border-white/[0.1] bg-white/[0.03] text-muted-foreground transition-colors hover:text-foreground">
+      <button type="button" onClick={() => setOpen(value => !value)} aria-label={`Notifications${unread ? `, ${unread} unread` : ''}`} className="relative inline-flex h-9 w-9 items-center justify-center rounded-lg border border-white/[0.1] bg-surface-raised text-muted-foreground transition-colors hover:text-foreground">
         <Bell className="h-4 w-4" />
         {unread > 0 && <span className="absolute -right-1.5 -top-1.5 inline-flex min-h-5 min-w-5 items-center justify-center rounded-full border-2 border-[#060608] bg-primary px-1 text-[9px] font-bold text-primary-foreground">{unread > 99 ? '99+' : unread}</span>}
       </button>
@@ -229,7 +229,7 @@ function AdminLogin() {
           </p>
         </div>
 
-        <form onSubmit={handleSubmit} className="rounded-xl border border-white/[0.08] bg-white/[0.02] p-6 shadow-xl">
+        <form onSubmit={handleSubmit} className="rounded-xl border border-white/[0.08] bg-surface p-6 shadow-xl">
           <label className="mb-1.5 block text-xs font-semibold uppercase tracking-wide text-muted-foreground">Admin email</label>
           <div className="relative mb-4">
             <Mail className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
@@ -314,7 +314,7 @@ function OverviewTab() {
           <h2 className="font-heading text-xl font-semibold">Overview</h2>
           <p className="mt-1 text-sm text-muted-foreground">A live snapshot of the Spyda economy.</p>
         </div>
-        <button onClick={load} className="inline-flex h-9 items-center gap-2 rounded-lg border border-white/[0.1] bg-white/[0.03] px-3 text-sm text-muted-foreground hover:text-foreground">
+        <button onClick={load} className="inline-flex h-9 items-center gap-2 rounded-lg border border-white/[0.1] bg-surface-raised px-3 text-sm text-muted-foreground hover:text-foreground">
           <RefreshCw className={`h-4 w-4 ${loading ? 'animate-spin' : ''}`} /> Refresh
         </button>
       </div>
@@ -323,7 +323,7 @@ function OverviewTab() {
 
       <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-3">
         {cards.map(card => (
-          <div key={card.label} className="rounded-xl border border-white/[0.08] bg-white/[0.02] p-5">
+          <div key={card.label} className="rounded-xl border border-white/[0.08] bg-surface p-5">
             <div className="flex items-center gap-2 text-xs font-semibold uppercase tracking-wide text-muted-foreground">
               <card.icon className="h-4 w-4 text-primary" /> {card.label}
             </div>
@@ -402,7 +402,7 @@ function CouponsTab() {
       </div>
 
       {/* Generator */}
-      <div className="rounded-xl border border-white/[0.08] bg-white/[0.02] p-5 sm:p-6">
+      <div className="rounded-xl border border-white/[0.08] bg-surface p-5 sm:p-6">
         <p className="mb-3 text-xs font-semibold uppercase tracking-wide text-muted-foreground">Choose credit amount</p>
         <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
           {COUPON_AMOUNTS.map(value => {
@@ -417,7 +417,7 @@ function CouponsTab() {
                   setGenError('')
                 }}
                 aria-pressed={selected && customAmount === ''}
-                className={`rounded-lg border p-4 text-left transition-colors ${selected && customAmount === '' ? 'border-primary/60 bg-primary/[0.07]' : 'border-white/[0.08] bg-white/[0.02] hover:border-white/[0.16]'}`}
+                className={`rounded-lg border p-4 text-left transition-colors ${selected && customAmount === '' ? 'border-primary/60 bg-primary/[0.07]' : 'border-white/[0.08] bg-surface hover:border-white/[0.16]'}`}
               >
                 <div className="flex items-center justify-between">
                   <span className="font-heading text-2xl font-semibold">{fmt(value)}</span>
@@ -431,7 +431,7 @@ function CouponsTab() {
           })}
           
           {/* Custom Amount */}
-          <div className={`rounded-lg border p-4 transition-colors ${customAmount !== '' ? 'border-primary/60 bg-primary/[0.07]' : 'border-white/[0.08] bg-white/[0.02]'}`}>
+          <div className={`rounded-lg border p-4 transition-colors ${customAmount !== '' ? 'border-primary/60 bg-primary/[0.07]' : 'border-white/[0.08] bg-surface'}`}>
             <p className="mb-2 text-xs font-semibold text-foreground">Custom amount</p>
             <div className="flex items-center gap-2 border-b border-white/[0.14] pb-1 focus-within:border-primary/50">
               <input
@@ -485,7 +485,7 @@ function CouponsTab() {
       {/* History */}
       <div className="mt-6 flex items-center justify-between">
         <h3 className="font-heading text-base font-semibold">Issued coupons</h3>
-        <button onClick={load} className="inline-flex h-9 items-center gap-2 rounded-lg border border-white/[0.1] bg-white/[0.03] px-3 text-sm text-muted-foreground hover:text-foreground">
+        <button onClick={load} className="inline-flex h-9 items-center gap-2 rounded-lg border border-white/[0.1] bg-surface-raised px-3 text-sm text-muted-foreground hover:text-foreground">
           <RefreshCw className={`h-4 w-4 ${loading ? 'animate-spin' : ''}`} /> Refresh
         </button>
       </div>
@@ -634,7 +634,7 @@ function UsersTab() {
           <h2 className="font-heading text-xl font-semibold">Users</h2>
           <p className="mt-1 text-sm text-muted-foreground">View balances and manually add or remove Spyda credits.</p>
         </div>
-        <button onClick={load} className="inline-flex h-9 items-center gap-2 rounded-lg border border-white/[0.1] bg-white/[0.03] px-3 text-sm text-muted-foreground hover:text-foreground">
+        <button onClick={load} className="inline-flex h-9 items-center gap-2 rounded-lg border border-white/[0.1] bg-surface-raised px-3 text-sm text-muted-foreground hover:text-foreground">
           <RefreshCw className={`h-4 w-4 ${loading ? 'animate-spin' : ''}`} /> Refresh
         </button>
       </div>
@@ -834,12 +834,12 @@ function TaskReviewsTab() {
           <p className="mt-1 text-sm text-muted-foreground">Verify X activity before releasing {WELCOME_REWARD_CREDITS} Spyda Credits.</p>
         </div>
         <div className="flex items-center gap-2">
-          <div className="flex rounded-lg border border-white/[0.09] bg-white/[0.025] p-1">
+          <div className="flex rounded-lg border border-white/[0.09] bg-surface p-1">
             {(['pending', 'all'] as const).map(option => (
               <button key={option} type="button" onClick={() => setFilter(option)} className={`h-8 rounded-md px-3 text-xs font-semibold capitalize transition-colors ${filter === option ? 'bg-primary/12 text-primary' : 'text-muted-foreground hover:text-foreground'}`}>{option}</button>
             ))}
           </div>
-          <button type="button" onClick={() => void load()} className="inline-flex h-10 items-center gap-2 rounded-lg border border-white/[0.1] bg-white/[0.03] px-3 text-sm text-muted-foreground hover:text-foreground"><RefreshCw className={`h-4 w-4 ${loading ? 'animate-spin' : ''}`} /> Refresh</button>
+          <button type="button" onClick={() => void load()} className="inline-flex h-10 items-center gap-2 rounded-lg border border-white/[0.1] bg-surface-raised px-3 text-sm text-muted-foreground hover:text-foreground"><RefreshCw className={`h-4 w-4 ${loading ? 'animate-spin' : ''}`} /> Refresh</button>
         </div>
       </div>
 
@@ -849,7 +849,7 @@ function TaskReviewsTab() {
       {loading ? (
         <div className="flex min-h-[280px] items-center justify-center rounded-xl border border-white/[0.08]"><Loader2 className="h-6 w-6 animate-spin text-primary" /></div>
       ) : claims.length === 0 ? (
-        <div className="flex min-h-[280px] flex-col items-center justify-center rounded-xl border border-dashed border-white/[0.1] bg-white/[0.015] px-6 text-center">
+        <div className="flex min-h-[280px] flex-col items-center justify-center rounded-xl border border-dashed border-white/[0.1] bg-surface px-6 text-center">
           <CircleCheck className="h-8 w-8 text-primary" />
           <h3 className="mt-4 font-heading text-lg font-semibold">Queue cleared</h3>
           <p className="mt-2 max-w-sm text-sm leading-6 text-muted-foreground">There are no {filter === 'pending' ? 'pending ' : ''}welcome reward claims to review.</p>
@@ -860,7 +860,7 @@ function TaskReviewsTab() {
             const pending = claim.status === 'pending'
             const busy = reviewingId === claim.user_id
             return (
-              <article key={claim.user_id} className="overflow-hidden rounded-xl border border-white/[0.09] bg-white/[0.018]">
+              <article key={claim.user_id} className="overflow-hidden rounded-xl border border-white/[0.09] bg-surface">
                 <div className="grid gap-5 border-b border-white/[0.07] p-5 lg:grid-cols-[minmax(0,1fr)_auto] lg:items-start">
                   <div>
                     <div className="flex flex-wrap items-center gap-2">
@@ -952,10 +952,10 @@ export default function Admin() {
           </div>
           <div className="flex items-center gap-2">
             <AdminNotificationCenter onNavigate={setTab} />
-            <Link to="/workspace" className="hidden h-9 items-center rounded-lg border border-white/[0.1] bg-white/[0.03] px-3 text-sm text-muted-foreground hover:text-foreground sm:inline-flex">
+            <Link to="/workspace" className="hidden h-9 items-center rounded-lg border border-white/[0.1] bg-surface-raised px-3 text-sm text-muted-foreground hover:text-foreground sm:inline-flex">
               Workspace
             </Link>
-            <button onClick={() => signOut()} className="inline-flex h-9 items-center gap-2 rounded-lg border border-white/[0.1] bg-white/[0.03] px-3 text-sm text-muted-foreground hover:text-foreground">
+            <button onClick={() => signOut()} className="inline-flex h-9 items-center gap-2 rounded-lg border border-white/[0.1] bg-surface-raised px-3 text-sm text-muted-foreground hover:text-foreground">
               <LogOut className="h-4 w-4" /> Sign out
             </button>
           </div>
@@ -963,7 +963,7 @@ export default function Admin() {
       </header>
 
       <div className="mx-auto max-w-[1200px] px-4 py-6 sm:px-6 sm:py-8">
-        <nav className="mb-7 flex gap-1 overflow-x-auto rounded-xl border border-white/[0.08] bg-white/[0.02] p-1">
+        <nav className="mb-7 flex gap-1 overflow-x-auto rounded-xl border border-white/[0.08] bg-surface p-1">
           {tabs.map(t => {
             const active = tab === t.id
             return (

@@ -162,7 +162,7 @@ export function WhitepaperView() {
               <p className="mt-6 max-w-2xl text-base leading-8 text-muted-foreground sm:text-lg">Spyda helps people create premium design work faster, then turns eligible product usage into participation in the economy they are helping to build.</p>
               <div className="mt-8 flex flex-wrap items-center gap-3">
                 <button type="button" onClick={() => goToChapter(1)} className="inline-flex h-11 items-center gap-2 rounded-lg bg-primary px-5 text-sm font-semibold text-primary-foreground transition-transform hover:-translate-y-0.5">Explore the reward loop <ArrowDown className="h-4 w-4" /></button>
-                <div className="inline-flex h-11 items-center gap-2 rounded-lg border border-white/[0.09] bg-white/[0.025] px-4 text-sm text-muted-foreground"><ShieldCheck className="h-4 w-4 text-primary" /> Utility first. Community earned.</div>
+                <div className="inline-flex h-11 items-center gap-2 rounded-lg border border-white/[0.09] bg-surface px-4 text-sm text-muted-foreground"><ShieldCheck className="h-4 w-4 text-primary" /> Utility first. Community earned.</div>
               </div>
             </div>
 
@@ -184,7 +184,7 @@ export function WhitepaperView() {
             </div>
             <div className="grid gap-2">
               {[['Less waste', 'Keep the structure that already works.'], ['Better output', 'Make smaller, controlled design changes.'], ['Shared upside', 'Turn eligible usage into accrued participation.']].map(([title, copy], index) => (
-                <div key={title} className="rounded-lg border border-white/[0.08] bg-white/[0.02] p-4 transition-colors hover:border-primary/25 hover:bg-primary/[0.035]"><span className="text-[10px] font-semibold text-primary">0{index + 1}</span><h3 className="mt-2 text-sm font-semibold">{title}</h3><p className="mt-1 text-xs leading-5 text-muted-foreground">{copy}</p></div>
+                <div key={title} className="rounded-lg border border-white/[0.08] bg-surface p-4 transition-colors hover:border-primary/25 hover:bg-primary/[0.035]"><span className="text-[10px] font-semibold text-primary">0{index + 1}</span><h3 className="mt-2 text-sm font-semibold">{title}</h3><p className="mt-1 text-xs leading-5 text-muted-foreground">{copy}</p></div>
               ))}
             </div>
           </div>
@@ -211,7 +211,7 @@ export function WhitepaperView() {
               </div>
             </div>
 
-            <div className="rounded-lg border border-white/[0.1] bg-white/[0.025] p-5 sm:p-6">
+            <div className="rounded-lg border border-white/[0.1] bg-surface p-5 sm:p-6">
               <div className="flex items-center justify-between gap-4"><div><p className="text-[10px] font-semibold uppercase tracking-[0.15em] text-primary">Reward simulator</p><h3 className="mt-2 font-heading text-lg font-semibold">See what your usage builds</h3></div><Coins className="h-6 w-6 text-primary" /></div>
               <label className="mt-6 block text-xs font-medium text-muted-foreground" htmlFor="whitepaper-credit-spend">Eligible credits spent</label>
               <div className="mt-2 flex h-12 items-center rounded-lg border border-white/[0.1] bg-black/20 px-3 focus-within:border-primary/50"><SpydaTokenIcon className="h-5 w-5" /><input id="whitepaper-credit-spend" type="number" min="0" max="1000000000" step="100" value={creditSpend} onChange={event => setCreditSpend(event.target.value)} className="min-w-0 flex-1 bg-transparent px-3 font-heading text-lg font-semibold outline-none" /><span className="text-xs text-muted-foreground">credits</span></div>
@@ -233,9 +233,9 @@ export function WhitepaperView() {
             </div>
           </div>
           <div className="mt-8 grid gap-3 md:grid-cols-3">
-            <div className="rounded-lg border border-white/[0.08] bg-white/[0.02] p-5"><Users className="h-5 w-5 text-primary" /><h3 className="mt-4 text-sm font-semibold">User-earned threshold</h3><p className="mt-2 text-xs leading-5 text-muted-foreground">The 1 billion target refers to cumulative eligible SPYDA accrued to user accounts before launch.</p></div>
-            <div className="rounded-lg border border-white/[0.08] bg-white/[0.02] p-5"><ShieldCheck className="h-5 w-5 text-primary" /><h3 className="mt-4 text-sm font-semibold">Readiness gates</h3><p className="mt-2 text-xs leading-5 text-muted-foreground">Security audits, legal review, network selection, claim controls, and utility must be ready before activation.</p></div>
-            <div className="rounded-lg border border-white/[0.08] bg-white/[0.02] p-5"><Gift className="h-5 w-5 text-primary" /><h3 className="mt-4 text-sm font-semibold">Balance recognition</h3><p className="mt-2 text-xs leading-5 text-muted-foreground">The intended launch design recognizes each eligible recorded SPYDA balance on a one-for-one token allocation basis, subject to final published terms.</p></div>
+            <div className="rounded-lg border border-white/[0.08] bg-surface p-5"><Users className="h-5 w-5 text-primary" /><h3 className="mt-4 text-sm font-semibold">User-earned threshold</h3><p className="mt-2 text-xs leading-5 text-muted-foreground">The 1 billion target refers to cumulative eligible SPYDA accrued to user accounts before launch.</p></div>
+            <div className="rounded-lg border border-white/[0.08] bg-surface p-5"><ShieldCheck className="h-5 w-5 text-primary" /><h3 className="mt-4 text-sm font-semibold">Readiness gates</h3><p className="mt-2 text-xs leading-5 text-muted-foreground">Security audits, legal review, network selection, claim controls, and utility must be ready before activation.</p></div>
+            <div className="rounded-lg border border-white/[0.08] bg-surface p-5"><Gift className="h-5 w-5 text-primary" /><h3 className="mt-4 text-sm font-semibold">Balance recognition</h3><p className="mt-2 text-xs leading-5 text-muted-foreground">The intended launch design recognizes each eligible recorded SPYDA balance on a one-for-one token allocation basis, subject to final published terms.</p></div>
           </div>
         </WhitepaperChapter>
 
@@ -244,7 +244,7 @@ export function WhitepaperView() {
             <div>
               <div className="grid gap-3 sm:grid-cols-2">
                 {utilityItems.map(([title, copy], index) => (
-                  <div key={title} className="rounded-lg border border-white/[0.08] bg-white/[0.02] p-5 transition-transform hover:-translate-y-0.5"><div className="flex items-center justify-between"><SpydaTokenIcon className="h-6 w-6" /><span className="text-[10px] font-semibold text-muted-foreground">UTILITY 0{index + 1}</span></div><h3 className="mt-5 font-heading text-base font-semibold">{title}</h3><p className="mt-2 text-xs leading-5 text-muted-foreground">{copy}</p></div>
+                  <div key={title} className="rounded-lg border border-white/[0.08] bg-surface p-5 transition-transform hover:-translate-y-0.5"><div className="flex items-center justify-between"><SpydaTokenIcon className="h-6 w-6" /><span className="text-[10px] font-semibold text-muted-foreground">UTILITY 0{index + 1}</span></div><h3 className="mt-5 font-heading text-base font-semibold">{title}</h3><p className="mt-2 text-xs leading-5 text-muted-foreground">{copy}</p></div>
                 ))}
               </div>
               <div className="mt-6 space-y-3 text-sm leading-7 text-muted-foreground">
@@ -293,7 +293,7 @@ export function WhitepaperView() {
               [Zap, 'Product utility first', 'The strongest foundation for the network is a product people choose because it produces better creative work.'],
             ].map(([Icon, title, copy]) => {
               const TrustIcon = Icon as typeof ShieldCheck
-              return <div key={String(title)} className="rounded-lg border border-white/[0.08] bg-white/[0.02] p-5"><TrustIcon className="h-5 w-5 text-primary" /><h3 className="mt-4 text-sm font-semibold">{String(title)}</h3><p className="mt-2 text-xs leading-5 text-muted-foreground">{String(copy)}</p></div>
+              return <div key={String(title)} className="rounded-lg border border-white/[0.08] bg-surface p-5"><TrustIcon className="h-5 w-5 text-primary" /><h3 className="mt-4 text-sm font-semibold">{String(title)}</h3><p className="mt-2 text-xs leading-5 text-muted-foreground">{String(copy)}</p></div>
             })}
           </div>
           <div className="mt-8 rounded-lg border border-[#ff8f5c]/25 bg-[#ff8f5c]/[0.045] p-5 sm:p-6">
@@ -307,7 +307,7 @@ export function WhitepaperView() {
           <p className="mt-6 text-[10px] font-semibold uppercase tracking-[0.18em] text-primary">Build with Spyda. Build Spyda.</p>
           <h2 className="mx-auto mt-4 max-w-3xl font-heading text-3xl font-semibold leading-tight sm:text-5xl">A billion tokens earned through a billion moments of creative progress.</h2>
           <p className="mx-auto mt-5 max-w-2xl text-sm leading-7 text-muted-foreground">Better design is the product. Shared participation is the reward. A creator-powered economy is the destination.</p>
-          <button type="button" onClick={() => goToChapter(0)} className="mt-8 inline-flex h-10 items-center gap-2 rounded-lg border border-white/[0.1] bg-white/[0.025] px-4 text-sm font-semibold hover:bg-white/[0.06]">Read from the beginning <ArrowDown className="h-4 w-4 rotate-180" /></button>
+          <button type="button" onClick={() => goToChapter(0)} className="mt-8 inline-flex h-10 items-center gap-2 rounded-lg border border-white/[0.1] bg-surface px-4 text-sm font-semibold hover:bg-white/[0.06]">Read from the beginning <ArrowDown className="h-4 w-4 rotate-180" /></button>
         </footer>
       </div>
     </article>

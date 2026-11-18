@@ -401,7 +401,7 @@ export default function Editor() {
       ) : null}
 
       <div className="flex min-h-0 flex-1 flex-col gap-3 px-3 py-3 sm:px-5 lg:flex-row">
-        <section className="relative min-h-[46vh] flex-1 self-stretch overflow-hidden rounded-xl border border-white/10 bg-white/[0.015]">
+        <section className="relative min-h-[46vh] flex-1 self-stretch overflow-hidden rounded-xl border border-white/10 bg-surface">
           {design ? (
             <LayerCanvas
               document={design}

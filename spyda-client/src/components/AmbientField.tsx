@@ -31,7 +31,6 @@ export default function AmbientField({ intensity = 1, className = '' }: AmbientF
         className="absolute -bottom-[28%] left-[24%] h-[58vh] w-[58vw] rounded-full"
         style={{ background: `radial-gradient(closest-side, rgba(255, 143, 92, ${0.055 * intensity}), rgba(255, 143, 92, 0) 72%)` }}
       />
-      <div className="absolute inset-0 grid-pattern opacity-50" />
     </div>
   )
 }

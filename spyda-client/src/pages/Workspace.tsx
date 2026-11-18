@@ -1411,13 +1411,14 @@ export default function Workspace() {
       {/* Mobile Sidebar Backdrop */}
       {sidebarOpen && (
         <div 
-          className="fixed inset-0 bg-black/60 z-40 lg:hidden backdrop-blur-sm" 
+          className="fixed inset-0 bg-black/70 z-[55] lg:hidden backdrop-blur-sm" 
           onClick={() => setSidebarOpen(false)}
         />
       )}
       
-      {/* Sidebar */}
-      <div className={`fixed inset-y-0 left-0 z-50 lg:relative h-full shrink-0 transition-all duration-300 ease-in-out overflow-hidden bg-[#060608]/95 backdrop-blur-2xl lg:bg-transparent border-r border-white/[0.04] lg:border-none ${sidebarOpen ? 'w-[260px] translate-x-0' : 'w-[260px] -translate-x-full lg:w-0 lg:translate-x-0'}`}>
+      {/* Sidebar. On mobile it is a drawer that must sit above the top bar
+          (z-50) and its backdrop, or the bar's title paints through it. */}
+      <div className={`fixed inset-y-0 left-0 z-[60] lg:relative lg:z-auto h-full shrink-0 transition-all duration-300 ease-in-out overflow-hidden bg-[#08090a] shadow-[24px_0_60px_rgba(0,0,0,0.55)] lg:shadow-none lg:bg-transparent border-r border-white/[0.06] lg:border-none ${sidebarOpen ? 'w-[260px] translate-x-0' : 'w-[260px] -translate-x-full lg:w-0 lg:translate-x-0'}`}>
         <SidebarNav
           className="w-[260px] h-full"
           activeId={activeId}
@@ -1466,7 +1467,7 @@ export default function Workspace() {
             <div className="relative">
               <button
                 onClick={() => setModelMenuOpen(!modelMenuOpen)}
-                className="inline-flex h-8 items-center gap-2 rounded-lg border border-white/[0.08] bg-white/[0.03] px-3 text-xs font-medium text-muted-foreground hover:bg-white/[0.06] transition-colors"
+                className="inline-flex h-8 items-center gap-2 rounded-lg border border-white/[0.08] bg-surface-raised px-3 text-xs font-medium text-muted-foreground hover:bg-white/[0.06] transition-colors"
               >
                 <Bot className="w-3.5 h-3.5 text-primary" />
                 <span className="hidden sm:inline">{aiModel.label}</span>
@@ -1498,7 +1499,7 @@ export default function Workspace() {
               )}
             </div>
             {activeId === 'canvas' && uploadedFile && (
-              <button onClick={handleReset} title="Reset" aria-label="Reset" className="inline-flex h-8 items-center gap-2 rounded-lg border border-white/[0.08] bg-white/[0.03] px-2.5 text-xs font-medium text-muted-foreground hover:bg-white/[0.06] transition-colors sm:px-3">
+              <button onClick={handleReset} title="Reset" aria-label="Reset" className="inline-flex h-8 items-center gap-2 rounded-lg border border-white/[0.08] bg-surface-raised px-2.5 text-xs font-medium text-muted-foreground hover:bg-white/[0.06] transition-colors sm:px-3">
                 <RotateCcw className="w-3.5 h-3.5" /> <span className="hidden sm:inline">Reset</span>
               </button>
             )}
@@ -1663,7 +1664,7 @@ function QaGateView({ qa, generatedImage, uploadedPreview, onBack, onApplyEssent
           </p>
         </div>
       ) : !hasReport ? (
-        <div className="flex flex-col items-center justify-center rounded-2xl border border-white/[0.06] bg-white/[0.02] py-20 text-center px-6">
+        <div className="flex flex-col items-center justify-center rounded-2xl border border-white/[0.06] bg-surface py-20 text-center px-6">
           <ShieldCheck className="w-10 h-10 text-muted-foreground/30 mb-4" strokeWidth={1.25} />
           <h2 className="text-lg font-semibold">No QA report yet</h2>
           <p className="mt-2 max-w-md text-sm text-muted-foreground">
@@ -1724,7 +1725,7 @@ function QaGateView({ qa, generatedImage, uploadedPreview, onBack, onApplyEssent
               <p className="mb-3 text-[11px] font-bold uppercase tracking-[0.12em] text-muted-foreground">Intent &amp; Fidelity</p>
               <div className="grid grid-cols-2 gap-2 sm:grid-cols-3 lg:grid-cols-6">
                 {Object.entries(qa.categoryScores).map(([category, score]) => (
-                  <div key={category} className="rounded-xl border border-white/[0.06] bg-white/[0.02] px-3 py-3">
+                  <div key={category} className="rounded-xl border border-white/[0.06] bg-surface px-3 py-3">
                     <p className="truncate text-[10px] font-semibold capitalize text-muted-foreground">{category.replace(/([A-Z])/g, ' $1')}</p>
                     <p className={`mt-1 text-lg font-bold ${score >= 95 ? 'text-primary' : score >= 85 ? 'text-foreground' : 'text-amber-500'}`}>{score}</p>
                   </div>
@@ -1741,7 +1742,7 @@ function QaGateView({ qa, generatedImage, uploadedPreview, onBack, onApplyEssent
               { label: 'Assets', value: qa?.assetMatch },
               { label: 'Replacement Size', value: qa?.sizeMatch },
             ].filter(item => item.value).map(item => (
-              <div key={item.label} className="rounded-xl border border-white/[0.06] bg-white/[0.02] px-4 py-3">
+              <div key={item.label} className="rounded-xl border border-white/[0.06] bg-surface px-4 py-3">
                 <p className="text-[11px] font-bold tracking-[0.12em] uppercase text-muted-foreground">{item.label}</p>
                 <p className="mt-1 text-sm text-foreground/85">{item.value}</p>
               </div>
@@ -1762,7 +1763,7 @@ function QaGateView({ qa, generatedImage, uploadedPreview, onBack, onApplyEssent
             )}
           </section>
 
-          <section className="rounded-xl border border-white/[0.06] bg-white/[0.02] px-4 py-4">
+          <section className="rounded-xl border border-white/[0.06] bg-surface px-4 py-4">
             <p className="text-[11px] font-bold uppercase tracking-[0.12em] text-muted-foreground">What was solid</p>
             {solidFindings.length ? (
               <ul className="mt-2 space-y-1.5">
@@ -1791,7 +1792,7 @@ function QaGateView({ qa, generatedImage, uploadedPreview, onBack, onApplyEssent
           )}
 
           {/* Issues */}
-          <section className={`rounded-xl border px-4 py-4 ${detectedIssues.length ? 'border-amber-500/25 bg-amber-500/[0.035]' : 'border-white/[0.06] bg-white/[0.02]'}`}>
+          <section className={`rounded-xl border px-4 py-4 ${detectedIssues.length ? 'border-amber-500/25 bg-amber-500/[0.035]' : 'border-white/[0.06] bg-surface'}`}>
             <p className="text-[11px] font-bold uppercase tracking-[0.12em] text-muted-foreground">Detected Issues</p>
             {detectedIssues.length ? (
               <ul className="mt-2 space-y-1.5">
@@ -1817,7 +1818,7 @@ function QaGateView({ qa, generatedImage, uploadedPreview, onBack, onApplyEssent
               </div>
               <ol className="space-y-2">
                 {suggestedEssentials.map((essential, index) => (
-                  <li key={index} className="flex items-start gap-2.5 rounded-lg border border-white/[0.06] bg-white/[0.02] px-3 py-2.5 text-sm text-foreground/85">
+                  <li key={index} className="flex items-start gap-2.5 rounded-lg border border-white/[0.06] bg-surface px-3 py-2.5 text-sm text-foreground/85">
                     <span className="mt-0.5 flex h-5 w-5 shrink-0 items-center justify-center rounded-full bg-primary/10 text-[11px] font-bold text-primary">{index + 1}</span>
                     {essential}
                   </li>
@@ -1832,7 +1833,7 @@ function QaGateView({ qa, generatedImage, uploadedPreview, onBack, onApplyEssent
               <p className="mt-2 text-[11px] text-muted-foreground">This fills the 3 Essential prompt slots on the Canvas (replacing anything typed there) and counts as your 3 changes for the next round.</p>
             </div>
           ) : (
-            <section className="rounded-xl border border-white/[0.06] bg-white/[0.02] px-4 py-4">
+            <section className="rounded-xl border border-white/[0.06] bg-surface px-4 py-4">
               <p className="text-[11px] font-bold uppercase tracking-[0.12em] text-muted-foreground">Suggested Corrective Essentials</p>
               <p className="mt-2 text-sm text-muted-foreground">No corrective Essential is needed for this round.</p>
             </section>
@@ -1968,7 +1969,7 @@ function PlacementCanvas({
 
   return (
     <div
-      className="relative flex w-full items-center justify-center overflow-hidden rounded-xl border border-white/[0.06] bg-white/[0.02] p-3"
+      className="relative flex w-full items-center justify-center overflow-hidden rounded-xl border border-white/[0.06] bg-surface p-3"
       style={{ height: DESIGN_PREVIEW_HEIGHT }}
     >
       <div
@@ -2261,7 +2262,7 @@ function StudioView({
           <div className="mb-4 flex items-center justify-between gap-3">
             <span className="text-[11px] font-bold tracking-[0.12em] uppercase text-primary">Child Source</span>
             <div className="flex items-center gap-2">
-              <span className="rounded-full border border-white/[0.08] bg-white/[0.03] px-2.5 py-1 text-[10px] font-bold text-muted-foreground">
+              <span className="rounded-full border border-white/[0.08] bg-surface-raised px-2.5 py-1 text-[10px] font-bold text-muted-foreground">
                 {totalChangeCount}/3 changes ready
               </span>
               {generatedImage && (
@@ -2280,7 +2281,7 @@ function StudioView({
           {downloadError && <p className="mb-3 text-right text-[11px] text-destructive">{downloadError}</p>}
           {generatedImage || uploadedPreview ? (
             <div
-              className="relative flex w-full items-center justify-center overflow-hidden rounded-xl border border-primary/20 bg-white/[0.02] p-3"
+              className="relative flex w-full items-center justify-center overflow-hidden rounded-xl border border-primary/20 bg-surface p-3"
               style={{ height: DESIGN_PREVIEW_HEIGHT }}
             >
               <div
@@ -2304,7 +2305,7 @@ function StudioView({
               )}
             </div>
           ) : (
-            <div className="rounded-xl border border-dashed border-white/[0.08] bg-white/[0.01] flex-1 flex flex-col items-center justify-center min-h-[200px]">
+            <div className="rounded-xl border border-dashed border-white/[0.08] bg-surface flex-1 flex flex-col items-center justify-center min-h-[200px]">
               {isGenerating ? (
                 <>
                   <Loader2 className="w-8 h-8 text-primary animate-spin mb-3" />
@@ -2392,7 +2393,7 @@ function StudioView({
                   type="button"
                   aria-label="Close Design Atoms"
                   onClick={() => setAtomsDrawerOpen(false)}
-                  className="inline-flex h-9 w-9 items-center justify-center rounded-lg border border-white/[0.08] bg-white/[0.03] text-muted-foreground transition-colors hover:bg-white/[0.07] hover:text-foreground lg:hidden"
+                  className="inline-flex h-9 w-9 items-center justify-center rounded-lg border border-white/[0.08] bg-surface-raised text-muted-foreground transition-colors hover:bg-white/[0.07] hover:text-foreground lg:hidden"
                 >
                   <X className="h-4 w-4" />
                 </button>
@@ -2405,7 +2406,7 @@ function StudioView({
                 {generateError}
               </div>
             )}
-            <div className="rounded-xl border border-white/[0.06] bg-white/[0.025] p-4">
+            <div className="rounded-xl border border-white/[0.06] bg-surface p-4">
               <div className="flex flex-wrap items-center justify-between gap-3">
                 <div>
                   <p className="text-xs font-bold uppercase tracking-[0.12em] text-primary">Edit round — up to 3 focused changes</p>
@@ -2466,7 +2467,7 @@ function StudioView({
                     type="text"
                     value={brandEdits.headingFont}
                     onChange={e => onBrandEdit('headingFont', e.target.value)}
-                    className="w-full h-9 px-3 rounded-lg bg-white/[0.04] border border-white/[0.06] text-sm text-foreground outline-none focus:border-primary/40 transition-colors"
+                    className="w-full h-9 px-3 rounded-lg bg-surface-raised border border-white/[0.06] text-sm text-foreground outline-none focus:border-primary/40 transition-colors"
                   />
                 </div>
                 <div>
@@ -2475,7 +2476,7 @@ function StudioView({
                     type="text"
                     value={brandEdits.bodyFont}
                     onChange={e => onBrandEdit('bodyFont', e.target.value)}
-                    className="w-full h-9 px-3 rounded-lg bg-white/[0.04] border border-white/[0.06] text-sm text-foreground outline-none focus:border-primary/40 transition-colors"
+                    className="w-full h-9 px-3 rounded-lg bg-surface-raised border border-white/[0.06] text-sm text-foreground outline-none focus:border-primary/40 transition-colors"
                   />
                 </div>
               </div>
@@ -2485,7 +2486,7 @@ function StudioView({
                   { label: '30%', name: 'Secondary', field: 'secondaryColor' as const },
                   { label: '10%', name: 'Accent', field: 'accentColor' as const },
                 ].map(c => (
-                  <div key={c.field} className="rounded-xl border border-white/[0.06] bg-white/[0.025] p-3">
+                  <div key={c.field} className="rounded-xl border border-white/[0.06] bg-surface p-3">
                     <label className="mb-2 flex items-center justify-between gap-2">
                       <span className="text-[11px] font-semibold text-muted-foreground">{c.name}</span>
                       <span className="rounded-full bg-white/[0.05] px-2 py-0.5 text-[10px] font-bold text-primary">{c.label}</span>
@@ -2519,7 +2520,7 @@ function StudioView({
                   value={brandEdits.visualStyle}
                   onChange={e => onBrandEdit('visualStyle', e.target.value)}
                   placeholder="Premium Photoshop style, lighting, texture, background feel"
-                  className="w-full h-20 px-3 py-2 rounded-lg bg-white/[0.04] border border-white/[0.06] text-sm text-foreground placeholder:text-muted-foreground/40 outline-none focus:border-primary/40 transition-colors resize-none"
+                  className="w-full h-20 px-3 py-2 rounded-lg bg-surface-raised border border-white/[0.06] text-sm text-foreground placeholder:text-muted-foreground/40 outline-none focus:border-primary/40 transition-colors resize-none"
                 />
               </div>
               <div className="mt-4">
@@ -2592,7 +2593,7 @@ function StudioView({
                       <button
                         type="button"
                         onClick={onRemoveEssentialsImage}
-                        className="inline-flex h-9 items-center rounded-lg border border-white/[0.07] bg-white/[0.03] px-3 text-xs font-semibold text-muted-foreground transition-colors hover:bg-white/[0.06] hover:text-foreground"
+                        className="inline-flex h-9 items-center rounded-lg border border-white/[0.07] bg-surface-raised px-3 text-xs font-semibold text-muted-foreground transition-colors hover:bg-white/[0.06] hover:text-foreground"
                       >
                         Remove
                       </button>
@@ -2694,7 +2695,7 @@ function AtomCard({
   const chipClass = typeColors[section.type] || typeColors.text
 
   return (
-    <div className="rounded-xl border border-white/[0.06] bg-white/[0.02] p-5 transition-all hover:border-white/[0.1]" style={{ animationDelay: `${index * 80}ms` }}>
+    <div className="rounded-xl border border-white/[0.06] bg-surface p-5 transition-all hover:border-white/[0.1]" style={{ animationDelay: `${index * 80}ms` }}>
       <div className="flex items-start justify-between mb-3">
         <div className="flex items-center gap-2">
           <span className={`inline-flex items-center px-2 py-0.5 rounded-md text-[10px] font-bold uppercase tracking-wider border ${chipClass}`}>
@@ -2707,7 +2708,7 @@ function AtomCard({
             type="button"
             onClick={() => setMenuOpen(prev => !prev)}
             aria-label={`${section.name} options`}
-            className="inline-flex h-8 w-8 items-center justify-center rounded-lg border border-white/[0.06] bg-white/[0.03] text-muted-foreground transition-colors hover:border-white/[0.12] hover:bg-white/[0.06] hover:text-foreground"
+            className="inline-flex h-8 w-8 items-center justify-center rounded-lg border border-white/[0.06] bg-surface-raised text-muted-foreground transition-colors hover:border-white/[0.12] hover:bg-white/[0.06] hover:text-foreground"
           >
             <MoreHorizontal className="h-4 w-4" />
           </button>
@@ -2740,14 +2741,14 @@ function AtomCard({
       <div className="flex flex-wrap items-center gap-2 mb-3">
         <button
           onClick={() => onEdit(section.id, 'same', edit?.value || '')}
-          className={`inline-flex h-7 items-center gap-1.5 rounded-md px-3 text-[11px] font-semibold transition-colors ${mode === 'same' ? 'bg-primary/15 text-primary border border-primary/30' : 'bg-white/[0.03] text-muted-foreground border border-white/[0.06] hover:bg-white/[0.06]'}`}
+          className={`inline-flex h-7 items-center gap-1.5 rounded-md px-3 text-[11px] font-semibold transition-colors ${mode === 'same' ? 'bg-primary/15 text-primary border border-primary/30' : 'bg-surface-raised text-muted-foreground border border-white/[0.06] hover:bg-white/[0.06]'}`}
         >
           {mode === 'same' && <Check className="w-3 h-3" />} Same
         </button>
         <button
           onClick={() => onEdit(section.id, 'customize', edit?.value || '')}
           disabled={selectionLocked}
-          className={`inline-flex h-7 items-center gap-1.5 rounded-md px-3 text-[11px] font-semibold transition-colors disabled:opacity-40 disabled:pointer-events-none ${mode === 'customize' ? 'bg-primary/15 text-primary border border-primary/30' : 'bg-white/[0.03] text-muted-foreground border border-white/[0.06] hover:bg-white/[0.06]'}`}
+          className={`inline-flex h-7 items-center gap-1.5 rounded-md px-3 text-[11px] font-semibold transition-colors disabled:opacity-40 disabled:pointer-events-none ${mode === 'customize' ? 'bg-primary/15 text-primary border border-primary/30' : 'bg-surface-raised text-muted-foreground border border-white/[0.06] hover:bg-white/[0.06]'}`}
         >
           Customize
         </button>
@@ -2790,7 +2791,7 @@ function AtomCard({
                 value={edit?.value || ''}
                 onChange={e => onEdit(section.id, 'customize', e.target.value)}
                 placeholder={`Optional blending note for the AI pass, e.g. "match the background lighting". Your manual position and size remain locked.`}
-                className="w-full h-16 px-3 py-2 rounded-lg bg-white/[0.04] border border-white/[0.06] text-sm text-foreground placeholder:text-muted-foreground/40 outline-none focus:border-primary/40 transition-colors resize-none"
+                className="w-full h-16 px-3 py-2 rounded-lg bg-surface-raised border border-white/[0.06] text-sm text-foreground placeholder:text-muted-foreground/40 outline-none focus:border-primary/40 transition-colors resize-none"
               />
             </div>
           ) : (
@@ -2798,7 +2799,7 @@ function AtomCard({
               value={edit?.value || ''}
               onChange={e => onEdit(section.id, 'customize', e.target.value)}
               placeholder={replacementHint}
-              className="w-full h-16 px-3 py-2 rounded-lg bg-white/[0.04] border border-white/[0.06] text-sm text-foreground placeholder:text-muted-foreground/40 outline-none focus:border-primary/40 transition-colors resize-none"
+              className="w-full h-16 px-3 py-2 rounded-lg bg-surface-raised border border-white/[0.06] text-sm text-foreground placeholder:text-muted-foreground/40 outline-none focus:border-primary/40 transition-colors resize-none"
             />
           )}
         </div>
@@ -2876,9 +2877,9 @@ function GalleryView({ onNewDesign }: { onNewDesign: () => void }) {
         <div className="flex flex-col gap-3 py-5 sm:flex-row sm:items-center sm:justify-between">
           <label className="relative block w-full sm:max-w-sm">
             <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
-            <input value={query} onChange={event => setQuery(event.target.value)} placeholder="Search designs" className="h-10 w-full rounded-lg border border-white/[0.08] bg-white/[0.025] pl-10 pr-3 text-sm outline-none transition-colors placeholder:text-muted-foreground/60 focus:border-primary/45" />
+            <input value={query} onChange={event => setQuery(event.target.value)} placeholder="Search designs" className="h-10 w-full rounded-lg border border-white/[0.08] bg-surface pl-10 pr-3 text-sm outline-none transition-colors placeholder:text-muted-foreground/60 focus:border-primary/45" />
           </label>
-          <div className="grid grid-cols-3 rounded-lg border border-white/[0.08] bg-white/[0.02] p-1">
+          <div className="grid grid-cols-3 rounded-lg border border-white/[0.08] bg-surface p-1">
             {([
               { id: 'all', label: 'All', count: projects.length },
               { id: 'generated', label: 'Generated', count: generatedCount },
@@ -2898,7 +2899,7 @@ function GalleryView({ onNewDesign }: { onNewDesign: () => void }) {
             const preview = project.generatedImage || project.referencePreview || ''
             const atomCount = project.breakdown?.design?.editableComponents?.filter(atom => !atom.deleted).length || 0
             return (
-              <article key={project.id} className="group min-w-0 overflow-hidden rounded-lg border border-white/[0.07] bg-white/[0.025] transition-colors hover:border-primary/30">
+              <article key={project.id} className="group min-w-0 overflow-hidden rounded-lg border border-white/[0.07] bg-surface transition-colors hover:border-primary/30">
                 <div className="relative aspect-[4/5] overflow-hidden bg-[#101113]">
                   {preview ? <img src={preview} alt={project.name} className="h-full w-full object-contain" /> : <div className="flex h-full items-center justify-center"><Image className="h-10 w-10 text-muted-foreground/30" /></div>}
                   <div className="absolute left-2 top-2 rounded-md border border-white/10 bg-black/65 px-2 py-1 text-[9px] font-semibold uppercase text-white backdrop-blur-sm sm:left-3 sm:top-3 sm:text-[10px]">
@@ -3191,11 +3192,11 @@ function WalletView({ onFund, onSend }: { onFund: () => void; onSend: () => void
           <div className="mt-3 grid grid-cols-3 gap-2">
             <button type="button" onClick={() => handleWalletAction('fund')} className="inline-flex h-12 items-center justify-center gap-2 rounded-lg border border-primary/30 bg-primary/10 text-sm font-semibold text-primary transition-colors hover:bg-primary/15"><ArrowDownToLine className="h-4 w-4" /> Fund</button>
             {isAdmin ? (
-              <button type="button" onClick={onSend} className="inline-flex h-12 items-center justify-center gap-2 rounded-lg border border-white/[0.1] bg-white/[0.04] text-sm font-semibold transition-colors hover:border-primary/30 hover:bg-primary/[0.08] hover:text-primary"><Send className="h-4 w-4" /> Send</button>
+              <button type="button" onClick={onSend} className="inline-flex h-12 items-center justify-center gap-2 rounded-lg border border-white/[0.1] bg-surface-raised text-sm font-semibold transition-colors hover:border-primary/30 hover:bg-primary/[0.08] hover:text-primary"><Send className="h-4 w-4" /> Send</button>
             ) : (
-              <button type="button" disabled title="Spyda Credit transfers are available to the administrator only." className="inline-flex h-12 cursor-not-allowed items-center justify-center gap-2 rounded-lg border border-white/[0.06] bg-white/[0.02] text-sm font-semibold text-muted-foreground"><LockKeyhole className="h-4 w-4" /> Send</button>
+              <button type="button" disabled title="Spyda Credit transfers are available to the administrator only." className="inline-flex h-12 cursor-not-allowed items-center justify-center gap-2 rounded-lg border border-white/[0.06] bg-surface text-sm font-semibold text-muted-foreground"><LockKeyhole className="h-4 w-4" /> Send</button>
             )}
-            <button type="button" onClick={() => handleWalletAction('withdraw')} aria-disabled={activeAsset === 'token'} className={`inline-flex h-12 items-center justify-center gap-2 rounded-lg border text-sm font-semibold transition-colors ${activeAsset === 'token' ? 'cursor-not-allowed border-white/[0.06] bg-white/[0.02] text-muted-foreground' : 'border-white/[0.09] bg-white/[0.035] hover:bg-white/[0.07]'}`}>
+            <button type="button" onClick={() => handleWalletAction('withdraw')} aria-disabled={activeAsset === 'token'} className={`inline-flex h-12 items-center justify-center gap-2 rounded-lg border text-sm font-semibold transition-colors ${activeAsset === 'token' ? 'cursor-not-allowed border-white/[0.06] bg-surface text-muted-foreground' : 'border-white/[0.09] bg-surface-raised hover:bg-white/[0.07]'}`}>
               {activeAsset === 'token' ? <LockKeyhole className="h-4 w-4" /> : <ArrowUpRight className="h-4 w-4" />} Withdraw
             </button>
           </div>
@@ -3206,7 +3207,7 @@ function WalletView({ onFund, onSend }: { onFund: () => void; onSend: () => void
             <div className="mb-3 flex items-center justify-between"><h3 className="font-heading text-base font-semibold">Your assets</h3><span className="text-[10px] font-semibold uppercase text-muted-foreground">Select to inspect</span></div>
             <div className="grid gap-2 md:grid-cols-3">
               {Object.values(assets).map(asset => (
-                <button key={asset.id} type="button" onClick={() => { setActiveAsset(asset.id); setWalletNotice('') }} aria-pressed={activeAsset === asset.id} className={`min-h-[146px] rounded-lg border p-4 text-left transition-colors ${activeAsset === asset.id ? 'border-primary/45 bg-primary/[0.06]' : 'border-white/[0.08] bg-white/[0.025] hover:border-white/[0.16]'}`}>
+                <button key={asset.id} type="button" onClick={() => { setActiveAsset(asset.id); setWalletNotice('') }} aria-pressed={activeAsset === asset.id} className={`min-h-[146px] rounded-lg border p-4 text-left transition-colors ${activeAsset === asset.id ? 'border-primary/45 bg-primary/[0.06]' : 'border-white/[0.08] bg-surface hover:border-white/[0.16]'}`}>
                   <div className="flex items-center gap-3">
                     <span className="inline-flex h-9 w-9 shrink-0 items-center justify-center rounded-full border border-white/10 bg-black/20 text-primary">{asset.icon}</span>
                     <span className="text-lg font-semibold text-foreground">{asset.status}</span>
@@ -3220,7 +3221,7 @@ function WalletView({ onFund, onSend }: { onFund: () => void; onSend: () => void
         </section>
 
         <aside className="space-y-3">
-          <section className="rounded-lg border border-white/[0.08] bg-white/[0.025] p-5">
+          <section className="rounded-lg border border-white/[0.08] bg-surface p-5">
             <div className="flex items-center justify-between gap-3"><div><h3 className="font-heading text-base font-semibold">Wallet activity</h3><p className="mt-1 text-[10px] uppercase text-muted-foreground">{activityTotal.toLocaleString()} transaction{activityTotal === 1 ? '' : 's'}</p></div><ReceiptText className="h-4 w-4 text-muted-foreground" /></div>
             {activityLoading && !activities.length ? (
               <div className="flex min-h-40 items-center justify-center"><Loader2 className="h-5 w-5 animate-spin text-primary" /></div>
@@ -3250,13 +3251,13 @@ function WalletView({ onFund, onSend }: { onFund: () => void; onSend: () => void
                 })}
               </div>
             ) : (
-              <div className="mt-7 border-b border-dashed border-white/[0.1] pb-7 text-center"><div className="mx-auto flex h-10 w-10 items-center justify-center rounded-full border border-white/10 bg-white/[0.03]"><Wallet className="h-4 w-4 text-primary" /></div><p className="mt-3 text-sm font-semibold">No credit activity yet</p><p className="mt-1 text-xs leading-5 text-muted-foreground">Funding, generation spending, and marketplace earnings will appear here.</p></div>
+              <div className="mt-7 border-b border-dashed border-white/[0.1] pb-7 text-center"><div className="mx-auto flex h-10 w-10 items-center justify-center rounded-full border border-white/10 bg-surface-raised"><Wallet className="h-4 w-4 text-primary" /></div><p className="mt-3 text-sm font-semibold">No credit activity yet</p><p className="mt-1 text-xs leading-5 text-muted-foreground">Funding, generation spending, and marketplace earnings will appear here.</p></div>
             )}
             {activities.length < activityTotal && <button type="button" onClick={() => setActivityLimit(limit => limit + 20)} disabled={activityLoading} className="mt-4 flex h-9 w-full items-center justify-center gap-2 rounded-lg border border-white/[0.08] text-xs font-semibold text-muted-foreground hover:bg-white/[0.04] hover:text-foreground disabled:opacity-50">{activityLoading && <Loader2 className="h-3.5 w-3.5 animate-spin" />} Load older activity</button>}
             <button type="button" onClick={onFund} className="mt-4 flex w-full items-center justify-between text-sm font-semibold text-primary">Fund your credit balance <ChevronRight className="h-4 w-4" /></button>
           </section>
 
-          <section className="rounded-lg border border-white/[0.08] bg-white/[0.025] p-5">
+          <section className="rounded-lg border border-white/[0.08] bg-surface p-5">
             <div className="flex items-center justify-between"><h3 className="font-heading text-base font-semibold">Usage economics</h3><Zap className="h-4 w-4 text-primary" /></div>
             <div className="mt-5 space-y-4">
               <div className="flex items-end justify-between gap-3 border-b border-white/[0.07] pb-4"><div><p className="text-xs text-muted-foreground">Groq + GPT-Image 2</p><p className="mt-1 text-sm font-semibold">20 credits</p></div><span className="text-[10px] uppercase text-muted-foreground">per round</span></div>
@@ -3266,7 +3267,7 @@ function WalletView({ onFund, onSend }: { onFund: () => void; onSend: () => void
             <p className="mt-5 text-xs leading-5 text-muted-foreground">Your current balance supports about {generationsRemaining.toLocaleString()} generation{generationsRemaining !== 1 ? 's' : ''} at the active {byokEnabled ? 'BYOK' : 'managed'} rate.</p>
           </section>
 
-          <section className="rounded-lg border border-white/[0.08] bg-white/[0.025] p-5">
+          <section className="rounded-lg border border-white/[0.08] bg-surface p-5">
             <div className="flex items-start gap-3"><div className="mt-0.5 flex h-8 w-8 shrink-0 items-center justify-center rounded-full border border-primary/20 bg-primary/10"><LockKeyhole className="h-4 w-4 text-primary" /></div><div><p className="text-sm font-semibold">Token withdrawal locked</p><p className="mt-1 text-xs leading-5 text-muted-foreground">Unlocking depends on network, custody, security, and jurisdiction readiness. Spyda will never imply token liquidity before those gates pass.</p></div></div>
           </section>
         </aside>
@@ -3399,7 +3400,7 @@ function AdminWalletSendView({ onBack }: { onBack: () => void }) {
   if (!isAdmin) {
     return (
       <div className="mx-auto flex min-h-[60vh] w-full max-w-2xl items-center justify-center px-4 py-10">
-        <div className="w-full rounded-xl border border-white/[0.08] bg-white/[0.025] p-7 text-center">
+        <div className="w-full rounded-xl border border-white/[0.08] bg-surface p-7 text-center">
           <LockKeyhole className="mx-auto h-7 w-7 text-muted-foreground" />
           <h2 className="mt-4 font-heading text-xl font-semibold">Admin transfer only</h2>
           <p className="mt-2 text-sm text-muted-foreground">Only admin@spydadesigns.xyz can send Spyda Credits directly to another wallet.</p>
@@ -3414,7 +3415,7 @@ function AdminWalletSendView({ onBack }: { onBack: () => void }) {
       <button type="button" onClick={onBack} className="inline-flex items-center gap-2 text-sm text-muted-foreground transition-colors hover:text-foreground"><ArrowLeft className="h-4 w-4" /> Back to Wallet</button>
 
       <div className="mt-6 grid gap-5 lg:grid-cols-[minmax(0,1fr)_300px]">
-        <section className="rounded-xl border border-white/[0.09] bg-white/[0.025] p-5 sm:p-7">
+        <section className="rounded-xl border border-white/[0.09] bg-surface p-5 sm:p-7">
           <div className="flex items-start gap-3">
             <span className="inline-flex h-11 w-11 shrink-0 items-center justify-center rounded-lg border border-primary/25 bg-primary/10 text-primary"><Send className="h-5 w-5" /></span>
             <div>
@@ -3491,7 +3492,7 @@ function AdminWalletSendView({ onBack }: { onBack: () => void }) {
             <div className="mt-4 flex items-center gap-3"><SpydaCreditIcon className="h-9 w-9" /><div><p className="font-heading text-3xl font-semibold">{loadingBalance ? '—' : balance.toLocaleString()}</p><p className="text-xs text-white/55">Spyda Credits</p></div></div>
             <div className="mt-6 border-t border-white/[0.12] pt-4"><p className="text-[10px] uppercase tracking-wide text-white/50">Sending account</p><p className="mt-1 truncate text-xs font-medium text-white/85">{user?.email}</p></div>
           </section>
-          <section className="rounded-lg border border-white/[0.08] bg-white/[0.025] p-5">
+          <section className="rounded-lg border border-white/[0.08] bg-surface p-5">
             <div className="flex items-start gap-3"><ShieldCheck className="mt-0.5 h-4 w-4 shrink-0 text-primary" /><div><p className="text-sm font-semibold">Admin protected</p><p className="mt-1 text-xs leading-5 text-muted-foreground">The database verifies the signed-in admin account before moving credits. Regular accounts cannot call this transfer.</p></div></div>
           </section>
         </aside>
@@ -3552,7 +3553,7 @@ function FundView({ onBack }: { onBack: () => void }) {
           <h2 className="font-heading text-2xl font-semibold sm:text-[28px]">Fund Spyda Credits</h2>
           <p className="mt-1.5 max-w-xl text-sm text-muted-foreground">Choose a pack or enter any amount. Every $1 adds 100 credits.</p>
         </div>
-        <div className="inline-flex w-fit items-center gap-2 rounded-lg border border-white/[0.08] bg-white/[0.03] px-3 py-2 text-xs text-muted-foreground">
+        <div className="inline-flex w-fit items-center gap-2 rounded-lg border border-white/[0.08] bg-surface-raised px-3 py-2 text-xs text-muted-foreground">
           <Wallet className="h-4 w-4 text-primary" /> Current balance:
           <span className="font-semibold text-foreground">{loading ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : `${balance.toLocaleString()} credits`}</span>
         </div>
@@ -3563,7 +3564,7 @@ function FundView({ onBack }: { onBack: () => void }) {
           {CREDIT_TIERS.map(tier => {
             const selected = selectedTier.amountUSD === tier.amountUSD && selectedTier.title === tier.title
             return (
-              <button key={tier.amountUSD} type="button" onClick={() => setSelectedTier(tier)} aria-pressed={selected} className={`relative min-h-40 rounded-lg border p-5 text-left transition-colors ${selected ? 'border-primary/60 bg-primary/[0.07]' : 'border-white/[0.08] bg-white/[0.02] hover:border-white/[0.16]'}`}>
+              <button key={tier.amountUSD} type="button" onClick={() => setSelectedTier(tier)} aria-pressed={selected} className={`relative min-h-40 rounded-lg border p-5 text-left transition-colors ${selected ? 'border-primary/60 bg-primary/[0.07]' : 'border-white/[0.08] bg-surface hover:border-white/[0.16]'}`}>
                 <div className="flex items-start justify-between gap-3">
                   <div>
                     <div className="flex flex-wrap items-center gap-2">
@@ -3579,7 +3580,7 @@ function FundView({ onBack }: { onBack: () => void }) {
               </button>
             )
           })}
-          <label className={`relative min-h-40 cursor-text rounded-lg border p-5 text-left transition-colors ${selectedTier.title === 'Custom' ? 'border-primary/60 bg-primary/[0.07]' : 'border-white/[0.08] bg-white/[0.02] hover:border-white/[0.16]'}`}>
+          <label className={`relative min-h-40 cursor-text rounded-lg border p-5 text-left transition-colors ${selectedTier.title === 'Custom' ? 'border-primary/60 bg-primary/[0.07]' : 'border-white/[0.08] bg-surface hover:border-white/[0.16]'}`}>
             <p className="text-xs font-semibold uppercase text-muted-foreground">Custom amount</p>
             <div className="mt-2 flex items-center gap-2 font-heading text-3xl font-semibold">
               <span>$</span>
@@ -3608,7 +3609,7 @@ function FundView({ onBack }: { onBack: () => void }) {
           </label>
         </div>
 
-        <div className="mt-6 rounded-lg border border-white/[0.08] bg-white/[0.025] p-5 sm:p-6">
+        <div className="mt-6 rounded-lg border border-white/[0.08] bg-surface p-5 sm:p-6">
           <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
             <div><p className="text-sm font-semibold">{selectedTier.credits.toLocaleString()} credits <span className="font-normal text-muted-foreground">· about {selectedGenerations} generations</span></p><p className="mt-1 text-xs text-muted-foreground">Charged as {localPrice} through Paystack.</p></div>
             <PaystackTopUpButton tier={selectedTier} user={user} balance={balance} setBalance={setBalance} usdToNgn={USD_TO_NGN} />
@@ -3651,7 +3652,7 @@ function CouponRedeemCard({ onRedeemed }: { onRedeemed: (creditsAdded: number) =
   }
 
   return (
-    <div className="mt-6 rounded-xl border border-white/[0.08] bg-white/[0.025] p-6 pb-7 sm:p-8 sm:pb-9">
+    <div className="mt-6 rounded-xl border border-white/[0.08] bg-surface p-6 pb-7 sm:p-8 sm:pb-9">
       <div className="mb-4 flex items-center gap-2 text-[11px] font-semibold uppercase text-primary">
         <Ticket className="h-4 w-4" /> Have a coupon code?
       </div>
@@ -3858,9 +3859,8 @@ function SettingsView({ profilePic, setProfilePic, onManageSubscription }: { pro
       <div className="grid grid-cols-1 lg:grid-cols-[1fr_300px] gap-10">
         <div className="space-y-8">
           {/* Profile Section */}
-          <div className="rounded-2xl border border-white/[0.06] bg-white/[0.02] overflow-hidden">
+          <div className="rounded-2xl border border-white/[0.06] bg-surface overflow-hidden">
             <div className="h-24 bg-gradient-to-r from-primary/20 via-primary/5 to-transparent relative">
-              <div className="absolute inset-0 bg-[url('/grid.svg')] opacity-20"></div>
             </div>
             <div className="px-8 pb-8 pt-0 relative">
               <div className="flex justify-between items-end mb-6">
@@ -3924,7 +3924,7 @@ function SettingsView({ profilePic, setProfilePic, onManageSubscription }: { pro
           </div>
 
           {/* Preferences Section */}
-          <div className="rounded-2xl border border-white/[0.06] bg-white/[0.02] p-8">
+          <div className="rounded-2xl border border-white/[0.06] bg-surface p-8">
             <h3 className="font-heading text-lg font-bold mb-6">Workspace Preferences</h3>
             <div className="space-y-6">
               <div>

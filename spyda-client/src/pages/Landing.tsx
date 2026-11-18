@@ -100,10 +100,10 @@ function MockAtomCard({ icon: Icon, name, type, mode, detail }: {
   detail?: string
 }) {
   return (
-    <div className={`rounded-lg border p-2.5 ${mode === 'customize' ? 'border-primary/25 bg-primary/[0.04]' : 'border-white/[0.06] bg-white/[0.02]'}`}>
+    <div className={`rounded-lg border p-2.5 ${mode === 'customize' ? 'border-primary/25 bg-primary/[0.04]' : 'border-white/[0.06] bg-surface'}`}>
       <div className="flex items-center justify-between gap-2">
         <div className="flex min-w-0 items-center gap-2">
-          <span className="flex h-5 w-5 shrink-0 items-center justify-center rounded-md border border-white/[0.08] bg-white/[0.03]"><Icon className="h-2.5 w-2.5 text-primary" strokeWidth={1.7} /></span>
+          <span className="flex h-5 w-5 shrink-0 items-center justify-center rounded-md border border-white/[0.08] bg-surface-raised"><Icon className="h-2.5 w-2.5 text-primary" strokeWidth={1.7} /></span>
           <span className="truncate text-[10px] font-semibold text-foreground">{name}</span>
           <span className="shrink-0 rounded-sm bg-white/[0.05] px-1 py-0.5 text-[7px] font-bold uppercase tracking-wide text-muted-foreground">{type}</span>
         </div>
@@ -171,7 +171,7 @@ function WorkspaceMockup() {
               <ShieldCheck className="h-3 w-3 text-primary" strokeWidth={1.5} />
             </div>
             <div className="flex items-center gap-2">
-              <span className="inline-flex h-5 items-center gap-1.5 rounded-md border border-white/[0.08] bg-white/[0.03] px-2 text-[9px] font-medium text-muted-foreground">
+              <span className="inline-flex h-5 items-center gap-1.5 rounded-md border border-white/[0.08] bg-surface-raised px-2 text-[9px] font-medium text-muted-foreground">
                 <Bot className="h-2.5 w-2.5 text-primary" /> Groq + GPT-Image 2 <ChevronDown className="h-2 w-2" />
               </span>
               <span className="flex h-5 w-5 items-center justify-center rounded-full bg-gradient-to-br from-[#22c55e] to-[#16a34a] text-[8px] font-bold text-primary-foreground">S</span>
@@ -202,7 +202,7 @@ function WorkspaceMockup() {
               <div className="mb-1.5 mt-2.5 flex items-center justify-between">
                 <span className="text-[8px] font-bold uppercase tracking-[0.12em] text-primary">Child Source</span>
                 <div className="flex items-center gap-1.5">
-                  <span className="rounded-full border border-white/[0.08] bg-white/[0.03] px-1.5 py-0.5 text-[7px] font-bold text-muted-foreground">3/3 changes ready</span>
+                  <span className="rounded-full border border-white/[0.08] bg-surface-raised px-1.5 py-0.5 text-[7px] font-bold text-muted-foreground">3/3 changes ready</span>
                   <span className="inline-flex items-center gap-1 rounded-md bg-primary px-1.5 py-0.5 text-[7px] font-bold text-primary-foreground"><Download className="h-2 w-2" /> Download</span>
                 </div>
               </div>
@@ -223,7 +223,7 @@ function WorkspaceMockup() {
                 <span className="inline-flex items-center gap-1 rounded-md bg-primary px-2 py-1 text-[9px] font-bold text-primary-foreground"><Zap className="h-2.5 w-2.5" /> Apply 3/3</span>
               </div>
               <div className="relative min-h-0 flex-1 space-y-2 overflow-hidden p-2.5">
-                <div className="rounded-lg border border-white/[0.06] bg-white/[0.025] p-2.5">
+                <div className="rounded-lg border border-white/[0.06] bg-surface p-2.5">
                   <div className="flex items-center justify-between gap-2">
                     <div>
                       <p className="text-[9px] font-bold uppercase tracking-[0.1em] text-primary">Edit round — up to 3 focused changes</p>
@@ -242,7 +242,7 @@ function WorkspaceMockup() {
                   </div>
                   <div className="mt-2 flex items-center gap-2">
                     {['#0F172A', '#22C55E', '#F8FAFC'].map(hex => (
-                      <span key={hex} className="flex items-center gap-1 rounded-md border border-white/[0.07] bg-white/[0.03] px-1.5 py-0.5">
+                      <span key={hex} className="flex items-center gap-1 rounded-md border border-white/[0.07] bg-surface-raised px-1.5 py-0.5">
                         <span className="h-2 w-2 rounded-full border border-white/20" style={{ backgroundColor: hex }} />
                         <span className="text-[7px] font-medium text-muted-foreground">{hex}</span>
                       </span>
@@ -288,7 +288,7 @@ function PricingCard({ name, price, detail, desc, features, featured, texture }:
   texture: 'free' | 'starter' | 'creator' | 'pro'
 }) {
   return (
-    <article tabIndex={0} aria-label={`${name} pricing plan`} className={`pricing-texture pricing-texture--${texture} relative flex w-[84vw] max-w-[340px] shrink-0 snap-start flex-col rounded-lg border p-6 outline-none md:w-auto md:max-w-none ${featured ? 'border-primary/45 bg-primary/[0.04]' : 'border-white/[0.07] bg-white/[0.02]'}`}>
+    <article tabIndex={0} aria-label={`${name} pricing plan`} className={`pricing-texture pricing-texture--${texture} relative flex w-[84vw] max-w-[340px] shrink-0 snap-start flex-col rounded-lg border p-6 outline-none md:w-auto md:max-w-none ${featured ? 'border-primary/45 bg-primary/[0.04]' : 'border-white/[0.07] bg-surface'}`}>
       {featured && <span className="absolute right-4 top-4 rounded bg-primary/10 px-2 py-1 text-[9px] font-semibold uppercase tracking-[0.12em] text-primary">Popular</span>}
       <h3 className="font-heading text-lg font-semibold">{name}</h3>
       <p className="mt-4 font-heading text-3xl font-semibold">{price}</p>
@@ -302,7 +302,7 @@ function PricingCard({ name, price, detail, desc, features, featured, texture }:
           </li>
         ))}
       </ul>
-      <Link to="/auth" className={`mt-6 inline-flex h-11 items-center justify-center rounded-lg text-sm font-semibold transition-colors ${featured ? 'bg-primary text-primary-foreground hover:bg-primary/90' : 'border border-white/[0.1] bg-white/[0.03] hover:bg-white/[0.07]'}`}>
+      <Link to="/auth" className={`mt-6 inline-flex h-11 items-center justify-center rounded-lg text-sm font-semibold transition-colors ${featured ? 'bg-primary text-primary-foreground hover:bg-primary/90' : 'border border-white/[0.1] bg-surface-raised hover:bg-white/[0.07]'}`}>
         Choose {name}
       </Link>
     </article>
@@ -400,7 +400,7 @@ export default function Landing() {
                 type="button"
                 onClick={handleInstall}
                 title="Install Spyda"
-                className="inline-flex h-9 items-center gap-2 rounded-lg border border-white/[0.1] bg-white/[0.025] px-2.5 text-xs font-medium text-muted-foreground transition-colors hover:bg-white/[0.06] hover:text-foreground lg:px-3"
+                className="inline-flex h-9 items-center gap-2 rounded-lg border border-white/[0.1] bg-surface px-2.5 text-xs font-medium text-muted-foreground transition-colors hover:bg-white/[0.06] hover:text-foreground lg:px-3"
               >
                 <Download className="h-3.5 w-3.5" />
                 <span className="hidden md:inline">Install Spyda</span>
@@ -433,7 +433,7 @@ export default function Landing() {
                 <Link to="/auth" className="group inline-flex h-12 w-full items-center justify-center gap-2 rounded-lg bg-primary px-6 text-sm font-semibold text-primary-foreground shadow-[0_14px_40px_rgba(157,250,176,0.18)] transition-all hover:-translate-y-0.5 hover:bg-primary/90 sm:w-auto">
                   Open Spyda <ArrowRight className="h-4 w-4 transition-transform group-hover:translate-x-0.5" />
                 </Link>
-                <a href="#how" className="inline-flex h-12 w-full items-center justify-center gap-2 rounded-lg border border-white/[0.1] bg-white/[0.025] px-6 text-sm font-medium transition-colors hover:bg-white/[0.06] sm:w-auto">
+                <a href="#how" className="inline-flex h-12 w-full items-center justify-center gap-2 rounded-lg border border-white/[0.1] bg-surface px-6 text-sm font-medium transition-colors hover:bg-white/[0.06] sm:w-auto">
                   <Play className="h-4 w-4 text-primary" /> See the workflow
                 </a>
               </div>
@@ -500,7 +500,7 @@ export default function Landing() {
                 <article key={item.step} className="group relative min-h-64 overflow-hidden bg-background p-6 transition-colors duration-300 hover:bg-primary/[0.03]">
                   <div className="pointer-events-none absolute inset-x-0 bottom-0 h-px bg-gradient-to-r from-transparent via-primary/45 to-transparent opacity-0 transition-opacity duration-300 group-hover:opacity-100" />
                   <div className="flex items-center justify-between">
-                    <span className="flex h-10 w-10 items-center justify-center rounded-lg border border-white/[0.08] bg-white/[0.03] transition-colors duration-300 group-hover:border-primary/30 group-hover:bg-primary/[0.07]"><item.icon className="h-[18px] w-[18px] text-primary" strokeWidth={1.7} /></span>
+                    <span className="flex h-10 w-10 items-center justify-center rounded-lg border border-white/[0.08] bg-surface-raised transition-colors duration-300 group-hover:border-primary/30 group-hover:bg-primary/[0.07]"><item.icon className="h-[18px] w-[18px] text-primary" strokeWidth={1.7} /></span>
                     <span className="font-heading text-xs text-muted-foreground">{item.step}</span>
                   </div>
                   <h3 className="mt-10 font-heading text-lg font-semibold">{item.title}</h3>
@@ -573,7 +573,7 @@ export default function Landing() {
 
                 <div className="mt-8 flex flex-col gap-3 sm:flex-row sm:items-center">
                   <Link to="/auth" className="inline-flex h-11 items-center justify-center gap-2 rounded-lg bg-primary px-5 text-sm font-semibold text-primary-foreground transition-transform hover:-translate-y-0.5">Start creating and accruing <ArrowRight className="h-4 w-4" /></Link>
-                  <Link to="/auth" className="inline-flex h-11 items-center justify-center gap-2 rounded-lg border border-white/[0.1] bg-white/[0.025] px-5 text-sm font-semibold hover:bg-white/[0.06]"><ShieldCheck className="h-4 w-4 text-primary" /> Read the whitepaper in Spyda</Link>
+                  <Link to="/auth" className="inline-flex h-11 items-center justify-center gap-2 rounded-lg border border-white/[0.1] bg-surface px-5 text-sm font-semibold hover:bg-white/[0.06]"><ShieldCheck className="h-4 w-4 text-primary" /> Read the whitepaper in Spyda</Link>
                 </div>
                 <p className="mt-5 max-w-2xl text-[11px] leading-5 text-muted-foreground">Pre-launch SPYDA is a non-transferable reward record, not cash, a refund, a stablecoin, or guaranteed market value. Launch requires the community threshold plus security, utility, network, and legal readiness.</p>
               </div>
@@ -582,9 +582,9 @@ export default function Landing() {
             </div>
 
             <div className="mt-16 grid gap-3 border-t border-white/[0.08] pt-8 md:grid-cols-3">
-              <div className="rounded-lg border border-white/[0.08] bg-white/[0.02] p-5 transition-all duration-300 hover:-translate-y-0.5 hover:border-primary/25 hover:bg-primary/[0.03]"><Gift className="h-5 w-5 text-primary" /><h3 className="mt-4 font-heading text-base font-semibold">Usage becomes participation</h3><p className="mt-2 text-sm leading-6 text-muted-foreground">Rewards follow eligible credits actually consumed, not money simply deposited into the wallet.</p></div>
-              <div className="rounded-lg border border-white/[0.08] bg-white/[0.02] p-5 transition-all duration-300 hover:-translate-y-0.5 hover:border-primary/25 hover:bg-primary/[0.03]"><Network className="h-5 w-5 text-[#a9bcff]" /><h3 className="mt-4 font-heading text-base font-semibold">One billion, earned together</h3><p className="mt-2 text-sm leading-6 text-muted-foreground">The planned launch trigger is reached when user accounts collectively accrue 1 billion eligible SPYDA.</p></div>
-              <div className="rounded-lg border border-white/[0.08] bg-white/[0.02] p-5 transition-all duration-300 hover:-translate-y-0.5 hover:border-primary/25 hover:bg-primary/[0.03]"><ShieldCheck className="h-5 w-5 text-[#ffab84]" /><h3 className="mt-4 font-heading text-base font-semibold">Product and trust first</h3><p className="mt-2 text-sm leading-6 text-muted-foreground">Spyda must remain useful before launch, and the token infrastructure must pass its readiness gates.</p></div>
+              <div className="rounded-lg border border-white/[0.08] bg-surface p-5 transition-all duration-300 hover:-translate-y-0.5 hover:border-primary/25 hover:bg-primary/[0.03]"><Gift className="h-5 w-5 text-primary" /><h3 className="mt-4 font-heading text-base font-semibold">Usage becomes participation</h3><p className="mt-2 text-sm leading-6 text-muted-foreground">Rewards follow eligible credits actually consumed, not money simply deposited into the wallet.</p></div>
+              <div className="rounded-lg border border-white/[0.08] bg-surface p-5 transition-all duration-300 hover:-translate-y-0.5 hover:border-primary/25 hover:bg-primary/[0.03]"><Network className="h-5 w-5 text-[#a9bcff]" /><h3 className="mt-4 font-heading text-base font-semibold">One billion, earned together</h3><p className="mt-2 text-sm leading-6 text-muted-foreground">The planned launch trigger is reached when user accounts collectively accrue 1 billion eligible SPYDA.</p></div>
+              <div className="rounded-lg border border-white/[0.08] bg-surface p-5 transition-all duration-300 hover:-translate-y-0.5 hover:border-primary/25 hover:bg-primary/[0.03]"><ShieldCheck className="h-5 w-5 text-[#ffab84]" /><h3 className="mt-4 font-heading text-base font-semibold">Product and trust first</h3><p className="mt-2 text-sm leading-6 text-muted-foreground">Spyda must remain useful before launch, and the token infrastructure must pass its readiness gates.</p></div>
             </div>
           </div>
         </section>
@@ -665,7 +665,7 @@ export default function Landing() {
         <div className="mx-auto flex max-w-6xl flex-col gap-6 sm:flex-row sm:items-center sm:justify-between">
           <div className="flex items-center gap-2.5"><BrandMark size={28} className="opacity-70" /><span className="font-heading text-sm font-semibold">Spyda</span><span className="text-xs text-muted-foreground">&copy; 2026</span></div>
           <p className="text-xs text-muted-foreground">Premium design today. Participation in what comes next.</p>
-          <div className="inline-flex w-fit items-center gap-2 rounded-lg border border-white/[0.09] bg-white/[0.025] px-3 py-2 text-[10px] text-muted-foreground">
+          <div className="inline-flex w-fit items-center gap-2 rounded-lg border border-white/[0.09] bg-surface px-3 py-2 text-[10px] text-muted-foreground">
             <span>Built by</span><img src="/assets/vigency-logo-footer.png" alt="Vigency" className="h-4 w-auto opacity-70" />
           </div>
         </div>

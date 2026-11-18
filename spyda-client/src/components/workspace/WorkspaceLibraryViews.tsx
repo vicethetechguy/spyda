@@ -144,7 +144,7 @@ function PageIntro({ eyebrow, title, copy, action }: { eyebrow: string; title: s
 function EmptyLibrary({ icon: Icon, title, copy, action }: { icon: React.ElementType; title: string; copy: string; action?: React.ReactNode }) {
   return (
     <div className="flex min-h-80 flex-col items-center justify-center border border-dashed border-white/[0.1] bg-white/[0.015] p-8 text-center">
-      <div className="mb-4 flex h-11 w-11 items-center justify-center rounded-lg border border-white/[0.08] bg-white/[0.03]">
+      <div className="mb-4 flex h-11 w-11 items-center justify-center rounded-lg border border-white/[0.08] bg-surface-raised">
         <Icon className="h-5 w-5 text-primary" />
       </div>
       <h3 className="font-heading text-lg font-semibold">{title}</h3>
@@ -251,10 +251,10 @@ export function ProjectsView({ initialFilter, onOpenProject, onNewDesign }: { in
     <div className="mx-auto w-full max-w-6xl p-5 sm:p-8">
       <PageIntro eyebrow="Organize your work" title="Projects" copy="Resume active designs or move finished work into your archive." action={<button type="button" onClick={onNewDesign} className="inline-flex h-10 items-center gap-2 rounded-lg bg-primary px-4 text-xs font-semibold text-primary-foreground"><Plus className="h-4 w-4" /> New project</button>} />
       <div className="mt-6 flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
-        <div className="inline-flex w-fit rounded-lg border border-white/[0.08] bg-white/[0.02] p-1">
+        <div className="inline-flex w-fit rounded-lg border border-white/[0.08] bg-surface p-1">
           {(['active', 'archived'] as const).map(value => <button key={value} type="button" onClick={() => setFilter(value)} className={`h-8 rounded-md px-4 text-xs font-semibold capitalize ${filter === value ? 'bg-white/[0.1] text-foreground' : 'text-muted-foreground'}`}>{value}</button>)}
         </div>
-        <label className="flex h-10 items-center gap-2 rounded-lg border border-white/[0.08] bg-white/[0.02] px-3 sm:w-72">
+        <label className="flex h-10 items-center gap-2 rounded-lg border border-white/[0.08] bg-surface px-3 sm:w-72">
           <Search className="h-4 w-4 text-muted-foreground" />
           <input value={search} onChange={event => setSearch(event.target.value)} placeholder="Search projects" className="min-w-0 flex-1 bg-transparent text-sm outline-none placeholder:text-muted-foreground/60" />
         </label>
@@ -265,7 +265,7 @@ export function ProjectsView({ initialFilter, onOpenProject, onNewDesign }: { in
       ) : (
         <div className="mt-6 grid gap-4 sm:grid-cols-2 xl:grid-cols-3">
           {visible.map(project => (
-            <article key={project.id} className="overflow-hidden rounded-lg border border-white/[0.08] bg-white/[0.02]">
+            <article key={project.id} className="overflow-hidden rounded-lg border border-white/[0.08] bg-surface">
               <ProjectPreview project={project} />
               <div className="p-4">
                 <h3 className="truncate text-sm font-semibold">{project.name}</h3>
@@ -440,7 +440,7 @@ export function TemplatesView({ onUseTemplate }: { onUseTemplate: (source: strin
           {user && <button type="button" onClick={() => { setOwnerOnly(value => !value); setCategory('All') }} className={`h-9 shrink-0 rounded-lg border px-4 text-xs font-semibold ${ownerOnly ? 'border-primary/40 bg-primary/10 text-primary' : 'border-white/[0.08] text-muted-foreground'}`}>My listings</button>}
           {categories.map(value => <button key={value} type="button" onClick={() => { setCategory(value); setOwnerOnly(false) }} className={`h-9 shrink-0 rounded-lg border px-4 text-xs font-semibold ${!ownerOnly && category === value ? 'border-primary/40 bg-primary/10 text-primary' : 'border-white/[0.08] text-muted-foreground'}`}>{value}</button>)}
         </div>
-        <label className="flex h-10 items-center gap-2 rounded-lg border border-white/[0.08] bg-white/[0.02] px-3 sm:w-64"><Search className="h-4 w-4 text-muted-foreground" /><input value={search} onChange={event => setSearch(event.target.value)} placeholder="Search templates" className="min-w-0 flex-1 bg-transparent text-sm outline-none" /></label>
+        <label className="flex h-10 items-center gap-2 rounded-lg border border-white/[0.08] bg-surface px-3 sm:w-64"><Search className="h-4 w-4 text-muted-foreground" /><input value={search} onChange={event => setSearch(event.target.value)} placeholder="Search templates" className="min-w-0 flex-1 bg-transparent text-sm outline-none" /></label>
       </div>
 
       {marketError && <div className="mt-4 flex items-start gap-2 rounded-lg border border-amber-500/20 bg-amber-500/[0.06] px-4 py-3 text-xs leading-5 text-amber-200"><AlertTriangle className="mt-0.5 h-4 w-4 shrink-0" />{marketError}</div>}
@@ -455,7 +455,7 @@ export function TemplatesView({ onUseTemplate }: { onUseTemplate: (source: strin
           const isApplying = applying === item.key
           const paid = item.kind === 'community' && item.price > 0 && !item.owned
           return (
-            <article key={item.key} className="group flex flex-col overflow-hidden rounded-lg border border-white/[0.08] bg-white/[0.02]">
+            <article key={item.key} className="group flex flex-col overflow-hidden rounded-lg border border-white/[0.08] bg-surface">
               <div className="relative aspect-[4/5] overflow-hidden bg-[#0a0a0c]">
                 <img src={item.source} alt={`${item.name} template`} className="h-full w-full object-cover transition-transform duration-300 group-hover:scale-[1.02]" />
                 {item.kind === 'spyda' ? (
@@ -614,7 +614,7 @@ function ListTemplateDialog({ categories, userId, onClose, onListed }: {
           <div>
             <label className="text-xs font-semibold text-muted-foreground">Preview image</label>
             <input ref={fileRef} type="file" accept="image/*" className="hidden" onChange={event => pickImage(event.target.files?.[0])} />
-            <button type="button" onClick={() => fileRef.current?.click()} className="mt-2 flex aspect-[4/3] w-full items-center justify-center overflow-hidden rounded-lg border border-dashed border-white/[0.14] bg-white/[0.02] text-muted-foreground hover:border-primary/40">
+            <button type="button" onClick={() => fileRef.current?.click()} className="mt-2 flex aspect-[4/3] w-full items-center justify-center overflow-hidden rounded-lg border border-dashed border-white/[0.14] bg-surface text-muted-foreground hover:border-primary/40">
               {preview ? <img src={preview} alt="Template preview" className="h-full w-full object-contain" /> : <span className="flex flex-col items-center gap-2 text-xs"><ImagePlus className="h-6 w-6 text-primary" /> Upload template image</span>}
             </button>
           </div>
@@ -723,14 +723,14 @@ export function BrandAssetsView({ onUseAsset }: { onUseAsset: (asset: BrandAsset
     <div className="mx-auto w-full max-w-6xl p-5 sm:p-8">
       <PageIntro eyebrow="Reusable identity" title="Brand Assets" copy="Keep logos, brand colors, and type choices ready to apply to any Spyda design." action={<><input ref={fileRef} type="file" accept="image/*" className="hidden" onChange={event => uploadImage(event.target.files?.[0])} /><button type="button" onClick={() => fileRef.current?.click()} className="inline-flex h-10 items-center gap-2 rounded-lg bg-primary px-4 text-xs font-semibold text-primary-foreground"><Upload className="h-4 w-4" /> Upload logo or image</button></>} />
       <div className="mt-6 grid gap-3 lg:grid-cols-2">
-        <div className="rounded-lg border border-white/[0.08] bg-white/[0.02] p-4"><div className="flex items-center gap-2"><Palette className="h-4 w-4 text-primary" /><h3 className="text-sm font-semibold">Add brand color</h3></div><div className="mt-4 grid gap-2 sm:grid-cols-[1fr_140px_auto]"><input value={colorName} onChange={event => setColorName(event.target.value)} aria-label="Color name" placeholder="Color name" className="h-10 rounded-lg border border-white/[0.08] bg-background px-3 text-sm outline-none focus:border-primary/50" /><label className="flex h-10 items-center gap-2 rounded-lg border border-white/[0.08] bg-background px-2"><input type="color" value={color} onChange={event => setColor(event.target.value.toUpperCase())} className="h-6 w-6 cursor-pointer border-0 bg-transparent" /><input value={color} onChange={event => setColor(event.target.value.toUpperCase())} aria-label="HEX color" className="min-w-0 flex-1 bg-transparent font-mono text-xs outline-none" /></label><button type="button" onClick={addColor} className="h-10 rounded-lg border border-primary/30 px-4 text-xs font-semibold text-primary">Add</button></div></div>
-        <div className="rounded-lg border border-white/[0.08] bg-white/[0.02] p-4"><div className="flex items-center gap-2"><Type className="h-4 w-4 text-primary" /><h3 className="text-sm font-semibold">Add brand font</h3></div><div className="mt-4 flex gap-2"><input value={fontName} onChange={event => setFontName(event.target.value)} aria-label="Font name" placeholder="Font name" className="h-10 min-w-0 flex-1 rounded-lg border border-white/[0.08] bg-background px-3 text-sm outline-none focus:border-primary/50" /><button type="button" onClick={addFont} className="h-10 rounded-lg border border-primary/30 px-4 text-xs font-semibold text-primary">Add</button></div></div>
+        <div className="rounded-lg border border-white/[0.08] bg-surface p-4"><div className="flex items-center gap-2"><Palette className="h-4 w-4 text-primary" /><h3 className="text-sm font-semibold">Add brand color</h3></div><div className="mt-4 grid gap-2 sm:grid-cols-[1fr_140px_auto]"><input value={colorName} onChange={event => setColorName(event.target.value)} aria-label="Color name" placeholder="Color name" className="h-10 rounded-lg border border-white/[0.08] bg-background px-3 text-sm outline-none focus:border-primary/50" /><label className="flex h-10 items-center gap-2 rounded-lg border border-white/[0.08] bg-background px-2"><input type="color" value={color} onChange={event => setColor(event.target.value.toUpperCase())} className="h-6 w-6 cursor-pointer border-0 bg-transparent" /><input value={color} onChange={event => setColor(event.target.value.toUpperCase())} aria-label="HEX color" className="min-w-0 flex-1 bg-transparent font-mono text-xs outline-none" /></label><button type="button" onClick={addColor} className="h-10 rounded-lg border border-primary/30 px-4 text-xs font-semibold text-primary">Add</button></div></div>
+        <div className="rounded-lg border border-white/[0.08] bg-surface p-4"><div className="flex items-center gap-2"><Type className="h-4 w-4 text-primary" /><h3 className="text-sm font-semibold">Add brand font</h3></div><div className="mt-4 flex gap-2"><input value={fontName} onChange={event => setFontName(event.target.value)} aria-label="Font name" placeholder="Font name" className="h-10 min-w-0 flex-1 rounded-lg border border-white/[0.08] bg-background px-3 text-sm outline-none focus:border-primary/50" /><button type="button" onClick={addFont} className="h-10 rounded-lg border border-primary/30 px-4 text-xs font-semibold text-primary">Add</button></div></div>
       </div>
       {error && <p className="mt-3 text-xs text-red-300">{error}</p>}
       {!assets.length ? <div className="mt-6"><EmptyLibrary icon={Palette} title="Build your brand kit" copy="Upload a logo, save your HEX colors, and add the fonts you use most often." /></div> : (
         <div className="mt-6 grid grid-cols-2 gap-3 md:grid-cols-3 xl:grid-cols-4">
           {assets.map(asset => (
-            <article key={asset.id} className="rounded-lg border border-white/[0.08] bg-white/[0.02] p-4">
+            <article key={asset.id} className="rounded-lg border border-white/[0.08] bg-surface p-4">
               <div className="flex aspect-[4/3] items-center justify-center overflow-hidden rounded-lg border border-white/[0.06] bg-black/20">
                 {asset.kind === 'image' && <img src={asset.value} alt={asset.name} className="h-full w-full object-contain p-3" />}
                 {asset.kind === 'color' && <div className="h-16 w-16 rounded-full border border-white/20" style={{ backgroundColor: asset.value }} />}

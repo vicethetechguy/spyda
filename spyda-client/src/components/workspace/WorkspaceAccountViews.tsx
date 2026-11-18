@@ -170,7 +170,7 @@ export function SubscriptionView({ onBack, onOpenWallet, onOpenSettings }: { onB
         {PAYMENT_OPTIONS.map(option => {
           const plan = PLANS.find(candidate => candidate.id === option.id)
           return (
-          <article key={option.id} tabIndex={0} aria-label={`${option.name} payment option`} className={`pricing-texture pricing-texture--${option.texture} relative flex w-[84vw] max-w-[340px] shrink-0 snap-start flex-col rounded-lg border p-6 outline-none sm:w-[340px] lg:w-auto lg:max-w-none ${option.id === 'creator' ? 'border-primary/45 bg-primary/[0.04]' : 'border-white/[0.07] bg-white/[0.02]'}`}>
+          <article key={option.id} tabIndex={0} aria-label={`${option.name} payment option`} className={`pricing-texture pricing-texture--${option.texture} relative flex w-[84vw] max-w-[340px] shrink-0 snap-start flex-col rounded-lg border p-6 outline-none sm:w-[340px] lg:w-auto lg:max-w-none ${option.id === 'creator' ? 'border-primary/45 bg-primary/[0.04]' : 'border-white/[0.07] bg-surface'}`}>
             {option.id === 'creator' && <span className="absolute right-4 top-4 rounded bg-primary/10 px-2 py-1 text-[9px] font-semibold uppercase tracking-[0.12em] text-primary">Popular</span>}
             <h3 className="font-heading text-lg font-semibold">{option.name}</h3>
             <p className="mt-4 font-heading text-3xl font-semibold">{option.price}</p>
@@ -184,16 +184,16 @@ export function SubscriptionView({ onBack, onOpenWallet, onOpenSettings }: { onB
                 </li>
               ))}
             </ul>
-            {option.id === 'wallet' && <button type="button" onClick={onOpenWallet} className="mt-6 inline-flex h-11 w-full items-center justify-center rounded-lg border border-white/[0.1] bg-white/[0.03] text-sm font-semibold transition-colors hover:bg-white/[0.07]">Fund wallet</button>}
-            {option.id === 'byok' && <button type="button" onClick={onOpenSettings} className="mt-6 inline-flex h-11 w-full items-center justify-center rounded-lg border border-white/[0.1] bg-white/[0.03] text-sm font-semibold transition-colors hover:bg-white/[0.07]">{hasApiKey ? 'Manage API key' : 'Connect API key'}</button>}
+            {option.id === 'wallet' && <button type="button" onClick={onOpenWallet} className="mt-6 inline-flex h-11 w-full items-center justify-center rounded-lg border border-white/[0.1] bg-surface-raised text-sm font-semibold transition-colors hover:bg-white/[0.07]">Fund wallet</button>}
+            {option.id === 'byok' && <button type="button" onClick={onOpenSettings} className="mt-6 inline-flex h-11 w-full items-center justify-center rounded-lg border border-white/[0.1] bg-surface-raised text-sm font-semibold transition-colors hover:bg-white/[0.07]">{hasApiKey ? 'Manage API key' : 'Connect API key'}</button>}
             {plan && <PlanCheckoutButton plan={plan} current={plan.id === subscription.planId} onActivated={record => { setSubscription(record); setMessage(`${plan.name} access is now active.`) }} />}
           </article>
         )})}
       </div>
 
       <div className="mt-8 grid gap-5 lg:grid-cols-[1fr_320px]">
-        <section className="rounded-lg border border-white/[0.08] bg-white/[0.02] p-5"><div className="flex items-center gap-2"><CreditCard className="h-4 w-4 text-primary" /><h3 className="text-sm font-semibold">Billing history</h3></div>{!subscription.billingHistory.length ? <p className="mt-5 text-sm text-muted-foreground">No payments have been made on this account yet.</p> : <div className="mt-4 divide-y divide-white/[0.07]">{subscription.billingHistory.map(entry => <div key={entry.id} className="flex items-center justify-between gap-4 py-3"><div><p className="text-sm font-medium capitalize">{entry.plan} access</p><p className="mt-1 text-[11px] text-muted-foreground">{formatDate(entry.date)} · {entry.reference}</p></div><p className="text-sm font-semibold">NGN {entry.amount.toLocaleString()}</p></div>)}</div>}</section>
-        <aside className="rounded-lg border border-white/[0.08] bg-white/[0.02] p-5"><ShieldCheck className="h-5 w-5 text-primary" /><h3 className="mt-3 text-sm font-semibold">Protected checkout</h3><p className="mt-2 text-xs leading-5 text-muted-foreground">Payments are handled by Paystack. Spyda does not store your card details.</p><div className="mt-4 flex items-center gap-2 text-xs text-muted-foreground"><CalendarDays className="h-4 w-4" /> Each payment activates 30 days of access. It does not renew automatically.</div></aside>
+        <section className="rounded-lg border border-white/[0.08] bg-surface p-5"><div className="flex items-center gap-2"><CreditCard className="h-4 w-4 text-primary" /><h3 className="text-sm font-semibold">Billing history</h3></div>{!subscription.billingHistory.length ? <p className="mt-5 text-sm text-muted-foreground">No payments have been made on this account yet.</p> : <div className="mt-4 divide-y divide-white/[0.07]">{subscription.billingHistory.map(entry => <div key={entry.id} className="flex items-center justify-between gap-4 py-3"><div><p className="text-sm font-medium capitalize">{entry.plan} access</p><p className="mt-1 text-[11px] text-muted-foreground">{formatDate(entry.date)} · {entry.reference}</p></div><p className="text-sm font-semibold">NGN {entry.amount.toLocaleString()}</p></div>)}</div>}</section>
+        <aside className="rounded-lg border border-white/[0.08] bg-surface p-5"><ShieldCheck className="h-5 w-5 text-primary" /><h3 className="mt-3 text-sm font-semibold">Protected checkout</h3><p className="mt-2 text-xs leading-5 text-muted-foreground">Payments are handled by Paystack. Spyda does not store your card details.</p><div className="mt-4 flex items-center gap-2 text-xs text-muted-foreground"><CalendarDays className="h-4 w-4" /> Each payment activates 30 days of access. It does not renew automatically.</div></aside>
       </div>
     </div>
   )
@@ -286,7 +286,7 @@ export function SecurityPanel() {
   const sessionExpiry = useMemo(() => session?.expires_at ? new Date(session.expires_at * 1000).toLocaleString() : 'Not available', [session?.expires_at])
 
   return (
-    <div className="rounded-lg border border-white/[0.06] bg-white/[0.02] p-5">
+    <div className="rounded-lg border border-white/[0.06] bg-surface p-5">
       <div className="flex items-center justify-between gap-3"><div><h4 className="font-heading text-sm font-semibold">Security</h4><p className="mt-1 text-[11px] text-muted-foreground">Protect your account and control signed-in devices.</p></div><Shield className="h-5 w-5 text-primary" /></div>
       <div className="mt-4 divide-y divide-white/[0.07]">
         <button type="button" onClick={() => { setPanel(panel === 'password' ? null : 'password'); resetNotice() }} className="flex w-full items-center justify-between py-3 text-sm hover:text-primary"><span className="flex items-center gap-2"><KeyRound className="h-4 w-4 text-muted-foreground" /> Change password</span><span className="text-xs text-muted-foreground">Open</span></button>

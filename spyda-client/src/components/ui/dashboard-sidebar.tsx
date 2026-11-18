@@ -275,7 +275,7 @@ export function SidebarNav({
 
   return (
     <div
-      className={`flex flex-col w-[260px] h-full bg-[#060608]/90 border-r border-border/50 p-3 font-sans ${className}`}
+      className={`flex flex-col w-[260px] h-full bg-[#08090a] border-r border-border/50 p-3 font-sans ${className}`}
     >
       <WorkspaceSwitcher
         selected={activeWorkspace}

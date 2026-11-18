@@ -157,7 +157,7 @@ export default function Auth() {
                     ['Brand logo', 'Keep or replace'],
                     ['Call to action', 'Edit or remove'],
                   ].map(([name, action]) => (
-                    <div key={name} className="flex items-center justify-between gap-3 rounded-lg border border-white/[0.07] bg-white/[0.025] px-3 py-3">
+                    <div key={name} className="flex items-center justify-between gap-3 rounded-lg border border-white/[0.07] bg-surface px-3 py-3">
                       <span className="text-xs font-medium">{name}</span>
                       <span className="text-[9px] text-primary">{action}</span>
                     </div>
@@ -177,7 +177,7 @@ export default function Auth() {
         <section className="flex min-h-screen items-center justify-center px-5 pb-10 pt-24 sm:px-8 lg:pt-20">
           <div className="w-full max-w-[420px]">
             {!isMfa && (
-              <div className="mb-8 grid grid-cols-2 rounded-lg border border-white/[0.08] bg-white/[0.02] p-1">
+              <div className="mb-8 grid grid-cols-2 rounded-lg border border-white/[0.08] bg-surface p-1">
                 <button type="button" onClick={() => switchMode(false)} className={`h-10 rounded-md text-xs font-semibold transition-colors ${!isSignUp ? 'bg-white/[0.09] text-foreground shadow-sm' : 'text-muted-foreground hover:text-foreground'}`}>Sign in</button>
                 <button type="button" onClick={() => switchMode(true)} className={`h-10 rounded-md text-xs font-semibold transition-colors ${isSignUp ? 'bg-white/[0.09] text-foreground shadow-sm' : 'text-muted-foreground hover:text-foreground'}`}>Create account</button>
               </div>
@@ -211,7 +211,7 @@ export default function Auth() {
                     <label htmlFor="mfa-code" className="mb-2 block text-xs font-medium text-foreground">Authenticator code</label>
                     <div className="relative">
                       <ShieldCheck className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-primary" />
-                      <input id="mfa-code" inputMode="numeric" autoComplete="one-time-code" required maxLength={6} value={mfaCode} onChange={event => setMfaCode(event.target.value.replace(/\D/g, ''))} placeholder="000000" className="h-12 w-full rounded-lg border border-white/[0.09] bg-white/[0.025] pl-10 pr-4 font-mono text-sm tracking-[0.28em] outline-none transition-colors placeholder:text-muted-foreground/40 focus:border-primary/50" />
+                      <input id="mfa-code" inputMode="numeric" autoComplete="one-time-code" required maxLength={6} value={mfaCode} onChange={event => setMfaCode(event.target.value.replace(/\D/g, ''))} placeholder="000000" className="h-12 w-full rounded-lg border border-white/[0.09] bg-surface pl-10 pr-4 font-mono text-sm tracking-[0.28em] outline-none transition-colors placeholder:text-muted-foreground/40 focus:border-primary/50" />
                     </div>
                   </div>
                 ) : (
@@ -220,14 +220,14 @@ export default function Auth() {
                       <label htmlFor="auth-email" className="mb-2 block text-xs font-medium text-foreground">Email address</label>
                       <div className="relative">
                         <Mail className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
-                        <input id="auth-email" type="email" autoComplete="email" required value={email} onChange={event => setEmail(event.target.value)} placeholder="you@company.com" className="h-12 w-full rounded-lg border border-white/[0.09] bg-white/[0.025] pl-10 pr-4 text-sm outline-none transition-colors placeholder:text-muted-foreground/40 focus:border-primary/50" />
+                        <input id="auth-email" type="email" autoComplete="email" required value={email} onChange={event => setEmail(event.target.value)} placeholder="you@company.com" className="h-12 w-full rounded-lg border border-white/[0.09] bg-surface pl-10 pr-4 text-sm outline-none transition-colors placeholder:text-muted-foreground/40 focus:border-primary/50" />
                       </div>
                     </div>
                     <div>
                       <div className="mb-2 flex items-center justify-between"><label htmlFor="auth-password" className="text-xs font-medium text-foreground">Password</label>{isSignUp && <span className="text-[10px] text-muted-foreground">8 characters minimum</span>}</div>
                       <div className="relative">
                         <Lock className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
-                        <input id="auth-password" type={showPassword ? 'text' : 'password'} autoComplete={isSignUp ? 'new-password' : 'current-password'} minLength={isSignUp ? 8 : undefined} required value={password} onChange={event => setPassword(event.target.value)} placeholder={isSignUp ? 'Create a strong password' : 'Enter your password'} className="h-12 w-full rounded-lg border border-white/[0.09] bg-white/[0.025] pl-10 pr-11 text-sm outline-none transition-colors placeholder:text-muted-foreground/40 focus:border-primary/50" />
+                        <input id="auth-password" type={showPassword ? 'text' : 'password'} autoComplete={isSignUp ? 'new-password' : 'current-password'} minLength={isSignUp ? 8 : undefined} required value={password} onChange={event => setPassword(event.target.value)} placeholder={isSignUp ? 'Create a strong password' : 'Enter your password'} className="h-12 w-full rounded-lg border border-white/[0.09] bg-surface pl-10 pr-11 text-sm outline-none transition-colors placeholder:text-muted-foreground/40 focus:border-primary/50" />
                         <button type="button" onClick={() => setShowPassword(previous => !previous)} aria-label={showPassword ? 'Hide password' : 'Show password'} title={showPassword ? 'Hide password' : 'Show password'} className="absolute right-2 top-1/2 flex h-8 w-8 -translate-y-1/2 items-center justify-center rounded-md text-muted-foreground transition-colors hover:bg-white/[0.05] hover:text-foreground">{showPassword ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}</button>
                       </div>
                     </div>

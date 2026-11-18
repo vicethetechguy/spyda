@@ -16,6 +16,12 @@ export default {
         'brand-gradient-text': 'linear-gradient(135deg, #9dfab0 0%, #4ade80 100%)',
       },
       colors: {
+        // Solid card fills. Cards used to be 2-4% white, which let the page's
+        // background show through; these are the same tones, made opaque.
+        surface: {
+          DEFAULT: '#0c0d0f',
+          raised: '#121316',
+        },
         border: "hsl(var(--border))",
         input: "hsl(var(--input))",
         ring: "hsl(var(--ring))",

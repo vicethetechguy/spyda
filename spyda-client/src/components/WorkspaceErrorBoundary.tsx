@@ -24,7 +24,7 @@ export default class WorkspaceErrorBoundary extends Component<Props, State> {
 
     return (
       <div className="flex min-h-screen items-center justify-center bg-background px-6 text-foreground">
-        <div className="max-w-md rounded-2xl border border-white/[0.08] bg-white/[0.03] p-6 text-center shadow-2xl">
+        <div className="max-w-md rounded-2xl border border-white/[0.08] bg-surface-raised p-6 text-center shadow-2xl">
           <div className="mx-auto mb-4 h-12 w-12 rounded-2xl bg-primary/10" />
           <h1 className="font-heading text-xl font-semibold">Spyda recovered the workspace</h1>
           <p className="mt-2 text-sm text-muted-foreground">

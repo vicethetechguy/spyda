@@ -86,7 +86,7 @@ export function WelcomeRewardPrompt({
 
           <div className="mt-6 grid grid-cols-3 gap-2">
             {WELCOME_TASKS.map((task, index) => (
-              <div key={task.id} className="rounded-lg border border-white/[0.07] bg-white/[0.025] p-3">
+              <div key={task.id} className="rounded-lg border border-white/[0.07] bg-surface p-3">
                 <span className="text-[10px] font-semibold text-primary">0{index + 1}</span>
                 <p className="mt-2 text-xs font-medium leading-5">{task.title}</p>
               </div>
@@ -215,7 +215,7 @@ export function TasksView({
 
   return (
     <div className="mx-auto w-full max-w-[1120px] px-4 py-6 sm:px-6 lg:px-8 lg:py-10">
-      {claim?.status !== 'approved' && <section className="overflow-hidden rounded-xl border border-white/[0.09] bg-white/[0.02]">
+      {claim?.status !== 'approved' && <section className="overflow-hidden rounded-xl border border-white/[0.09] bg-surface">
         <div className="relative border-b border-white/[0.07] px-5 py-7 sm:px-8 sm:py-9">
           <div className="absolute right-0 top-0 h-56 w-56 bg-primary/[0.07] blur-[90px]" />
           <div className="relative grid gap-7 lg:grid-cols-[minmax(0,1fr)_260px] lg:items-end">
@@ -245,8 +245,8 @@ export function TasksView({
               const completed = Boolean(claim?.[task.id])
               const TaskIcon = taskIcons[task.id]
               return (
-                <article key={task.id} className={`grid gap-4 rounded-lg border p-4 transition-colors sm:grid-cols-[48px_minmax(0,1fr)_auto] sm:items-center sm:p-5 ${completed ? 'border-primary/25 bg-primary/[0.035]' : 'border-white/[0.08] bg-white/[0.018]'}`}>
-                  <span className={`inline-flex h-12 w-12 items-center justify-center rounded-lg border ${completed ? 'border-primary/30 bg-primary/10 text-primary' : 'border-white/[0.09] bg-white/[0.025] text-muted-foreground'}`}>
+                <article key={task.id} className={`grid gap-4 rounded-lg border p-4 transition-colors sm:grid-cols-[48px_minmax(0,1fr)_auto] sm:items-center sm:p-5 ${completed ? 'border-primary/25 bg-primary/[0.035]' : 'border-white/[0.08] bg-surface'}`}>
+                  <span className={`inline-flex h-12 w-12 items-center justify-center rounded-lg border ${completed ? 'border-primary/30 bg-primary/10 text-primary' : 'border-white/[0.09] bg-surface text-muted-foreground'}`}>
                     {completed ? <Check className="h-5 w-5" strokeWidth={2.5} /> : <TaskIcon className="h-5 w-5" />}
                   </span>
                   <div>
@@ -285,7 +285,7 @@ export function TasksView({
           )}
 
           {!readyToSubmit && !locked && (
-            <div className="mt-6 flex items-center gap-3 rounded-lg border border-white/[0.07] bg-white/[0.018] p-4 text-xs leading-5 text-muted-foreground">
+            <div className="mt-6 flex items-center gap-3 rounded-lg border border-white/[0.07] bg-surface p-4 text-xs leading-5 text-muted-foreground">
               <Gift className="h-4 w-4 shrink-0 text-primary" /> Complete all three tasks to unlock X-handle submission.
             </div>
           )}
@@ -358,7 +358,7 @@ function CommunityTasksSection() {
   if (loading) return null
   if (!tasks.length && !error) {
     return (
-      <section className="mt-6 flex min-h-[250px] flex-col items-center justify-center rounded-xl border border-dashed border-white/[0.11] bg-white/[0.015] px-6 text-center">
+      <section className="mt-6 flex min-h-[250px] flex-col items-center justify-center rounded-xl border border-dashed border-white/[0.11] bg-surface px-6 text-center">
         <span className="inline-flex h-12 w-12 items-center justify-center rounded-full border border-primary/25 bg-primary/[0.08] text-primary"><Gift className="h-5 w-5" /></span>
         <h2 className="mt-4 font-heading text-xl font-semibold">No new tasks available</h2>
         <p className="mt-2 max-w-sm text-sm leading-6 text-muted-foreground">You are all caught up. New Spyda opportunities and rewards will appear here when they are live.</p>
@@ -367,7 +367,7 @@ function CommunityTasksSection() {
   }
 
   return (
-    <section className="mt-6 overflow-hidden rounded-xl border border-white/[0.09] bg-white/[0.02]">
+    <section className="mt-6 overflow-hidden rounded-xl border border-white/[0.09] bg-surface">
       <div className="border-b border-white/[0.07] px-5 py-6 sm:px-8">
         <div className="flex flex-wrap items-center justify-between gap-3">
           <div>

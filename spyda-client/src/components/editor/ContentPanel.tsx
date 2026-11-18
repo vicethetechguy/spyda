@@ -110,7 +110,7 @@ export default function ContentPanel({ object, onIntent, onReplaceImage, busy = 
       </div>
 
       {locked ? (
-        <p className="flex items-start gap-2 rounded-lg border border-white/10 bg-white/[0.03] px-2.5 py-2 text-[11px] leading-relaxed text-muted-foreground">
+        <p className="flex items-start gap-2 rounded-lg border border-white/10 bg-surface-raised px-2.5 py-2 text-[11px] leading-relaxed text-muted-foreground">
           <Lock className="mt-0.5 h-3 w-3 shrink-0" aria-hidden />
           This layer is protected, so it has no drag handles and cannot be edited.
         </p>
@@ -276,7 +276,7 @@ export default function ContentPanel({ object, onIntent, onReplaceImage, busy = 
       </Field>
 
       {bounds ? (
-        <dl className="grid grid-cols-2 gap-x-3 gap-y-1 rounded-lg border border-white/10 bg-white/[0.02] px-2.5 py-2 text-[11px] text-muted-foreground">
+        <dl className="grid grid-cols-2 gap-x-3 gap-y-1 rounded-lg border border-white/10 bg-surface px-2.5 py-2 text-[11px] text-muted-foreground">
           <div className="flex justify-between"><dt>X</dt><dd className="tabular-nums text-foreground">{bounds.x.toFixed(1)}%</dd></div>
           <div className="flex justify-between"><dt>Y</dt><dd className="tabular-nums text-foreground">{bounds.y.toFixed(1)}%</dd></div>
           <div className="flex justify-between"><dt>W</dt><dd className="tabular-nums text-foreground">{bounds.width.toFixed(1)}%</dd></div>
