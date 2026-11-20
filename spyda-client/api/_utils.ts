@@ -507,8 +507,8 @@ export async function analyzeDesignWithGroq(base64Image: string, prompt: string,
 
   const modelCandidates = Array.from(new Set([
     groqAnalysisModel,
-    "qwen/qwen3.6-27b",
-    "meta-llama/llama-4-scout-17b-16e-instruct",
+    // Groq retires vision models often; this one is live and reads flyers.
+    "qwen/qwen3.8-27b",
   ].filter(Boolean)));
   let lastModelError = "";
 

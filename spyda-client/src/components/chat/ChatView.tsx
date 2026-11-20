@@ -3,26 +3,31 @@ import { createPortal } from 'react-dom'
 import { useNavigate } from 'react-router-dom'
 import {
   ArrowUp,
+  Clapperboard,
   Coins,
   Download,
   History,
+  Image as ImageIcon,
   ImagePlus,
   Layers,
   Loader2,
   Maximize2,
+  Mic,
   Paperclip,
   Plus,
   RefreshCw,
-  ScanSearch,
-  Sparkles,
+  Square,
   WandSparkles,
   X,
 } from 'lucide-react'
 import BrandMark from '../brand/BrandMark'
 import ChatMarkdown from './ChatMarkdown'
+import MotionCard from './MotionCard'
+import { useSpeechInput } from './useSpeechInput'
 import { useAuth } from '../../lib/AuthContext'
 import { supabase } from '../../lib/supabase'
 import {
+  SPYDA_MOTION_CREDITS,
   generationCreditCost,
   loadSpydaApiKeys,
   spydaRequestHeaders,
@@ -34,29 +39,37 @@ import {
   createConversation,
   imageDimensions,
   latestFlyer,
+  latestMotion,
   listConversations,
   loadConversation,
   newId,
   prepareImage,
   requestEdit,
+  requestMotion,
   requestReply,
   saveConversation,
   titleFrom,
   toJpegDataUrl,
   type ChatEdit,
   type ChatMessage,
+  type ChatMotion,
   type Conversation,
   type ConversationSummary,
   type PreparedImage,
 } from '../../lib/chat'
 import { readProject, saveProject } from '../../lib/project-store'
+import { MOTION_FORMATS, type MotionFormat } from '../../lib/motion-harness'
 
 /**
- * The workspace home: talk to Spyda about a flyer the way you would in a chat
- * app. It reads the design in prose, proposes edits, and generates a new
- * version only after the person confirms its credit cost. Canvas mode hands the
- * current flyer to the layer editor for manual work.
+ * The workspace home: bring a reference design and say what to change. In
+ * flyer mode a GPT model makes the reference yours, proposing the edit and
+ * generating it only after the person confirms its credit cost. In motion mode
+ * Claude Opus 5.5 turns the reference into a short animation. Canvas mode hands
+ * the current flyer to the layer editor for manual work.
  */
+
+type ComposerMode = 'flyer' | 'motion'
+const MOTION_DURATION = 8
 
 export type ChatSeed = {
   /** Changes every time, so the same template can be seeded twice. */
@@ -77,24 +90,27 @@ type ChatViewProps = {
 
 const MAX_ATTACHMENTS = 3
 
-const SUGGESTIONS = [
-  {
-    icon: ScanSearch,
-    title: 'Break down a flyer',
-    copy: 'Get a designer\'s read of its layout, type, colours and copy.',
-    prompt: 'Break down this flyer for me.',
-  },
+const SUGGESTIONS: { icon: typeof WandSparkles; title: string; copy: string; prompt: string; mode: ComposerMode }[] = [
   {
     icon: WandSparkles,
-    title: 'Make a new version',
-    copy: 'Change the text, offer or colours and keep everything else.',
-    prompt: 'Make a new version of this flyer with ',
+    title: 'Make it mine',
+    copy: 'Swap in your brand, headline, offer and colours. Keep the design.',
+    prompt: 'Make this flyer mine. My brand is ',
+    mode: 'flyer',
+  },
+  {
+    icon: Clapperboard,
+    title: 'Animate it',
+    copy: 'Claude Opus 5.5 turns your design into a short motion video.',
+    prompt: 'Animate this for my brand. Make it ',
+    mode: 'motion',
   },
   {
     icon: Maximize2,
     title: 'Resize for a format',
     copy: 'Turn it into an Instagram story, a square post or a banner.',
     prompt: 'Resize this flyer into a 9:16 Instagram story and keep everything readable.',
+    mode: 'flyer',
   },
 ]
 
@@ -122,15 +138,15 @@ function SpydaOrb({ busy = false }: { busy?: boolean }) {
 
 /* ── Composer ── */
 
-function RewardsStrip({ standing, onOpenWallet }: { standing: RewardStanding | null; onOpenWallet: () => void }) {
+function RewardsStrip({ standing, onOpenWallet, mode }: { standing: RewardStanding | null; onOpenWallet: () => void; mode: ComposerMode }) {
   return (
     <button
       type="button"
       onClick={onOpenWallet}
       className="flex w-full items-center gap-2 px-4 pb-2 pt-2.5 text-left text-[11px] text-white/75 transition-colors hover:text-white"
     >
-      <Sparkles className="h-3.5 w-3.5 shrink-0 text-primary" />
       <span className="min-w-0 flex-1 truncate">
+        {mode === 'motion' ? `Motion by Claude Opus 5.5 · ${SPYDA_MOTION_CREDITS} credits a video · ` : ''}
         Every 1,000 credits you use earns 1 SPYDA
         {standing ? <span className="text-white/50"> · {standing.toNextSpyda.toLocaleString()} credits to your next</span> : null}
       </span>
@@ -155,10 +171,28 @@ type ComposerProps = {
   onOpenWallet: () => void
   textareaRef: React.RefObject<HTMLTextAreaElement | null>
   fileInputRef: React.RefObject<HTMLInputElement | null>
+  mode: ComposerMode
+  onModeChange: (mode: ComposerMode) => void
+  format: MotionFormat
+  onFormatChange: (format: MotionFormat) => void
 }
 
-function Composer({ draft, setDraft, attachments, onAttach, onRemoveAttachment, onSend, busy, standing, onOpenWallet, textareaRef, fileInputRef }: ComposerProps) {
+function Composer({
+  draft, setDraft, attachments, onAttach, onRemoveAttachment, onSend, busy, standing, onOpenWallet,
+  textareaRef, fileInputRef, mode, onModeChange, format, onFormatChange,
+}: ComposerProps) {
   const canSend = !busy && (draft.trim().length > 0 || attachments.length > 0)
+  // Speech replaces only what was said since the mic opened, after any typed text.
+  const spokenBase = useRef('')
+  const speech = useSpeechInput(text => setDraft(`${spokenBase.current}${spokenBase.current && text ? ' ' : ''}${text}`))
+  const toggleSpeech = () => {
+    if (speech.listening) {
+      speech.stop()
+      return
+    }
+    spokenBase.current = draft.trim()
+    speech.start()
+  }
 
   useEffect(() => {
     const element = textareaRef.current
@@ -184,7 +218,7 @@ function Composer({ draft, setDraft, attachments, onAttach, onRemoveAttachment, 
 
   return (
     <div className="rounded-[26px] border border-primary/20 bg-[linear-gradient(180deg,rgba(18,134,111,0.34),rgba(12,91,134,0.22))] p-1 shadow-[0_24px_70px_rgba(0,0,0,0.45)]">
-      <RewardsStrip standing={standing} onOpenWallet={onOpenWallet} />
+      <RewardsStrip standing={standing} onOpenWallet={onOpenWallet} mode={mode} />
       <div className="rounded-[22px] border border-white/[0.06] bg-[#08090a] px-3 pb-3 pt-2.5">
         {attachments.length ? (
           <div className="mb-2 flex flex-wrap gap-2 px-1 pt-1">
@@ -212,7 +246,11 @@ function Composer({ draft, setDraft, attachments, onAttach, onRemoveAttachment, 
           onKeyDown={onKeyDown}
           onPaste={onPaste}
           rows={1}
-          placeholder="Ask Spyda anything, or import a flyer…"
+          placeholder={speech.listening
+            ? 'Listening…'
+            : mode === 'motion'
+              ? 'Describe the motion: mood, pace, what to highlight…'
+              : 'Import a flyer and tell Spyda what to change…'}
           className="block max-h-[200px] min-h-[44px] w-full resize-none bg-transparent px-2 py-2 text-[15px] leading-6 text-foreground outline-none placeholder:text-muted-foreground/60"
         />
         <div className="mt-1 flex items-center gap-2">
@@ -220,9 +258,11 @@ function Composer({ draft, setDraft, attachments, onAttach, onRemoveAttachment, 
             type="button"
             onClick={() => fileInputRef.current?.click()}
             disabled={attachments.length >= MAX_ATTACHMENTS}
-            className="inline-flex h-9 items-center gap-2 rounded-full border border-white/[0.09] bg-surface-raised px-3.5 text-xs font-medium text-muted-foreground transition-colors hover:border-primary/30 hover:text-foreground disabled:opacity-40"
+            aria-label="Import file"
+            title="Import file"
+            className="inline-flex h-9 shrink-0 items-center gap-2 rounded-full border border-white/[0.09] bg-surface-raised px-3 text-xs font-medium text-muted-foreground transition-colors hover:border-primary/30 hover:text-foreground disabled:opacity-40 sm:px-3.5"
           >
-            <Paperclip className="h-3.5 w-3.5" /> Import file
+            <Paperclip className="h-3.5 w-3.5" /> <span className="hidden sm:inline">Import file</span>
           </button>
           <input
             ref={fileInputRef}
@@ -235,17 +275,84 @@ function Composer({ draft, setDraft, attachments, onAttach, onRemoveAttachment, 
               event.target.value = ''
             }}
           />
-          <span className="ml-auto hidden text-[10px] text-muted-foreground/60 sm:inline">Enter to send · Shift + Enter for a new line</span>
+          <div role="radiogroup" aria-label="What to make" className="flex h-9 items-center rounded-full border border-white/[0.09] bg-surface-raised p-0.5">
+            {([
+              { id: 'flyer', label: 'Flyer', icon: ImageIcon },
+              { id: 'motion', label: 'Motion', icon: Clapperboard },
+            ] as const).map(item => (
+              <button
+                key={item.id}
+                type="button"
+                role="radio"
+                aria-checked={mode === item.id}
+                onClick={() => onModeChange(item.id)}
+                className={`inline-flex h-8 items-center gap-1.5 rounded-full px-3 text-xs font-semibold transition-colors ${
+                  mode === item.id ? 'bg-primary text-primary-foreground' : 'text-muted-foreground hover:text-foreground'
+                }`}
+              >
+                <item.icon className="h-3.5 w-3.5" /> <span className="hidden min-[400px]:inline">{item.label}</span>
+              </button>
+            ))}
+          </div>
+          {mode === 'motion' ? (
+            <label className="hidden items-center sm:flex">
+              <span className="sr-only">Video format</span>
+              <select
+                value={format}
+                onChange={event => onFormatChange(event.target.value as MotionFormat)}
+                className="h-9 rounded-full border border-white/[0.09] bg-surface-raised px-3 text-xs font-medium text-foreground outline-none"
+              >
+                {(Object.keys(MOTION_FORMATS) as MotionFormat[]).map(id => (
+                  <option key={id} value={id}>{MOTION_FORMATS[id].name} {MOTION_FORMATS[id].label}</option>
+                ))}
+              </select>
+            </label>
+          ) : null}
+          <span className="ml-auto" />
+          {speech.supported ? (
+            <button
+              type="button"
+              onClick={toggleSpeech}
+              aria-pressed={speech.listening}
+              aria-label={speech.listening ? 'Stop voice input' : 'Talk instead of typing'}
+              title={speech.listening ? 'Stop voice input' : 'Talk instead of typing'}
+              className={`relative flex h-10 w-10 shrink-0 items-center justify-center rounded-full border transition-colors ${
+                speech.listening
+                  ? 'border-primary/60 bg-primary/15 text-primary'
+                  : 'border-white/[0.09] bg-surface-raised text-muted-foreground hover:text-foreground'
+              }`}
+            >
+              {speech.listening ? <span className="absolute inset-0 animate-ping rounded-full border border-primary/40" /> : null}
+              {speech.listening ? <Square className="h-3.5 w-3.5 fill-current" /> : <Mic className="h-4 w-4" />}
+            </button>
+          ) : null}
           <button
             type="button"
-            onClick={onSend}
+            onClick={() => { if (speech.listening) speech.stop(); onSend() }}
             disabled={!canSend}
             aria-label="Send message"
-            className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full bg-primary text-primary-foreground shadow-[0_8px_24px_rgba(157,250,176,0.25)] transition-all hover:-translate-y-0.5 active:translate-y-0 active:scale-95 disabled:translate-y-0 disabled:bg-white/10 disabled:text-muted-foreground disabled:shadow-none max-sm:ml-auto"
+            className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full bg-primary text-primary-foreground shadow-[0_8px_24px_rgba(157,250,176,0.25)] transition-all hover:-translate-y-0.5 active:translate-y-0 active:scale-95 disabled:translate-y-0 disabled:bg-white/10 disabled:text-muted-foreground disabled:shadow-none"
           >
             {busy ? <Loader2 className="h-4 w-4 animate-spin" /> : <ArrowUp className="h-4 w-4" strokeWidth={2.4} />}
           </button>
         </div>
+        {mode === 'motion' ? (
+          <div className="mt-2 flex gap-1.5 sm:hidden" role="radiogroup" aria-label="Video format">
+            {(Object.keys(MOTION_FORMATS) as MotionFormat[]).map(id => (
+              <button
+                key={id}
+                type="button"
+                role="radio"
+                aria-checked={format === id}
+                onClick={() => onFormatChange(id)}
+                className={`h-8 flex-1 rounded-full text-[11px] font-semibold ${format === id ? 'bg-white text-[#0b1210]' : 'bg-white/[0.05] text-muted-foreground'}`}
+              >
+                {MOTION_FORMATS[id].name} {MOTION_FORMATS[id].label}
+              </button>
+            ))}
+          </div>
+        ) : null}
+        {speech.error ? <p className="mt-2 px-1 text-[11px] text-amber-200">{speech.error}</p> : null}
       </div>
     </div>
   )
@@ -420,6 +527,8 @@ export default function ChatView({ modelProvider, headerSlot, seed, onOpenWallet
   const [standing, setStanding] = useState<RewardStanding | null>(null)
   const [name, setName] = useState('')
   const [keys, setKeys] = useState<SpydaApiKeys>({ openai: '', groq: '' })
+  const [mode, setMode] = useState<ComposerMode>('flyer')
+  const [format, setFormat] = useState<MotionFormat>('portrait')
   const textareaRef = useRef<HTMLTextAreaElement | null>(null)
   const fileInputRef = useRef<HTMLInputElement | null>(null)
   const scrollRef = useRef<HTMLDivElement | null>(null)
@@ -517,9 +626,72 @@ export default function ChatView({ modelProvider, headerSlot, seed, onOpenWallet
     }))
   }, [])
 
+  /** Asks Claude for a motion design, or a revision of the last one, under an assistant message. */
+  const runMotion = useCallback(async (messageId: string, motion: ChatMotion, previous?: { code: string; runtimeError?: string }) => {
+    try {
+      // The server charges the motion price before Claude runs and refunds a failure.
+      const result = await requestMotion({
+        image: motion.sourceImage,
+        brief: motion.brief,
+        format: motion.format,
+        duration: motion.duration,
+        previousCode: previous?.code,
+        runtimeError: previous?.runtimeError,
+      }, await spydaRequestHeaders(keys, 'motion'))
+      updateMessage(messageId, current => ({
+        ...current,
+        motion: { ...current.motion!, status: 'done', title: result.title, code: result.code, tokensAwarded: result.billing?.tokensAwarded || 0, error: undefined },
+      }))
+    } catch (error) {
+      updateMessage(messageId, current => ({
+        ...current,
+        motion: { ...current.motion!, status: 'failed', error: error instanceof Error ? error.message : 'The motion design could not be made.' },
+      }))
+    } finally {
+      refreshStanding()
+    }
+  }, [keys, refreshStanding, updateMessage])
+
   const send = useCallback(async () => {
     const text = draft.trim()
     if (thinking || (!text && !attachments.length)) return
+
+    if (mode === 'motion') {
+      const source = attachments[0]?.dataUrl || latestFlyer(conversation.messages)
+      if (!source) {
+        setNotice('Import a reference design for Claude to animate.')
+        fileInputRef.current?.click()
+        return
+      }
+      if (standing && standing.credits < SPYDA_MOTION_CREDITS) {
+        setNotice(`A motion design uses ${SPYDA_MOTION_CREDITS} credits and you have ${standing.credits}. Fund your wallet to continue.`)
+        return
+      }
+      // A follow-up without a new picture revises the last motion instead of starting over.
+      const previous = attachments.length ? null : latestMotion(conversation.messages)
+      const motion: ChatMotion = {
+        status: 'generating',
+        brief: text,
+        format: previous?.format ?? format,
+        duration: previous?.duration ?? MOTION_DURATION,
+        sourceImage: previous?.sourceImage ?? source,
+        cost: SPYDA_MOTION_CREDITS,
+      }
+      const userMessage: ChatMessage = { id: newId(), role: 'user', text, images: attachments.map(item => item.dataUrl), createdAt: new Date().toISOString() }
+      const reply: ChatMessage = { id: newId(), role: 'assistant', text: '', motion, createdAt: new Date().toISOString() }
+      setConversation(current => ({
+        ...current,
+        title: current.messages.length ? current.title : titleFrom(text || 'Motion design', attachments.length > 0),
+        flyerName: current.flyerName || (attachments[0] ? attachments[0].name.replace(/\.[a-z0-9]+$/i, '') : undefined),
+        updatedAt: new Date().toISOString(),
+        messages: [...current.messages, userMessage, reply],
+      }))
+      setDraft('')
+      setAttachments([])
+      setNotice(null)
+      await runMotion(reply.id, motion, previous?.code ? { code: previous.code } : undefined)
+      return
+    }
 
     const userMessage: ChatMessage = {
       id: newId(),
@@ -565,7 +737,7 @@ export default function ChatView({ modelProvider, headerSlot, seed, onOpenWallet
     }
     setConversation(current => ({ ...current, updatedAt: new Date().toISOString(), messages: [...current.messages, reply] }))
     setThinking(false)
-  }, [attachments, conversation.messages, cost, draft, keys, thinking])
+  }, [attachments, conversation.messages, cost, draft, format, keys, mode, modelProvider, runMotion, standing, thinking])
 
   const retryLast = useCallback(() => {
     const lastUser = [...messages].reverse().find(message => message.role === 'user')
@@ -667,7 +839,8 @@ export default function ChatView({ modelProvider, headerSlot, seed, onOpenWallet
     if (found) setConversation(found)
   }
 
-  const applySuggestion = (prompt: string) => {
+  const applySuggestion = (prompt: string, nextMode: ComposerMode) => {
+    setMode(nextMode)
     setDraft(prompt)
     if (!attachments.length && !flyer) fileInputRef.current?.click()
     else textareaRef.current?.focus()
@@ -749,6 +922,10 @@ export default function ChatView({ modelProvider, headerSlot, seed, onOpenWallet
       onOpenWallet={onOpenWallet}
       textareaRef={textareaRef}
       fileInputRef={fileInputRef}
+      mode={mode}
+      onModeChange={setMode}
+      format={format}
+      onFormatChange={setFormat}
     />
   )
 
@@ -779,7 +956,7 @@ export default function ChatView({ modelProvider, headerSlot, seed, onOpenWallet
               How can I help today?
             </h1>
             <p className="mx-auto mt-3 max-w-md text-sm leading-6 text-muted-foreground">
-              Import a flyer and I will break it down, rewrite it, or make the next version. Every credit you use builds your SPYDA rewards.
+              Import a design you like and tell me what to change. I will make it yours, or animate it with Claude. Every credit you use builds your SPYDA rewards.
             </p>
             <div className="mt-8 text-left">{composer}</div>
             {notice ? <p className="mt-3 text-xs text-red-200">{notice}</p> : null}
@@ -788,7 +965,7 @@ export default function ChatView({ modelProvider, headerSlot, seed, onOpenWallet
                 <button
                   key={item.title}
                   type="button"
-                  onClick={() => applySuggestion(item.prompt)}
+                  onClick={() => applySuggestion(item.prompt, item.mode)}
                   className="group rounded-[20px] border border-white/[0.07] bg-surface/90 p-4 transition-all duration-200 hover:-translate-y-0.5 hover:border-primary/30"
                 >
                   <p className="flex items-center gap-2 text-sm font-semibold"><item.icon className="h-4 w-4 text-primary" /> {item.title}</p>
@@ -806,6 +983,27 @@ export default function ChatView({ modelProvider, headerSlot, seed, onOpenWallet
                 <MessageRow key={message.id} message={message}>
                   {message.error && index === messages.length - 1 ? (
                     <button type="button" onClick={retryLast} className="mt-2 inline-flex items-center gap-1.5 text-xs font-semibold text-primary"><RefreshCw className="h-3.5 w-3.5" /> Try again</button>
+                  ) : null}
+                  {message.motion ? (
+                    <MotionCard
+                      motion={message.motion}
+                      onRetry={() => {
+                        updateMessage(message.id, current => ({ ...current, motion: { ...current.motion!, status: 'generating', error: undefined } }))
+                        runMotion(message.id, { ...message.motion!, status: 'generating' })
+                      }}
+                      onFix={runtimeError => {
+                        const broken = message.motion!
+                        const fix: ChatMessage = {
+                          id: newId(),
+                          role: 'assistant',
+                          text: '',
+                          createdAt: new Date().toISOString(),
+                          motion: { ...broken, status: 'generating', code: undefined, title: undefined, error: undefined, tokensAwarded: undefined },
+                        }
+                        setConversation(current => ({ ...current, updatedAt: new Date().toISOString(), messages: [...current.messages, fix] }))
+                        runMotion(fix.id, fix.motion!, { code: broken.code!, runtimeError })
+                      }}
+                    />
                   ) : null}
                   {message.edit ? (
                     <EditCard

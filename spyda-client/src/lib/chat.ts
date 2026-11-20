@@ -1,4 +1,5 @@
 import { createStore, get, set } from 'idb-keyval'
+import type { MotionFormat } from './motion-harness'
 
 /**
  * The workspace chat: conversations, their images, and the two API calls.
@@ -22,12 +23,28 @@ export type ChatEdit = {
   tokensAwarded?: number
 }
 
+/** A motion design Claude Opus 5.5 wrote for this conversation. */
+export type ChatMotion = {
+  status: 'generating' | 'done' | 'failed'
+  brief: string
+  format: MotionFormat
+  duration: number
+  /** The reference it animates. */
+  sourceImage: string
+  cost: number
+  title?: string
+  code?: string
+  error?: string
+  tokensAwarded?: number
+}
+
 export type ChatMessage = {
   id: string
   role: 'user' | 'assistant'
   text: string
   images?: string[]
   edit?: ChatEdit
+  motion?: ChatMotion
   createdAt: string
   error?: boolean
 }
@@ -95,6 +112,15 @@ export function titleFrom(text: string, hasImage: boolean) {
   const clean = text.replace(/\s+/g, ' ').trim()
   if (clean) return clean.length > 48 ? `${clean.slice(0, 46)}…` : clean
   return hasImage ? 'Flyer breakdown' : 'New chat'
+}
+
+/** The newest finished motion, which a follow-up in motion mode revises. */
+export function latestMotion(messages: ChatMessage[]): ChatMotion | null {
+  for (let index = messages.length - 1; index >= 0; index -= 1) {
+    const motion = messages[index].motion
+    if (motion?.status === 'done' && motion.code) return motion
+  }
+  return null
 }
 
 /** The flyer the conversation is about now: the newest generated or uploaded image. */
@@ -182,7 +208,9 @@ function toApiTurns(messages: ChatMessage[]) {
       role: message.role,
       text: message.edit?.status === 'done'
         ? `${message.text}\n[Generated a new version: ${message.edit.summary}]`
-        : message.text,
+        : message.motion?.status === 'done'
+          ? `[Made a motion design: ${message.motion.title || 'untitled'}]`
+          : message.text || (message.motion ? '[Motion design]' : ''),
       images: message.role === 'user'
         ? message.images
         : message.edit?.status === 'done' && message.edit.resultImage?.startsWith('data:image/jpeg')
@@ -214,6 +242,31 @@ export async function requestEdit(
   return readJson<{
     ok: true
     image: string
+    model: string
+    billing?: { creditsCharged: number; tokensAwarded: number; walletBalance: number }
+  }>(response)
+}
+
+export async function requestMotion(
+  input: {
+    image: string
+    brief: string
+    format: MotionFormat
+    duration: number
+    previousCode?: string
+    runtimeError?: string
+  },
+  headers: Record<string, string>,
+) {
+  const response = await fetch('/api/motion', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', ...headers },
+    body: JSON.stringify(input),
+  })
+  return readJson<{
+    ok: true
+    title: string
+    code: string
     model: string
     billing?: { creditsCharged: number; tokensAwarded: number; walletBalance: number }
   }>(response)

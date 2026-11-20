@@ -59,6 +59,10 @@ VITE_SUPABASE_ANON_KEY=
 SUPABASE_SERVICE_ROLE_KEY=
 OPENAI_API_KEY=
 GROQ_API_KEY=
+# Motion design runs on Claude Opus 5.5 (api/motion.ts).
+ANTHROPIC_API_KEY=
+# Optional: Spyda's general motion prompt; replaces the default in api/_motion-template.ts.
+MOTION_PROMPT_TEMPLATE=
 OPENAI_IMAGE_MODEL=gpt-image-2
 OPENAI_ANALYSIS_MODEL=gpt-4o
 GROQ_ANALYSIS_MODEL=llama-3.2-90b-vision-preview

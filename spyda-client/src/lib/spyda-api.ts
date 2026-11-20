@@ -9,6 +9,8 @@ import { supabase } from './supabase'
 export const SPYDA_GROQ_GPT_IMAGE_ROUND_CREDITS = 20
 export const SPYDA_GPT_IMAGE_ONLY_ROUND_CREDITS = 30
 export const SPYDA_BYOK_ROUND_CREDITS = 5
+/** One Claude Opus 5.5 motion design. Priced in the database; shown before sending. */
+export const SPYDA_MOTION_CREDITS = 50
 /** Every 1,000 eligible credits used accrues 1 pre-launch SPYDA. */
 export const CREDITS_PER_SPYDA = 1000
 

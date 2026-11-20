@@ -8,18 +8,19 @@ import {
   Bot,
   Check,
   ChevronDown,
+  Clapperboard,
   Clock,
   Coins,
   Download,
   FolderKanban,
   Gift,
-  GitCompareArrows,
   GraduationCap,
   Image as ImageIcon,
   Layers3,
   LayoutDashboard,
   Library,
-  MousePointer2,
+  MessageSquareText,
+  Mic,
   Network,
   Palette,
   PanelLeftClose,
@@ -308,6 +309,24 @@ function Eyebrow({ children }: { children: React.ReactNode }) {
   )
 }
 
+/* ── Motion preview: a story-format frame whose parts move like a Spyda motion ── */
+
+function MotionPreview() {
+  return (
+    <div aria-hidden="true" className="relative mx-auto w-full max-w-[340px]">
+      <div className="absolute -inset-6 rounded-[48px] bg-[radial-gradient(closest-side,rgba(18,134,111,0.45),transparent)] blur-2xl" />
+      <div className="relative aspect-[9/16] overflow-hidden rounded-[34px] border border-white/15 bg-[#0b1412] shadow-[0_30px_80px_rgba(0,0,0,0.55)]">
+        <img src="/assets/spyda-sample-07.jpeg" alt="" className="motion-preview-photo absolute inset-0 h-full w-full object-cover" loading="lazy" />
+        <div className="absolute inset-0 bg-gradient-to-t from-black/45 via-transparent to-black/25" />
+        <div className="motion-preview-sweep absolute inset-y-0 -left-1/2 w-1/2 bg-[linear-gradient(100deg,transparent,rgba(255,255,255,0.28),transparent)]" />
+        <span className="motion-preview-chip absolute left-5 top-6 inline-flex items-center gap-1.5 rounded-full bg-primary px-3 py-1 font-heading text-[10px] font-semibold uppercase tracking-[0.14em] text-primary-foreground"><Clapperboard className="h-3 w-3" /> Claude Opus 5.5</span>
+        <span className="absolute right-4 top-6 inline-flex items-center gap-1.5 rounded-full bg-black/60 px-2.5 py-1 text-[10px] font-semibold text-white backdrop-blur"><Clapperboard className="h-3 w-3 text-primary" /> 0:08</span>
+        <div className="absolute inset-x-5 bottom-3 h-1 overflow-hidden rounded-full bg-white/20"><div className="motion-preview-progress h-full bg-primary" /></div>
+      </div>
+    </div>
+  )
+}
+
 /* ── Hero ribbon: small, real pieces of the Spyda workspace ── */
 
 function RibbonFlyer({ src, label }: { src: string; label?: string }) {
@@ -378,10 +397,10 @@ const ribbon: React.ReactNode[] = [
     <p className="text-[10px] font-medium">changes ready</p>
     <span className="mt-2.5 inline-flex items-center gap-1 rounded-full bg-[#050606] px-2.5 py-1 text-[9px] font-bold text-primary"><Download className="h-2.5 w-2.5" /> Download</span>
   </RibbonCard>,
-  <RibbonCard key="credits" tone="dark">
-    <p className="flex items-center gap-1.5 text-[9px] text-white/55"><Bot className="h-3 w-3 text-primary" /> Groq + GPT-Image 2</p>
-    <p className="mt-2 font-heading text-2xl font-semibold">20</p>
-    <p className="text-[10px] text-white/60">credits per round</p>
+  <RibbonCard key="motion" tone="dark">
+    <p className="flex items-center gap-1.5 text-[9px] text-white/55"><Clapperboard className="h-3 w-3 text-primary" /> Claude Opus 5.5</p>
+    <p className="mt-2 font-heading text-lg font-semibold leading-tight">Motion design</p>
+    <p className="text-[10px] text-white/60">9:16 · 8s · ready to post</p>
   </RibbonCard>,
   <RibbonFlyer key="f2" src="spyda-sample-10.jpeg" />,
 ]
@@ -509,6 +528,7 @@ const navLinks = [
   ['#problem', 'Why Spyda'],
   ['#how', 'How it works'],
   ['#features', 'What you control'],
+  ['#motion', 'Motion'],
   ['#economy', 'Spyda Token'],
   ['#pricing', 'Pricing'],
 ]
@@ -615,7 +635,7 @@ export default function Landing() {
                   <span className="text-[#c9ffd8]/90">Change only what you need.</span>
                 </h1>
                 <p className="mx-auto mt-6 max-w-2xl text-[15px] leading-7 text-white/80 sm:text-base">
-                  Upload a flyer you already trust. Spyda finds its text, images, logos, colors, and layout so you can replace the parts that need to change without rebuilding everything from zero.
+                  Upload a design you already like and tell Spyda what to change, by typing or by voice. ChatGPT makes it yours, Claude Opus 5.5 turns it into motion, and canvas mode lets you fine-tune every layer by hand.
                 </p>
                 <div className="mt-8 flex flex-col items-stretch justify-center gap-3 sm:flex-row sm:items-center">
                   <SecondaryPill href="#how"><Play className="h-3.5 w-3.5 text-primary" /> See the workflow</SecondaryPill>
@@ -645,6 +665,7 @@ export default function Landing() {
                   [Zap, 'Product launches'],
                   [Gift, 'Event promotions'],
                   [Bot, 'App announcements'],
+                  [Clapperboard, 'Motion videos'],
                   [RefreshCw, 'Client revisions'],
                 ].map(([Icon, label]) => {
                   const MarqueeIcon = Icon as React.ElementType
@@ -718,14 +739,14 @@ export default function Landing() {
               <h2 className="font-heading text-[2.2rem] font-semibold leading-[1.08] tracking-[-0.02em] sm:text-5xl">
                 A clearer way <HeadlineChip icon={RefreshCw} tone="mint" /> to revise a design.
               </h2>
-              <p className="mt-5 text-base leading-7 text-muted-foreground">Spyda turns one difficult redesign into a series of small, controlled decisions.</p>
+              <p className="mt-5 text-base leading-7 text-muted-foreground">Spyda turns a design you like into yours in a conversation, then lets you animate it or refine it by hand.</p>
             </div>
             <div className="mt-14 grid gap-4 md:grid-cols-2 lg:grid-cols-4">
               {[
-                { icon: Upload, step: '01', title: 'Upload the reference', copy: 'Start with the flyer, poster, or social design whose structure you want to keep.' },
-                { icon: ScanSearch, step: '02', title: 'Review the design atoms', copy: 'Spyda identifies the visible text, images, logos, offers, colors, fonts, and layout roles.' },
-                { icon: SlidersHorizontal, step: '03', title: 'Choose up to 3 changes', copy: 'Replace a few exact items per round so the model can stay focused on the parent design.' },
-                { icon: RefreshCw, step: '04', title: 'Continue from the new version', copy: 'The child design becomes your next working source, while the original remains available for comparison.' },
+                { icon: Upload, step: '01', title: 'Import the reference', copy: 'Start with the flyer, poster, or social design whose look you want to keep.' },
+                { icon: MessageSquareText, step: '02', title: 'Say what to change', copy: 'Type or talk: your brand, headline, offer, contacts, colours or a new photo. Spyda asks for anything it needs.' },
+                { icon: WandSparkles, step: '03', title: 'Get your version', copy: 'Confirm the change and ChatGPT generates your flyer, or switch to Motion and Claude Opus 5.5 animates it.' },
+                { icon: SlidersHorizontal, step: '04', title: 'Fine-tune in canvas mode', copy: 'Open the result as layers to move, restyle and rewrite each part by hand, with every edit on a timeline.' },
               ].map(item => (
                 <article key={item.step} className="group flex min-h-64 flex-col rounded-[26px] border border-white/[0.07] bg-surface p-7 transition-all duration-300 hover:-translate-y-0.5 hover:border-primary/30">
                   <div className="flex items-center justify-between">
@@ -753,13 +774,40 @@ export default function Landing() {
               <p className="mt-5 text-base leading-7 text-muted-foreground">Spyda keeps the reference visible and gives each important part of the design its own place to edit.</p>
             </div>
             <div className="mt-14 grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
-              <FeatureCard tone="mint" icon={Layers3} title="Design atoms" desc="Text, images, logos, calls to action, and other visible parts are separated into focused controls." />
-              <FeatureCard icon={MousePointer2} title="Exact replacement choices" desc="Keep an atom unchanged, customize it, upload a replacement, or remove it from the next version." />
-              <FeatureCard icon={Palette} title="Brand constants" desc="Set heading and body fonts, HEX colors, and visual direction for every generation round." />
-              <FeatureCard icon={GitCompareArrows} title="Source and child comparison" desc="See the original beside the latest result so layout drift and unwanted changes are easier to catch." />
-              <FeatureCard tone="light" icon={WandSparkles} title="Essentials for special requests" desc="Add instructions or a supporting image when the detected atoms do not cover the change you need." />
-              <FeatureCard icon={Library} title="A reusable workspace" desc="Return to project history, templates, brand assets, generated designs, and active revisions." />
+              <FeatureCard tone="mint" icon={MessageSquareText} title="A chat that makes it yours" desc="Tell Spyda what to change in plain words. It confirms the change and its credit cost before anything is generated." />
+              <FeatureCard icon={Clapperboard} title="Motion by Claude Opus 5.5" desc="Turn any reference into a short animation for posts, stories and reels, then download it as a video." />
+              <FeatureCard icon={Mic} title="Talk instead of type" desc="Tap the mic and describe the change. Your words land in the chat for you to send." />
+              <FeatureCard icon={Layers3} title="Canvas mode" desc="Open a flyer as layers to drag, resize, rewrite and recolour each part, with undo and an edit timeline." />
+              <FeatureCard tone="light" icon={Palette} title="Brand constants" desc="Keep your fonts, HEX colours and visual direction consistent across every version you make." />
+              <FeatureCard icon={Library} title="A reusable workspace" desc="Return to your chats, projects, templates, brand assets and generated designs on this device." />
             </div>
+          </div>
+        </section>
+
+        <section id="motion" className="px-4 py-20 sm:py-24">
+          <div className="mx-auto grid max-w-6xl items-center gap-12 lg:grid-cols-[minmax(0,1fr)_420px] lg:gap-16">
+            <div>
+              <p className="mb-6 flex items-center gap-2 font-heading text-[11px] font-semibold uppercase tracking-[0.2em] text-primary"><Clapperboard className="h-4 w-4" /> Motion design</p>
+              <h2 className="max-w-2xl font-heading text-[2.2rem] font-semibold leading-[1.08] tracking-[-0.02em] sm:text-5xl">
+                Your flyer, <HeadlineChip icon={Play} tone="mint" /> now in motion.
+              </h2>
+              <p className="mt-6 max-w-xl text-base leading-7 text-muted-foreground">Switch the chat to Motion, import a reference and describe the feel you want. Claude Opus 5.5 studies the design and animates it for your brand, using your colours and your exact wording.</p>
+              <div className="mt-8 grid gap-3 sm:grid-cols-2">
+                {[
+                  ['Every format', 'Portrait 4:5 posts, 9:16 stories and reels, and 1:1 squares.'],
+                  ['Ready to post', 'Download a video, or an HTML file that plays in any browser.'],
+                  ['Revise by asking', 'Send a follow-up like “slower, and end on the logo” to get the next cut.'],
+                  ['Rewards included', '50 credits a video, counted toward your SPYDA like every generation.'],
+                ].map(([title, copy]) => (
+                  <div key={title} className="rounded-[20px] border border-white/[0.07] bg-surface p-5 transition-all duration-300 hover:-translate-y-0.5 hover:border-primary/25">
+                    <h3 className="font-heading text-base font-semibold">{title}</h3>
+                    <p className="mt-1.5 text-sm leading-6 text-muted-foreground">{copy}</p>
+                  </div>
+                ))}
+              </div>
+              <PrimaryPill to="/auth" className="mt-8">Animate a design</PrimaryPill>
+            </div>
+            <MotionPreview />
           </div>
         </section>
 
@@ -843,7 +891,7 @@ export default function Landing() {
               <p className="mt-5 text-base leading-7 text-muted-foreground">Fund your wallet, subscribe for a larger workload, or connect your own API key for a lower Spyda credit rate.</p>
             </div>
             <div className="mx-auto mt-14 flex max-w-7xl snap-x snap-mandatory gap-4 overflow-x-auto px-[8vw] pb-3 md:grid md:grid-cols-2 md:overflow-visible md:px-0 md:pb-0 xl:grid-cols-4">
-              <PricingCard name="Wallet Funding" price="Any amount" detail="$1 = 100 Spyda credits" desc="Fund your wallet with the amount that matches the work in front of you." features={['Credits stay in your account', 'No recurring payment', '20 credits: Groq + GPT-Image 2', '30 credits: GPT-Image 2 only', 'Eligible spend accrues SPYDA']} texture="starter" />
+              <PricingCard name="Wallet Funding" price="Any amount" detail="$1 = 100 Spyda credits" desc="Fund your wallet with the amount that matches the work in front of you." features={['Credits stay in your account', 'No recurring payment', '20 credits: Groq + GPT-Image 2', '30 credits: GPT-Image 2 only', '50 credits: motion by Claude Opus 5.5', 'Eligible spend accrues SPYDA']} texture="starter" />
               <PricingCard name="Creator" price="NGN 12,000" detail="30 days of access" desc="For creators handling regular campaigns, promotions, and client revisions." features={['1,200 credits per access period', 'Unlimited saved projects', 'Brand asset library', 'Eligible spend accrues SPYDA']} texture="creator" featured />
               <PricingCard name="Studio" price="NGN 30,000" detail="30 days of access" desc="For teams and high-volume creative work that needs more room to move." features={['3,500 credits per access period', 'Everything in Creator', 'Faster processing queue', 'Eligible spend accrues SPYDA']} texture="pro" />
               <PricingCard name="Bring Your API Key" price="5 credits" detail="per AI generation" desc="Use your own OpenAI API billing while Spyda provides the editing workflow and QA." features={['Connect your OpenAI API key', 'Optional Groq analysis key', '5 Spyda credits per generation', 'Eligible spend accrues SPYDA']} texture="free" />
@@ -859,9 +907,10 @@ export default function Landing() {
               <h2 className="font-heading text-[2.1rem] font-semibold leading-[1.08] tracking-[-0.02em] sm:text-4xl">Know what to expect before you upload.</h2>
             </div>
             <div className="mt-12 space-y-3">
-              <FAQItem question="What does Spyda actually do?" answer="Spyda helps you revise an existing visual direction. It analyzes a flyer or similar design, lists the parts it can see, lets you choose focused replacements, and generates the next version while using the current design as its reference." />
-              <FAQItem question="Does Spyda turn my upload into a layered Photoshop file?" answer="No. Spyda does not recover the original hidden layers from a flat image. It creates design atoms for the visible parts, then uses your selected changes and the reference image to produce a revised child version." />
-              <FAQItem question="Why can I make only three focused changes per round?" answer="Smaller rounds give the image model fewer instructions to balance at once. This helps it preserve more of the parent layout, and your latest child version becomes the source for the next round." />
+              <FAQItem question="What does Spyda actually do?" answer="Spyda turns a design you like into your own. Import a flyer or social design, tell Spyda what to change by typing or talking, and it generates your version while keeping the look. You can also animate it with Claude Opus 5.5 or edit every layer by hand in canvas mode." />
+              <FAQItem question="Can I edit the design by hand?" answer="Yes. Canvas mode separates a flyer into layers you can move, resize, restyle and rewrite, with undo and an edit timeline. It is not a Photoshop file: layers are rebuilt from the flat image, and Make it editable cuts out the pictures." />
+              <FAQItem question="How do motion designs work?" answer="Switch the chat to Motion, import a reference and describe what you want. Claude Opus 5.5 writes the animation, you watch it in the chat, and you can download it as a video or an HTML file. Each motion uses 50 credits, and follow-up messages revise the last one." />
+              <FAQItem question="Can I talk instead of typing?" answer="Yes. Tap the microphone in the chat box and speak; your words appear in the message for you to check and send. It uses your browser's own speech recognition, so it works in Chrome, Edge and Safari." />
               <FAQItem question="Can I replace logos and product images?" answer="Yes. Upload a replacement on the matching design atom or through Essentials. Spyda also supports exact placement controls for detected image regions before the AI generation step." />
               <FAQItem question="Can I keep my brand fonts and colors?" answer="Yes. Brand Constants lets you set heading and body fonts, HEX colors, and the visual style that should guide the revised design." />
               <FAQItem question="How do Spyda Token rewards work?" answer="For every 1,000 eligible Spyda Credits consumed on qualifying product actions, your account accrues 1 pre-launch SPYDA allocation. Funding the wallet alone does not create a reward; the credits must be used inside Spyda." />

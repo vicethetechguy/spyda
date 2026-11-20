@@ -624,3 +624,23 @@
     transform: translateX(0);
   }
 }
+
+/* Landing motion preview: one four-second loop that reads like a Spyda motion
+   design - the photo drifts, the copy rises in, the call to action lands. */
+.motion-preview-photo { animation: motion-preview-drift 4s ease-in-out infinite alternate; }
+.motion-preview-chip { animation: motion-preview-pop 4s cubic-bezier(0.3, 1.4, 0.5, 1) infinite; }
+.motion-preview-progress { animation: motion-preview-progress 4s linear infinite; transform-origin: left; }
+.motion-preview-sweep { animation: motion-preview-sweep 4s ease-in-out infinite; }
+
+@keyframes motion-preview-drift { from { transform: scale(1.08) translateY(0); } to { transform: scale(1.14) translateY(-3%); } }
+@keyframes motion-preview-pop {
+  0%, 4% { opacity: 0; transform: scale(0.6); }
+  16%, 88% { opacity: 1; transform: scale(1); }
+  100% { opacity: 0; transform: scale(0.9); }
+}
+@keyframes motion-preview-progress { from { transform: scaleX(0); } to { transform: scaleX(1); } }
+@keyframes motion-preview-sweep { 0%, 35% { transform: translateX(0); } 75%, 100% { transform: translateX(400%); } }
+
+@media (prefers-reduced-motion: reduce) {
+  .motion-preview-photo, .motion-preview-chip, .motion-preview-progress, .motion-preview-sweep { animation: none; }
+}
