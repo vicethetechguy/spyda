@@ -19,9 +19,16 @@ const MeshGradient = lazy(async () => {
  */
 const HERO_COLORS = ['#061d13', '#0a4536', '#06293f', '#101033', '#0d5a40']
 
-type HeroFieldProps = { className?: string }
+/**
+ * The landing hero panel: a bright teal-and-emerald sky that the mint button
+ * stands out against. Mid-tones only, so white headline type keeps its contrast.
+ */
+const VIVID_COLORS = ['#0b6a63', '#12866f', '#0c5b86', '#169a78', '#074a5e']
 
-export default function HeroField({ className = '' }: HeroFieldProps) {
+type HeroFieldProps = { className?: string; variant?: 'deep' | 'vivid' }
+
+export default function HeroField({ className = '', variant = 'deep' }: HeroFieldProps) {
+  const vivid = variant === 'vivid'
   const hostRef = useRef<HTMLDivElement>(null)
   const reducedMotion = usePrefersReducedMotion()
   const [eligible, setEligible] = useState(false)
@@ -41,13 +48,13 @@ export default function HeroField({ className = '' }: HeroFieldProps) {
       {/* Painted from the first frame: with reduced motion, no WebGL2, or a
           chunk still in flight, this is the hero background outright. The
           canvas fades in over it, so there is never an empty gap. */}
-      <div className="hero-field-fallback absolute inset-0" />
+      <div className={`${vivid ? 'hero-field-fallback--vivid' : 'hero-field-fallback'} absolute inset-0`} />
 
       {seen && (
         <Suspense fallback={null}>
           <MeshGradient
             className="hero-field-canvas absolute inset-0 h-full w-full"
-            colors={HERO_COLORS}
+            colors={vivid ? VIVID_COLORS : HERO_COLORS}
             distortion={0.62}
             swirl={0.28}
             grainMixer={0.14}
@@ -63,7 +70,7 @@ export default function HeroField({ className = '' }: HeroFieldProps) {
 
       {/* Legibility is not negotiable: the scrim sinks the field to page
           background at every edge and again under the headline. */}
-      <div className="hero-field-scrim absolute inset-0" />
+      <div className={`${vivid ? 'hero-field-scrim--vivid' : 'hero-field-scrim'} absolute inset-0`} />
     </div>
   )
 }
