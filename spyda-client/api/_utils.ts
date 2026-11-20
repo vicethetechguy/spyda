@@ -1141,12 +1141,12 @@ function buildImageEditForm({
   return form;
 }
 
-function normalizeGeneratedImageOutput(value: string | null | undefined, mimeType = "image/webp") {
+export function normalizeGeneratedImageOutput(value: string | null | undefined, mimeType = "image/webp") {
   if (!value || value.startsWith("http") || value.startsWith("data:image/")) return value || null;
   return `data:${mimeType};base64,${value}`;
 }
 
-async function requestOpenAiImageEdit({
+export async function requestOpenAiImageEdit({
   openaiKey,
   model,
   prompt,

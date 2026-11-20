@@ -1,6 +1,9 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
-import { Link, useParams } from 'react-router-dom'
-import { ArrowLeft, Check, Layers, Loader2, Redo2, Sparkles, Undo2, Wand2 } from 'lucide-react'
+import { Link, useNavigate, useParams } from 'react-router-dom'
+import {
+  ArrowLeft, Check, Clock, Copy, Eye, Image as ImageIcon, Layers, Loader2, Move, Palette, Redo2, Sparkles,
+  Trash2, Type, Undo2, Wand2, X, type LucideIcon,
+} from 'lucide-react'
 import {
   adaptBreakdownToDesignDocument,
   designDocumentToLegacyBreakdown,
@@ -64,6 +67,46 @@ function streamKey(intent: DesignEditIntent) {
 
 type BootState = { project: StoredProject | null; history: IntentHistory | null }
 
+type PanelTab = 'layers' | 'content' | 'history'
+type LayerFilter = 'all' | 'text' | 'pictures' | 'logos' | 'shapes'
+
+const FILTERS: { id: LayerFilter; label: string }[] = [
+  { id: 'all', label: 'All layers' },
+  { id: 'text', label: 'Text' },
+  { id: 'pictures', label: 'Pictures' },
+  { id: 'logos', label: 'Logos' },
+  { id: 'shapes', label: 'Shapes' },
+]
+
+function matchesFilter(object: DesignObject, filter: LayerFilter) {
+  if (filter === 'all') return true
+  if (filter === 'text') return object.kind === 'text' || object.kind === 'action'
+  if (filter === 'pictures') return object.kind === 'image' || object.kind === 'background'
+  if (filter === 'logos') return object.kind === 'logo' || object.kind === 'icon' || object.kind === 'qr-code'
+  return object.kind === 'shape' || object.kind === 'decor' || object.kind === 'group'
+}
+
+/** The icon a history step shows on the timeline, from what it changed. */
+function stepIcon(intents: DesignEditIntent[]): LucideIcon {
+  const property = intents[0]?.property
+  if (property === 'text' || property === 'fontFamily' || property === 'fontSize' || property === 'fontWeight' || property === 'textAlign') return Type
+  if (property === 'fill' || property === 'stroke' || property === 'opacity') return Palette
+  if (property === 'bounds' || property === 'rotation' || property === 'zIndex') return Move
+  if (property === 'assetRef') return ImageIcon
+  if (property === 'duplicate') return Copy
+  if (property === 'removed') return Trash2
+  if (property === 'visible') return Eye
+  return Sparkles
+}
+
+/** Undo or redo until `target` steps are applied: one click on the timeline. */
+function jumpTo(history: IntentHistory, target: number) {
+  let next = history
+  while (next.cursor > target && canUndo(next)) next = undo(next)
+  while (next.cursor < target && canRedo(next)) next = redo(next)
+  return next
+}
+
 function newObjectId() {
   return typeof crypto !== 'undefined' && 'randomUUID' in crypto
     ? `layer-${crypto.randomUUID().slice(0, 8)}`
@@ -103,6 +146,9 @@ export default function Editor() {
   const [fontReport, setFontReport] = useState<FontReport | null>(null)
   const [saved, setSaved] = useState(false)
   const [flatFlyer, setFlatFlyer] = useState<HTMLImageElement | null>(null)
+  const [tab, setTab] = useState<PanelTab>('layers')
+  const [filter, setFilter] = useState<LayerFilter>('all')
+  const navigate = useNavigate()
   const edited = useRef(false)
 
   // The analysed flat picture, drawn under the layers until they have pixels.
@@ -298,185 +344,312 @@ export default function Editor() {
     return () => window.removeEventListener('keydown', onKeyDown)
   }, [applyIntent, selectedId])
 
+  const selectLayer = (objectId: string | null) => {
+    setSelectedId(objectId)
+    if (objectId) setTab('content')
+  }
+
   if (!project) {
     return (
       <main className="mx-auto flex min-h-[70vh] max-w-lg flex-col items-center justify-center gap-4 px-6 text-center">
         <Layers className="h-8 w-8 text-muted-foreground" aria-hidden />
         <h1 className="font-heading text-xl font-semibold">This project is not on this device</h1>
         <p className="text-sm leading-relaxed text-muted-foreground">
-          Saved projects live in this browser. Open the workspace and pick a design to edit it.
+          Saved projects live in this browser. Open Spyda AI and import the flyer to edit it here.
         </p>
         <Link
           to="/workspace"
-          className="glass inline-flex items-center gap-2 rounded-lg border px-3 py-2 text-sm font-medium hover:border-primary/40 hover:text-primary"
+          className="inline-flex h-10 items-center gap-2 rounded-full bg-primary px-4 text-sm font-semibold text-primary-foreground"
         >
           <ArrowLeft className="h-3.5 w-3.5" aria-hidden />
-          Back to the workspace
+          Back to Spyda AI
         </Link>
       </main>
     )
   }
 
-  const cutoutTargets = design?.objects.filter(object => CUTOUT_KINDS.includes(object.kind)) ?? []
-  const extracted = design?.objects.some(object => object.content.assetRef) ?? false
+  const objects = design?.objects ?? []
+  const live = objects.filter(object => !object.status.removed)
+  const cutoutTargets = objects.filter(object => CUTOUT_KINDS.includes(object.kind))
+  const extracted = objects.some(object => object.content.assetRef)
+  const stats = [
+    { label: 'Layers', value: live.length },
+    { label: 'Text', value: live.filter(object => matchesFilter(object, 'text')).length },
+    { label: 'Pictures', value: live.filter(object => matchesFilter(object, 'pictures') || matchesFilter(object, 'logos')).length },
+    { label: 'Hidden', value: live.filter(object => !object.status.visible).length },
+  ]
+  const size = design?.canvas.width && design.canvas.height
+    ? `${design.canvas.width} × ${design.canvas.height}`
+    : design?.canvas.aspectRatio || ''
+  const steps = history?.steps ?? []
+  const cursor = history?.cursor ?? 0
+  const filtered = objects.filter(object => matchesFilter(object, filter))
+
+  const tabs: { id: PanelTab; label: string; icon: LucideIcon }[] = [
+    { id: 'layers', label: 'Layers', icon: Layers },
+    { id: 'content', label: 'Content', icon: Type },
+    { id: 'history', label: 'History', icon: Clock },
+  ]
 
   return (
-    <main className="flex min-h-screen flex-col">
-      <header className="glass glass-blur sticky top-0 z-20 flex flex-wrap items-center gap-3 border-b px-3 py-2 sm:px-5">
-        <Link
-          to="/workspace"
-          className="inline-flex items-center gap-1.5 rounded-lg px-2 py-1.5 text-xs font-medium text-muted-foreground hover:bg-white/10 hover:text-foreground"
-        >
-          <ArrowLeft className="h-3.5 w-3.5" aria-hidden />
-          Workspace
-        </Link>
-
-        <div className="min-w-0">
-          <p className="truncate text-[13px] font-semibold">{project.name}</p>
-          <p className="text-[10px] uppercase tracking-[0.12em] text-muted-foreground">
-            {design ? `${design.objects.length} layers` : 'flat picture'}
-            {saved ? ' · saved' : ''}
-          </p>
-        </div>
-
-        <div className="ml-auto flex items-center gap-1.5">
+    <main className="min-h-screen bg-background p-2 sm:p-4 lg:h-[100dvh] lg:overflow-hidden">
+      {/* On desktop the frame is exactly one screen, so the layer list scrolls inside its card and the canvas keeps its size. */}
+      <div className="mx-auto flex min-h-[calc(100dvh-1rem)] max-w-[1500px] flex-col rounded-[30px] border border-white/[0.08] bg-[#15161a] p-1.5 sm:min-h-[calc(100dvh-2rem)] sm:rounded-[38px] sm:p-2 lg:h-full lg:min-h-0">
+        {/* Header: close, the title tab that runs into the panel, panel pills */}
+        <header className="flex flex-wrap items-end gap-2 px-1 pt-1 sm:gap-3">
           <button
             type="button"
-            onClick={() => setHistory(current => (current ? undo(current) : current))}
-            disabled={!history || !canUndo(history)}
-            title={(history && nextUndoLabel(history)) || 'Nothing to undo'}
-            aria-label="Undo"
-            className="rounded-lg p-2 text-muted-foreground hover:bg-white/10 hover:text-foreground disabled:opacity-30 disabled:hover:bg-transparent"
+            onClick={() => navigate('/workspace')}
+            aria-label="Close canvas mode and go back to Spyda AI"
+            title="Back to Spyda AI"
+            className="mb-2 flex h-11 w-11 shrink-0 items-center justify-center rounded-full bg-white text-[#0b1210] transition-transform hover:-translate-y-0.5 active:scale-95"
           >
-            <Undo2 className="h-4 w-4" aria-hidden />
+            <X className="h-4 w-4" />
           </button>
-          <button
-            type="button"
-            onClick={() => setHistory(current => (current ? redo(current) : current))}
-            disabled={!history || !canRedo(history)}
-            title={(history && nextRedoLabel(history)) || 'Nothing to redo'}
-            aria-label="Redo"
-            className="rounded-lg p-2 text-muted-foreground hover:bg-white/10 hover:text-foreground disabled:opacity-30 disabled:hover:bg-transparent"
-          >
-            <Redo2 className="h-4 w-4" aria-hidden />
-          </button>
-          <button
-            type="button"
-            onClick={handleExtract}
-            disabled={Boolean(extracting) || !design || !project.referencePreview}
-            className="glass inline-flex items-center gap-2 rounded-lg border px-3 py-1.5 text-xs font-semibold hover:border-primary/40 hover:text-primary disabled:opacity-50"
-          >
-            {extracting
-              ? <Loader2 className="h-3.5 w-3.5 animate-spin" aria-hidden />
-              : <Wand2 className="h-3.5 w-3.5" aria-hidden />}
-            {extracting ? 'Cutting out…' : extracted ? 'Refresh cut-outs' : 'Make it editable'}
-          </button>
-        </div>
-      </header>
+          <div className="min-w-0 rounded-t-[24px] bg-[#0c0d0f] px-5 pb-3 pt-3 sm:px-7">
+            <p className="text-[10px] font-semibold uppercase tracking-[0.16em] text-primary">Canvas mode</p>
+            <h1 className="max-w-[46vw] truncate font-heading text-xl font-semibold sm:text-[1.7rem]">{project.name}</h1>
+          </div>
 
-      {notice ? (
-        <div
-          role="status"
-          className={[
-            'flex items-start gap-2 border-b px-3 py-2 text-[11px] leading-relaxed sm:px-5',
-            notice.tone === 'error'
-              ? 'border-destructive/30 bg-destructive/10 text-destructive-foreground'
-              : notice.tone === 'warn'
-                ? 'border-amber-400/25 bg-amber-400/[0.07] text-amber-200'
-                : 'border-white/10 bg-white/[0.03] text-muted-foreground',
-          ].join(' ')}
-        >
-          <Sparkles className="mt-0.5 h-3 w-3 shrink-0" aria-hidden />
-          <span className="flex-1">{notice.text}</span>
-          <button type="button" onClick={() => setNotice(null)} className="shrink-0 underline">Dismiss</button>
-        </div>
-      ) : null}
+          <div className="mb-2 ml-auto flex flex-wrap items-center gap-1.5">
+            {tabs.map(item => (
+              <button
+                key={item.id}
+                type="button"
+                onClick={() => setTab(item.id)}
+                aria-pressed={tab === item.id}
+                aria-label={item.label}
+                className={`inline-flex h-10 items-center gap-2 rounded-full px-4 text-xs font-semibold transition-all ${
+                  tab === item.id
+                    ? 'bg-primary text-primary-foreground shadow-[0_8px_22px_rgba(157,250,176,0.2)]'
+                    : 'border border-white/[0.08] bg-white/[0.04] text-muted-foreground hover:text-foreground'
+                }`}
+              >
+                <item.icon className="h-3.5 w-3.5" aria-hidden /> <span className="hidden sm:inline">{item.label}</span>
+              </button>
+            ))}
+            <span className="mx-1 hidden h-6 w-px bg-white/10 sm:block" />
+            <button
+              type="button"
+              onClick={() => setHistory(current => (current ? undo(current) : current))}
+              disabled={!history || !canUndo(history)}
+              title={(history && nextUndoLabel(history)) || 'Nothing to undo'}
+              aria-label="Undo"
+              className="flex h-10 w-10 items-center justify-center rounded-full border border-white/[0.08] bg-white/[0.04] text-muted-foreground transition-colors hover:text-foreground disabled:opacity-30"
+            >
+              <Undo2 className="h-4 w-4" aria-hidden />
+            </button>
+            <button
+              type="button"
+              onClick={() => setHistory(current => (current ? redo(current) : current))}
+              disabled={!history || !canRedo(history)}
+              title={(history && nextRedoLabel(history)) || 'Nothing to redo'}
+              aria-label="Redo"
+              className="flex h-10 w-10 items-center justify-center rounded-full border border-white/[0.08] bg-white/[0.04] text-muted-foreground transition-colors hover:text-foreground disabled:opacity-30"
+            >
+              <Redo2 className="h-4 w-4" aria-hidden />
+            </button>
+            <button
+              type="button"
+              onClick={handleExtract}
+              disabled={Boolean(extracting) || !design || !project.referencePreview}
+              className="inline-flex h-10 items-center gap-2 rounded-full bg-white px-4 text-xs font-semibold text-[#0b1210] transition-all hover:-translate-y-0.5 active:translate-y-0 active:scale-[0.98] disabled:opacity-50"
+            >
+              {extracting ? <Loader2 className="h-3.5 w-3.5 animate-spin" aria-hidden /> : <Wand2 className="h-3.5 w-3.5" aria-hidden />}
+              {extracting ? 'Cutting out…' : extracted ? 'Refresh cut-outs' : 'Make it editable'}
+            </button>
+          </div>
+        </header>
 
-      {missingFonts.size ? (
-        <p className="border-b border-amber-400/20 bg-amber-400/[0.05] px-3 py-2 text-[11px] text-amber-200 sm:px-5">
-          {[...missingFonts].join(', ')} {missingFonts.size > 1 ? 'are' : 'is'} not loaded on this device, so
-          {missingFonts.size > 1 ? ' those layers render' : ' that layer renders'} in Montserrat. Fonts are matched
-          by class, not by file.
-        </p>
-      ) : null}
+        <div className="flex min-h-0 flex-1 flex-col gap-3 rounded-[24px] bg-[#0c0d0f] p-3 sm:rounded-[30px] sm:p-4">
+          {/* Summary: the flyer card, its numbers, the layer filters */}
+          <div className="flex flex-col gap-3 lg:flex-row lg:items-stretch">
+            <div className="flex items-center gap-3 rounded-[22px] bg-surface-raised p-2.5 pr-5 lg:w-[300px]">
+              {project.referencePreview ? (
+                <img src={project.referencePreview} alt="" className="h-16 w-14 shrink-0 rounded-[14px] border border-white/10 object-cover" />
+              ) : null}
+              <div className="min-w-0">
+                <p className="text-[10px] text-muted-foreground">{size}</p>
+                <p className="truncate text-sm font-semibold">{project.name}</p>
+                <p className="mt-0.5 text-[10px] text-muted-foreground">{saved ? 'Saved on this device' : 'No changes yet'}</p>
+              </div>
+            </div>
+            <div className="flex min-w-0 flex-1 flex-col justify-between gap-3">
+              <div className="flex flex-wrap items-end gap-x-8 gap-y-2 px-1">
+                {stats.map(stat => (
+                  <div key={stat.label}>
+                    <p className="text-[10px] text-muted-foreground">{stat.label}</p>
+                    <p className="font-heading text-2xl font-semibold leading-tight">{stat.value}</p>
+                  </div>
+                ))}
+              </div>
+              <div className="flex flex-wrap gap-1.5">
+                {FILTERS.map(item => (
+                  <button
+                    key={item.id}
+                    type="button"
+                    onClick={() => { setFilter(item.id); setTab('layers') }}
+                    aria-pressed={filter === item.id}
+                    className={`h-8 rounded-full px-3.5 text-[11px] font-medium transition-colors ${
+                      filter === item.id ? 'bg-white text-[#0b1210]' : 'bg-white/[0.05] text-muted-foreground hover:text-foreground'
+                    }`}
+                  >
+                    {item.label}
+                  </button>
+                ))}
+              </div>
+            </div>
+          </div>
 
-      <div className="flex min-h-0 flex-1 flex-col gap-3 px-3 py-3 sm:px-5 lg:flex-row">
-        <section className="relative min-h-[46vh] flex-1 self-stretch overflow-hidden rounded-xl border border-white/10 bg-surface">
-          {design ? (
-            <LayerCanvas
-              document={design}
-              images={images}
-              fallbackImage={flatFlyer}
-              selectedId={selectedId}
-              onSelect={setSelectedId}
-              onGeometryChange={(objectId, bounds, rotation) => applyStep([
-                { objectId, property: 'bounds', value: bounds, explicitGeometryChange: true },
-                { objectId, property: 'rotation', value: rotation, explicitGeometryChange: true },
-              ], 'Move layer', `move:${objectId}`)}
-              missingFonts={missingFonts}
-              className="absolute inset-0 flex items-center justify-center"
-            />
-          ) : project.referencePreview ? (
-            <div className="absolute inset-0 flex flex-col items-center justify-center gap-3 p-6 text-center">
-              <img
-                src={project.referencePreview}
-                alt="Reference flyer"
-                className="max-h-[52vh] w-auto rounded-lg border border-white/10"
-              />
-              <p className="max-w-xs text-xs leading-relaxed text-muted-foreground">
-                This flyer is still a flat picture. Analyse it in the workspace so its parts become
-                layers, then they turn up here.
-              </p>
+          {notice ? (
+            <div
+              role="status"
+              className={[
+                'flex items-start gap-2 rounded-2xl border px-3 py-2 text-[11px] leading-relaxed',
+                notice.tone === 'error'
+                  ? 'border-destructive/30 bg-destructive/10 text-red-200'
+                  : notice.tone === 'warn'
+                    ? 'border-amber-400/25 bg-amber-400/[0.07] text-amber-200'
+                    : 'border-white/10 bg-white/[0.03] text-muted-foreground',
+              ].join(' ')}
+            >
+              <Sparkles className="mt-0.5 h-3 w-3 shrink-0" aria-hidden />
+              <span className="flex-1">{notice.text}</span>
+              <button type="button" onClick={() => setNotice(null)} className="shrink-0 underline">Dismiss</button>
             </div>
           ) : null}
-        </section>
 
-        <aside className="flex w-full shrink-0 flex-col gap-3 lg:w-[300px]">
-          <div className="glass rounded-xl border p-2">
-            <div className="flex items-center justify-between px-1.5 pb-2">
-              <h2 className="text-[10px] font-semibold uppercase tracking-[0.14em] text-muted-foreground">Layers</h2>
-              {missingAssets.length
-                ? <span className="text-[10px] text-amber-300">{missingAssets.length} loading</span>
-                : <Check className="h-3 w-3 text-primary/70" aria-hidden />}
-            </div>
-            <div className="max-h-[38vh] overflow-y-auto lg:max-h-[42vh]">
-              <LayerList
-                objects={design?.objects ?? []}
-                selectedId={selectedId}
-                onSelect={setSelectedId}
-                onReorder={handleReorder}
-                onToggleVisibility={handleToggleVisibility}
-                onDuplicate={handleDuplicate}
-                onRemove={objectId => applyIntent({ objectId, property: 'removed', value: true })}
-              />
-            </div>
+          {missingFonts.size ? (
+            <p className="rounded-2xl border border-amber-400/20 bg-amber-400/[0.05] px-3 py-2 text-[11px] text-amber-200">
+              {[...missingFonts].join(', ')} {missingFonts.size > 1 ? 'are' : 'is'} not loaded on this device, so
+              {missingFonts.size > 1 ? ' those layers render' : ' that layer renders'} in Montserrat.
+            </p>
+          ) : null}
+
+          <div className="flex min-h-0 flex-1 flex-col gap-3 lg:flex-row">
+            <section className="relative min-h-[56vh] flex-1 overflow-hidden rounded-[24px] border border-white/[0.06] bg-[#08090a] lg:min-h-0">
+              <div aria-hidden="true" className="absolute inset-x-6 top-5 h-px bg-[linear-gradient(90deg,transparent,rgba(157,250,176,0.5),rgba(139,211,255,0.4),transparent)]" />
+              {design ? (
+                <LayerCanvas
+                  document={design}
+                  images={images}
+                  fallbackImage={flatFlyer}
+                  selectedId={selectedId}
+                  onSelect={selectLayer}
+                  onGeometryChange={(objectId, bounds, rotation) => applyStep([
+                    { objectId, property: 'bounds', value: bounds, explicitGeometryChange: true },
+                    { objectId, property: 'rotation', value: rotation, explicitGeometryChange: true },
+                  ], 'Move layer', `move:${objectId}`)}
+                  missingFonts={missingFonts}
+                  className="absolute inset-6 flex items-center justify-center sm:inset-10"
+                />
+              ) : project.referencePreview ? (
+                <div className="absolute inset-0 flex flex-col items-center justify-center gap-3 p-6 text-center">
+                  <img src={project.referencePreview} alt="Reference flyer" className="max-h-[52vh] w-auto rounded-2xl border border-white/10" />
+                  <p className="max-w-xs text-xs leading-relaxed text-muted-foreground">
+                    This flyer is still a flat picture. Open it from Spyda AI again so its parts become layers.
+                  </p>
+                </div>
+              ) : null}
+              {extracting ? (
+                <p className="absolute bottom-4 left-4 rounded-full bg-black/75 px-3 py-1.5 text-[11px] text-white backdrop-blur" role="status">
+                  {extracting.total ? `Cutting out layer ${extracting.done} of ${extracting.total}…` : 'Reading the flyer once to build its mask…'}
+                </p>
+              ) : design && !cutoutTargets.length ? (
+                <p className="absolute bottom-4 left-4 rounded-full bg-black/60 px-3 py-1.5 text-[11px] text-muted-foreground">No pictures to cut out on this flyer.</p>
+              ) : null}
+            </section>
+
+            <aside className="flex min-h-[320px] w-full shrink-0 flex-col rounded-[24px] bg-surface-raised p-3 lg:w-[340px]">
+              <div className="flex items-center justify-between px-1.5 pb-3 pt-1">
+                <h2 className="font-heading text-lg font-semibold">{tabs.find(item => item.id === tab)?.label}</h2>
+                {tab === 'layers' ? (
+                  missingAssets.length
+                    ? <span className="text-[10px] text-amber-300">{missingAssets.length} loading</span>
+                    : <span className="flex h-8 w-8 items-center justify-center rounded-full bg-white/[0.06]"><Check className="h-3.5 w-3.5 text-primary" aria-hidden /></span>
+                ) : null}
+              </div>
+              <div className="min-h-0 flex-1 overflow-y-auto">
+                {tab === 'layers' ? (
+                  <LayerList
+                    objects={filtered}
+                    selectedId={selectedId}
+                    onSelect={selectLayer}
+                    onReorder={handleReorder}
+                    onToggleVisibility={handleToggleVisibility}
+                    onDuplicate={handleDuplicate}
+                    onRemove={objectId => applyIntent({ objectId, property: 'removed', value: true })}
+                  />
+                ) : tab === 'content' ? (
+                  <ContentPanel
+                    object={selectedObject}
+                    onIntent={applyIntent}
+                    onReplaceImage={handleReplaceImage}
+                    busy={Boolean(extracting)}
+                  />
+                ) : steps.length ? (
+                  <ol className="space-y-1.5">
+                    {steps.map((step, index) => {
+                      const Icon = stepIcon(step.intents)
+                      const applied = index < cursor
+                      return (
+                        <li key={index}>
+                          <button
+                            type="button"
+                            onClick={() => setHistory(current => (current ? jumpTo(current, index + 1) : current))}
+                            className={`flex w-full items-center gap-3 rounded-2xl px-2.5 py-2 text-left text-[13px] transition-colors hover:bg-white/[0.05] ${applied ? 'text-foreground' : 'text-muted-foreground/60 line-through'}`}
+                          >
+                            <span className={`flex h-8 w-8 shrink-0 items-center justify-center rounded-full ${index === cursor - 1 ? 'bg-primary text-primary-foreground' : 'bg-white/[0.06]'}`}><Icon className="h-3.5 w-3.5" /></span>
+                            {step.label}
+                          </button>
+                        </li>
+                      )
+                    })}
+                  </ol>
+                ) : (
+                  <p className="px-2 py-6 text-xs leading-relaxed text-muted-foreground">Every change you make shows up here and on the timeline below. Click one to go back to it.</p>
+                )}
+              </div>
+            </aside>
           </div>
 
-          <div className="glass min-h-0 flex-1 overflow-y-auto rounded-xl border p-2">
-            <h2 className="px-1.5 pb-2 text-[10px] font-semibold uppercase tracking-[0.14em] text-muted-foreground">
-              Content
-            </h2>
-            <ContentPanel
-              object={selectedObject}
-              onIntent={applyIntent}
-              onReplaceImage={handleReplaceImage}
-              busy={Boolean(extracting)}
-            />
-          </div>
-        </aside>
+          {/* Timeline: every edit is a stop, the current one is lit */}
+          <nav aria-label="Edit timeline" className="flex items-center gap-2 overflow-x-auto rounded-full bg-white p-1.5 text-[#0b1210] [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
+            <button
+              type="button"
+              onClick={() => setHistory(current => (current ? jumpTo(current, 0) : current))}
+              title="Back to the original"
+              aria-label="Back to the original"
+              className="flex h-10 shrink-0 items-center gap-2 rounded-full bg-[#0b1210] px-3.5 text-[11px] font-semibold text-white"
+            >
+              <Clock className="h-3.5 w-3.5" /> Original
+            </button>
+            {steps.length ? steps.map((step, index) => {
+              const Icon = stepIcon(step.intents)
+              const current = index === cursor - 1
+              const applied = index < cursor
+              return (
+                <button
+                  key={index}
+                  type="button"
+                  onClick={() => setHistory(value => (value ? jumpTo(value, index + 1) : value))}
+                  title={step.label}
+                  aria-label={`Go to: ${step.label}`}
+                  aria-current={current ? 'step' : undefined}
+                  className={`relative flex h-9 w-9 shrink-0 items-center justify-center rounded-full transition-all ${
+                    current ? 'bg-primary text-primary-foreground ring-4 ring-primary/30' : applied ? 'bg-[#0b1210]/[0.08]' : 'bg-transparent text-[#0b1210]/35'
+                  }`}
+                >
+                  <Icon className="h-3.5 w-3.5" />
+                  {step.intents.length > 1 ? (
+                    <span className="absolute -right-1 -top-1 flex h-4 min-w-4 items-center justify-center rounded-full bg-primary px-1 text-[9px] font-bold text-primary-foreground">{step.intents.length}</span>
+                  ) : null}
+                </button>
+              )
+            }) : <span className="px-2 text-[11px] text-[#0b1210]/55">Your edits line up here as you work.</span>}
+          </nav>
+        </div>
       </div>
-
-      {extracting ? (
-        <p className="border-t border-white/10 px-3 py-2 text-[11px] text-muted-foreground sm:px-5" role="status">
-          {extracting.total
-            ? `Cutting out layer ${extracting.done} of ${extracting.total}…`
-            : 'Reading the flyer once to build its mask…'}
-        </p>
-      ) : design && !cutoutTargets.length ? (
-        <p className="border-t border-white/10 px-3 py-2 text-[11px] text-muted-foreground sm:px-5">
-          No pictures were detected on this flyer, so there is nothing to cut out.
-        </p>
-      ) : null}
     </main>
   )
 }

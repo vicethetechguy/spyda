@@ -1,6 +1,5 @@
 import React, { useState } from 'react';
 import {
-  LayoutDashboard,
   Image,
   Clock,
   FolderKanban,
@@ -15,6 +14,7 @@ import {
   Gift,
   ChevronDown,
   ChevronRight,
+  Sparkles,
 } from 'lucide-react';
 import InstallAppButton from '../InstallAppButton';
 
@@ -35,7 +35,7 @@ export type NavGroupData = {
 const spydaNavGroups: NavGroupData[] = [
   {
     items: [
-      { id: 'canvas', title: 'Canvas', icon: LayoutDashboard },
+      { id: 'canvas', title: 'Spyda AI', icon: Sparkles },
       { id: 'gallery', title: 'Gallery', icon: Image },
       { id: 'history', title: 'History', icon: Clock },
       { id: 'tasks', title: 'Tasks', icon: Gift },
@@ -254,6 +254,62 @@ function NavItem({
   );
 }
 
+/** One round icon in the collapsed rail; the label lives in the tooltip. */
+function RailItem({ item, active, onSelect }: { item: NavItemData; active: boolean; onSelect: (id: string) => void }) {
+  return (
+    <button
+      type="button"
+      onClick={() => onSelect(item.id)}
+      title={item.title}
+      aria-label={item.title}
+      aria-current={active ? 'page' : undefined}
+      className={`relative flex h-10 w-10 items-center justify-center rounded-full transition-all duration-200 ${
+        active
+          ? 'bg-primary text-primary-foreground shadow-[0_8px_22px_rgba(157,250,176,0.25)]'
+          : 'border border-white/[0.07] bg-white/[0.03] text-muted-foreground hover:-translate-y-0.5 hover:border-primary/30 hover:text-foreground'
+      }`}
+    >
+      <item.icon className="h-[17px] w-[17px]" strokeWidth={1.7} />
+      {item.badge ? (
+        <span className="absolute -right-0.5 -top-0.5 flex h-4 min-w-4 items-center justify-center rounded-full bg-primary px-1 text-[9px] font-bold text-primary-foreground ring-2 ring-[#08090a]">
+          {item.badge}
+        </span>
+      ) : null}
+    </button>
+  );
+}
+
+function SidebarRail({ currentId, onSelect, taskBadge, className }: {
+  currentId: string;
+  onSelect: (id: string) => void;
+  taskBadge?: number;
+  className: string;
+}) {
+  const items = spydaNavGroups.flatMap(group => group.items);
+  const isActive = (item: NavItemData) =>
+    item.id === currentId || Boolean(item.children?.some(child => child.id === currentId));
+  return (
+    <nav aria-label="Workspace" className={`flex h-full w-[76px] flex-col items-center border-r border-white/[0.06] bg-[#08090a] py-4 ${className}`}>
+      <img src="/assets/spyda-logo.png" alt="Spyda" className="mb-5 h-9 w-9 object-contain" />
+      <div className="flex min-h-0 flex-1 flex-col items-center gap-2.5 overflow-y-auto px-2 [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
+        {items.map(item => (
+          <RailItem
+            key={item.id}
+            item={item.id === 'tasks' ? { ...item, badge: taskBadge } : item}
+            active={isActive(item)}
+            onSelect={onSelect}
+          />
+        ))}
+      </div>
+      <div className="mt-3 flex flex-col items-center gap-2.5 border-t border-white/[0.06] pt-3">
+        {spydaAccountItems.items.map(item => (
+          <RailItem key={item.id} item={item} active={item.id === currentId} onSelect={onSelect} />
+        ))}
+      </div>
+    </nav>
+  );
+}
+
 export function SidebarNav({
   className = '',
   activeId,
@@ -261,6 +317,7 @@ export function SidebarNav({
   activeWorkspace,
   onWorkspaceSelect,
   taskBadge,
+  compact = false,
 }: {
   className?: string;
   activeId?: string;
@@ -268,10 +325,16 @@ export function SidebarNav({
   activeWorkspace?: string;
   onWorkspaceSelect?: (ws: string) => void;
   taskBadge?: number;
+  /** The icon rail: round icons only, labels as tooltips. */
+  compact?: boolean;
 }) {
   const [internalId, setInternalId] = useState('canvas');
   const currentId = activeId !== undefined ? activeId : internalId;
   const handleSelect = onSelect || setInternalId;
+
+  if (compact) {
+    return <SidebarRail currentId={currentId} onSelect={handleSelect} taskBadge={taskBadge} className={className} />;
+  }
 
   return (
     <div

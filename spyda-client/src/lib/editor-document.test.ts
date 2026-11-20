@@ -106,6 +106,15 @@ describe('Editor document preparation', () => {
       .toEqual({ x: 80, y: 80, width: 10, height: 8 })
   })
 
+  it('lets text layers take the weight and alignment the content panel offers', () => {
+    const prepared = prepareForEditing(documentWithLocks())
+    const aligned = applyEditIntent(prepared, { objectId: 'headline', property: 'textAlign', value: 'center' })
+    expect(aligned.violations).toEqual([])
+    expect(aligned.document.objects.find(object => object.id === 'headline')?.style.textAlign).toBe('center')
+    const bold = applyEditIntent(prepared, { objectId: 'headline', property: 'fontWeight', value: '700' })
+    expect(bold.violations).toEqual([])
+  })
+
   it('does not mutate the document it was given', () => {
     const document = documentWithLocks()
     prepareForEditing(document)
