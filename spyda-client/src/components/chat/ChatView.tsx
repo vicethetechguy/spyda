@@ -23,10 +23,9 @@ import ChatMarkdown from './ChatMarkdown'
 import { useAuth } from '../../lib/AuthContext'
 import { supabase } from '../../lib/supabase'
 import {
-  apiKeyRequestHeaders,
-  chargeGenerationCredits,
   generationCreditCost,
   loadSpydaApiKeys,
+  spydaRequestHeaders,
   rewardStandingFrom,
   type RewardStanding,
   type SpydaApiKeys,
@@ -544,7 +543,7 @@ export default function ChatView({ modelProvider, headerSlot, seed, onOpenWallet
 
     let reply: ChatMessage
     try {
-      const result = await requestReply(history, apiKeyRequestHeaders(keys))
+      const result = await requestReply(history, await spydaRequestHeaders(keys, modelProvider))
       const source = latestFlyer(history)
       reply = {
         id: newId(),
@@ -584,21 +583,22 @@ export default function ChatView({ modelProvider, headerSlot, seed, onOpenWallet
     if (!edit) return
     updateMessage(message.id, current => ({ ...current, edit: { ...current.edit!, status: 'generating', error: undefined } }))
     try {
-      const result = await requestEdit(edit.instruction, edit.sourceImage, apiKeyRequestHeaders(keys))
+      // The server charges the credits before generating and refunds a failure.
+      const result = await requestEdit(edit.instruction, edit.sourceImage, await spydaRequestHeaders(keys, modelProvider))
       const resultImage = await toJpegDataUrl(result.image)
-      const tokensAwarded = await chargeGenerationCredits(user?.id, modelProvider, byok)
       updateMessage(message.id, current => ({
         ...current,
-        edit: { ...current.edit!, status: 'done', resultImage, tokensAwarded: tokensAwarded || 0 },
+        edit: { ...current.edit!, status: 'done', resultImage, tokensAwarded: result.billing?.tokensAwarded || 0 },
       }))
       refreshStanding()
     } catch (error) {
+      refreshStanding()
       updateMessage(message.id, current => ({
         ...current,
         edit: { ...current.edit!, status: 'failed', error: error instanceof Error ? error.message : 'The new version could not be generated.' },
       }))
     }
-  }, [byok, keys, modelProvider, refreshStanding, updateMessage, user?.id])
+  }, [keys, modelProvider, refreshStanding, updateMessage])
 
   /** Canvas mode needs layers, so the first visit analyses the flyer into a project. */
   const openCanvas = useCallback(async (image: string | null = flyer) => {
@@ -616,7 +616,7 @@ export default function ChatView({ modelProvider, headerSlot, seed, onOpenWallet
       const projectId = newId('spyda')
       const response = await fetch('/api/analyze', {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json', ...apiKeyRequestHeaders(keys) },
+        headers: { 'Content-Type': 'application/json', ...(await spydaRequestHeaders(keys, modelProvider)) },
         body: JSON.stringify({
           base64Image: image,
           aiProvider: modelProvider,
@@ -680,7 +680,7 @@ export default function ChatView({ modelProvider, headerSlot, seed, onOpenWallet
   }
 
   const empty = messages.length === 0
-  const canAfford = byok || !standing || standing.credits >= cost
+  const canAfford = !standing || standing.credits >= cost
 
   const headerActions = (
     <div className="flex items-center gap-1.5 sm:gap-2">

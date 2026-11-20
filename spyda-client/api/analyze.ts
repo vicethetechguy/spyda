@@ -1,5 +1,6 @@
 import { analyzeDesign } from './_utils.js';
 import { runOcr } from './_ocr_service.js';
+import { requireUser, sendError } from './_billing.js';
 
 export default async function handler(req: any, res: any) {
   if (req.method !== 'POST') {
@@ -7,7 +8,8 @@ export default async function handler(req: any, res: any) {
   }
 
   try {
-    const { base64Image, aiProvider, sourceMetadata } = req.body;
+    await requireUser(req);
+    const { base64Image, aiProvider, sourceMetadata } = req.body || {};
 
     if (!base64Image) {
       return res.status(400).json({ error: 'Upload a design image first.' });
@@ -26,6 +28,6 @@ export default async function handler(req: any, res: any) {
     });
     return res.status(200).json(result);
   } catch (error: any) {
-    return res.status(500).json({ ok: false, error: error.message });
+    return sendError(res, error, 'Analysis failed.');
   }
 }

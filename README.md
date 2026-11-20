@@ -54,6 +54,9 @@ Add these in the `spyda-client` Vercel project:
 ```env
 VITE_SUPABASE_URL=
 VITE_SUPABASE_ANON_KEY=
+# Server only: verifies sessions and charges generation credits in api/_billing.ts.
+# Also put it in spyda-client/.env.local for local `vite` dev.
+SUPABASE_SERVICE_ROLE_KEY=
 OPENAI_API_KEY=
 GROQ_API_KEY=
 OPENAI_IMAGE_MODEL=gpt-image-2

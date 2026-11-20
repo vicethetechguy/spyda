@@ -166,6 +166,7 @@ export async function toJpegDataUrl(src: string, maxEdge = 1536): Promise<string
 }
 
 async function readJson<T>(response: Response): Promise<T> {
+  if (response.status === 401) throw new Error('Your session has expired. Sign in again.')
   if (response.status === 413) throw new Error('That image is too large to send. Try a smaller file.')
   if (response.status === 408 || response.status === 504) throw new Error('The model took too long to answer. Try again.')
   const payload = await response.json().catch(() => null)
@@ -210,5 +211,10 @@ export async function requestEdit(
     headers: { 'Content-Type': 'application/json', ...headers },
     body: JSON.stringify({ action: 'edit', instruction, image, dimensions }),
   })
-  return readJson<{ ok: true; image: string; model: string }>(response)
+  return readJson<{
+    ok: true
+    image: string
+    model: string
+    billing?: { creditsCharged: number; tokensAwarded: number; walletBalance: number }
+  }>(response)
 }

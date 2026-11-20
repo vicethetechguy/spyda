@@ -1,8 +1,9 @@
 import { supabase } from './supabase'
 
 /**
- * Keys, prices and the wallet charge, shared by the chat and the classic
- * generation flow so both bill the same way.
+ * Keys, prices and request headers, shared by the chat and the classic
+ * generation flow so both bill the same way. The charge itself happens on the
+ * server (api/_billing.ts).
  */
 
 export const SPYDA_GROQ_GPT_IMAGE_ROUND_CREDITS = 20
@@ -45,24 +46,20 @@ export function apiKeyRequestHeaders(keys: SpydaApiKeys): Record<string, string>
   }
 }
 
-// The database decides the amount from the selected model, rather than trusting
-// a browser-provided price. It also awards SPYDA tokens at the 1,000-credit mark.
-export async function chargeGenerationCredits(
-  userId: string | undefined,
-  provider: string,
-  byok: boolean,
-): Promise<number | null> {
-  if (!userId) return 0
-  const { data, error } = await supabase.rpc('charge_generation_credits', {
-    p_model_mode: provider,
-    p_byok: byok,
-  })
-  if (error) {
-    console.error('Error charging Spyda credits:', error)
-    return null
+/**
+ * Headers every Spyda API call needs: the signed-in session's access token,
+ * the selected model (the server prices the generation from it) and any
+ * personal keys. The server charges credits itself before an image is
+ * generated, so the browser never charges.
+ */
+export async function spydaRequestHeaders(keys: SpydaApiKeys, modelMode?: string): Promise<Record<string, string>> {
+  const { data } = await supabase.auth.getSession()
+  const token = data.session?.access_token
+  return {
+    ...(token ? { Authorization: `Bearer ${token}` } : {}),
+    ...(modelMode ? { 'x-spyda-model-mode': modelMode } : {}),
+    ...apiKeyRequestHeaders(keys),
   }
-  const row = Array.isArray(data) ? data[0] : data
-  return Number(row?.tokens_awarded ?? 0)
 }
 
 export type RewardStanding = {

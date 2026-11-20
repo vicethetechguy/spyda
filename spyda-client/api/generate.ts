@@ -1,5 +1,6 @@
 import { generateDesign } from './_utils.js';
 import { runGenerationQa } from './qa.js';
+import { HttpError, billingSummary, isByok, readModelMode, requireUser, withGenerationCharge } from './_billing.js';
 import formidable from 'formidable';
 import { readFile } from 'node:fs/promises';
 
@@ -89,16 +90,28 @@ export default async function handler(req: any, res: any) {
   }
 
   try {
+    // Check the caller before reading a large upload.
+    const user = await requireUser(req);
     const recipe = isMultipart(req) ? await readMultipartRecipe(req) : req.body?.recipe;
     if (!recipe) {
       return res.status(400).json({ ok: false, error: 'Missing recipe data.' });
     }
     const providedOpenAiKey = String(req.headers?.['x-spyda-openai-key'] || '').trim();
 
-    let result = await generateDesign({ recipe, openaiKey: providedOpenAiKey });
+    // Credits are taken before the image model runs and refunded if it fails.
+    const charged = await withGenerationCharge(
+      user.id,
+      readModelMode(req, recipe.aiProvider || recipe.modelMode),
+      isByok(req),
+      () => generateDesign({ recipe, openaiKey: providedOpenAiKey }),
+      generated => Boolean(generated?.image),
+    );
+    let result: any = charged.result;
+    const billing = billingSummary(charged.charge);
     if (recipe.deferQa) {
       return res.status(200).json({
         ...result,
+        billing,
         qa: { ok: true, skipped: true, pending: true },
       });
     }
@@ -137,8 +150,11 @@ export default async function handler(req: any, res: any) {
       }
     }
 
-    return res.status(200).json({ ...result, qa });
+    return res.status(200).json({ ...result, billing, qa });
   } catch (error: any) {
+    if (error instanceof HttpError) {
+      return res.status(error.status).json({ ok: false, error: error.message });
+    }
     const message = String(error?.message || 'Generation failed.');
     const isUploadLimit = /maxFileSize|maxTotalFileSize|maxFieldsSize|too large|entity too large/i.test(message);
     return res.status(isUploadLimit ? 413 : 500).json({
