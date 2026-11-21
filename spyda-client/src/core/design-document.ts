@@ -56,6 +56,9 @@ const ObjectTransformSchema = z.object({
   rotation: z.number().finite(),
   opacity: z.number().finite().min(0).max(1),
   coordinateSpace: z.literal('normalized-percent'),
+  /** Mirrored inside its own box. Optional, so older documents stay valid. */
+  flipX: z.boolean().optional(),
+  flipY: z.boolean().optional(),
 }).strict()
 
 const ObjectContentSchema = z.object({
@@ -76,6 +79,8 @@ const ObjectStyleSchema = z.object({
   lineHeight: z.number().positive().nullable(),
   letterSpacing: z.number().finite().nullable(),
   borderRadius: z.number().min(0).nullable(),
+  /** Stroke width in document pixels; optional for older documents. */
+  strokeWidth: z.number().min(0).nullable().optional(),
   effects: z.array(z.string()),
 }).strict()
 
@@ -108,6 +113,16 @@ const ObjectSourceSchema = z.object({
   evidence: z.array(z.string()),
 }).strict()
 
+/**
+ * The drawn form of a shape layer. Points are fractions of the layer's own box
+ * (0 to 1), so transforming the box reshapes the drawing with it.
+ */
+const ObjectGeometrySchema = z.object({
+  type: z.enum(['rect', 'ellipse', 'line', 'path']),
+  points: z.array(z.tuple([z.number().finite(), z.number().finite()])).max(400).optional(),
+  closed: z.boolean().optional(),
+}).strict()
+
 const ObjectStatusSchema = z.object({
   visible: z.boolean(),
   removed: z.boolean(),
@@ -128,6 +143,7 @@ export const DesignObjectSchema = z.object({
   relationships: ObjectRelationshipsSchema,
   source: ObjectSourceSchema,
   status: ObjectStatusSchema,
+  geometry: ObjectGeometrySchema.optional(),
   legacy: z.record(z.string(), z.unknown()),
 }).strict()
 

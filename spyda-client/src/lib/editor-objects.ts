@@ -7,7 +7,7 @@ import type { DesignDocument, DesignObject, PercentBox } from '../core/design-do
  * theirs from the first frame, so they come fully editable and movable.
  */
 
-export type NewLayerKind = 'text' | 'rect' | 'circle' | 'image'
+export type NewLayerKind = 'text' | 'rect' | 'circle' | 'image' | 'line' | 'path'
 
 export type CanvasPreset = { id: string; name: string; detail: string; width: number; height: number }
 
@@ -25,9 +25,9 @@ export function newLayerId() {
     : `layer-${Date.now().toString(36)}${Math.random().toString(36).slice(2, 6)}`
 }
 
-const TEXT_PROPERTIES = ['text', 'fontFamily', 'fontSize', 'fontWeight', 'textAlign', 'fill', 'opacity']
-const SHAPE_PROPERTIES = ['fill', 'stroke', 'opacity']
-const IMAGE_PROPERTIES = ['assetRef', 'opacity']
+export const TEXT_PROPERTIES = ['text', 'fontFamily', 'fontSize', 'fontWeight', 'textAlign', 'fill', 'stroke', 'strokeWidth', 'opacity', 'letterSpacing', 'lineHeight']
+export const SHAPE_PROPERTIES = ['fill', 'stroke', 'strokeWidth', 'opacity', 'borderRadius']
+export const IMAGE_PROPERTIES = ['assetRef', 'opacity', 'borderRadius', 'stroke', 'strokeWidth']
 
 export type LayerOptions = {
   id?: string
@@ -43,6 +43,10 @@ export type LayerOptions = {
   assetRef?: string | null
   opacity?: number
   zIndex?: number
+  strokeWidth?: number | null
+  /** Pen paths: points as fractions of the layer's box. */
+  points?: [number, number][]
+  closed?: boolean
 }
 
 function topZ(document: DesignDocument) {
@@ -54,15 +58,28 @@ export function makeLayer(document: DesignDocument, kind: NewLayerKind, options:
   const isText = kind === 'text'
   const isImage = kind === 'image'
   const objectKind: DesignObject['kind'] = isText ? 'text' : isImage ? 'image' : 'shape'
+  const isLine = kind === 'line'
+  const isPath = kind === 'path'
   const fallbackBounds: PercentBox = isText
     ? { x: 12, y: 42, width: 76, height: 12 }
     : kind === 'circle'
       ? { x: 35, y: 35, width: 30, height: 30 * ((document.canvas.width || 1) / (document.canvas.height || 1)) }
-      : { x: 25, y: 38, width: 50, height: 24 }
+      : isLine
+        ? { x: 20, y: 49, width: 60, height: 2 }
+        : { x: 25, y: 38, width: 50, height: 24 }
+  const names: Record<NewLayerKind, string> = { text: 'Text', image: 'Image', circle: 'Ellipse', rect: 'Rectangle', line: 'Line', path: 'Vector' }
+  const geometry: DesignObject['geometry'] = kind === 'circle'
+    ? { type: 'ellipse' }
+    : isLine
+      ? { type: 'line', points: options.points ?? [[0, 0.5], [1, 0.5]] }
+      : isPath
+        ? { type: 'path', points: options.points ?? [[0, 0], [1, 0], [1, 1]], closed: options.closed ?? true }
+        : kind === 'rect' ? { type: 'rect' } : undefined
+  const strokeFirst = isLine || (isPath && options.closed === false)
 
   return {
     id: options.id ?? newLayerId(),
-    name: options.name ?? (isText ? 'Text' : isImage ? 'Image' : kind === 'circle' ? 'Circle' : 'Rectangle'),
+    name: options.name ?? names[kind],
     kind: objectKind,
     sectionId: document.sections[0]?.id ?? 'main',
     zIndex: options.zIndex ?? topZ(document) + 1,
@@ -80,21 +97,23 @@ export function makeLayer(document: DesignDocument, kind: NewLayerKind, options:
     },
     style: {
       description: isText ? 'Text layer' : isImage ? 'Image layer' : 'Shape layer',
-      fill: options.fill !== undefined ? options.fill : isText ? '#ffffff' : isImage ? null : '#9dfab0',
-      stroke: options.stroke ?? null,
+      fill: options.fill !== undefined ? options.fill : isText ? '#ffffff' : isImage || strokeFirst ? null : '#9dfab0',
+      stroke: options.stroke ?? (strokeFirst ? '#9dfab0' : null),
       fontFamily: isText ? options.fontFamily ?? 'Space Grotesk' : null,
       fontSize: isText ? options.fontSize ?? 72 : null,
       fontWeight: isText ? options.fontWeight ?? '700' : null,
       textAlign: isText ? options.textAlign ?? 'center' : null,
       lineHeight: isText ? 1.15 : null,
       letterSpacing: null,
-      borderRadius: kind === 'circle' ? 9999 : kind === 'rect' ? 24 : null,
+      borderRadius: kind === 'rect' ? 24 : isImage ? 0 : null,
+      strokeWidth: options.strokeWidth ?? (strokeFirst ? 8 : isPath ? 0 : null),
       effects: [],
     },
     constraints: {
       lockPosition: false,
       lockSize: false,
-      lockAspectRatio: kind === 'circle' || isImage,
+      // Free transform: any form the person drags it into. Shift keeps proportions.
+      lockAspectRatio: false,
       lockRotation: false,
       preserveLayerOrder: false,
       stayInsideCanvas: false,
@@ -108,8 +127,35 @@ export function makeLayer(document: DesignDocument, kind: NewLayerKind, options:
     relationships: { parentId: null, childIds: [], anchoredToIds: [], groupId: null },
     source: { provider: 'canvas', confidence: 1, evidence: ['drawn-in-canvas-mode'] },
     status: { visible: true, removed: false, consumed: false },
+    ...(geometry ? { geometry } : {}),
     legacy: { type: objectKind },
   }
+}
+
+/**
+ * A pen drawing in canvas percent, turned into a path layer: the box hugs the
+ * points and the points become fractions of that box.
+ */
+export function pathFromPoints(document: DesignDocument, canvasPoints: [number, number][], closed: boolean): DesignObject | null {
+  if (canvasPoints.length < 2) return null
+  const xs = canvasPoints.map(point => point[0])
+  const ys = canvasPoints.map(point => point[1])
+  const left = Math.max(0, Math.min(...xs))
+  const top = Math.max(0, Math.min(...ys))
+  const width = Math.max(0.5, Math.min(100 - left, Math.max(...xs) - left))
+  const height = Math.max(0.5, Math.min(100 - top, Math.max(...ys) - top))
+  const points = canvasPoints.map(([x, y]) => [
+    Math.round(((x - left) / width) * 10000) / 10000,
+    Math.round(((y - top) / height) * 10000) / 10000,
+  ] as [number, number])
+  return makeLayer(document, 'path', {
+    bounds: { x: left, y: top, width, height },
+    points,
+    closed,
+    fill: closed ? '#9dfab0' : null,
+    stroke: closed ? null : '#9dfab0',
+    strokeWidth: closed ? 0 : 8,
+  })
 }
 
 /** The legacy breakdown a blank canvas is stored as, so it opens like any project. */

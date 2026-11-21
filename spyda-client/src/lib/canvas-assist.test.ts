@@ -82,3 +82,41 @@ describe('canvas assist', () => {
     expect(currentDocument(redo(undone))).toEqual(currentDocument(step.history))
   })
 })
+
+describe('pro editing', () => {
+  it('turns a pen drawing into a path whose points follow its box', async () => {
+    const { pathFromPoints } = await import('./editor-objects')
+    const layer = pathFromPoints(blank(), [[20, 30], [60, 30], [40, 70]], true)!
+    expect(layer.transform.bounds).toEqual({ x: 20, y: 30, width: 40, height: 40 })
+    expect(layer.geometry).toEqual({ type: 'path', points: [[0, 0], [1, 0], [0.5, 1]], closed: true })
+    expect(layer.style.fill).toBeTruthy()
+    expect(pathFromPoints(blank(), [[10, 10]], false)).toBeNull()
+  })
+
+  it('applies roundness, stroke width, flips and the proportion lock as undoable edits', () => {
+    const document = blank()
+    const rect = makeLayer(document, 'rect', { id: 'box' })
+    const withRect = applyDesignEdits(document, [{ objectId: 'box', property: 'create', value: rect }]).document
+    const result = applyDesignEdits(withRect, [
+      { objectId: 'box', property: 'borderRadius', value: 40 },
+      { objectId: 'box', property: 'stroke', value: '#112233' },
+      { objectId: 'box', property: 'strokeWidth', value: 6 },
+      { objectId: 'box', property: 'flipX', value: true },
+      { objectId: 'box', property: 'lockAspectRatio', value: true },
+    ])
+    expect(result.violations).toEqual([])
+    const box = result.document.objects.find(object => object.id === 'box')!
+    expect(box.style).toMatchObject({ borderRadius: 40, stroke: '#112233', strokeWidth: 6 })
+    expect(box.transform.flipX).toBe(true)
+    expect(box.constraints.lockAspectRatio).toBe(true)
+  })
+
+  it('draws ellipses and lines as real geometry, free to transform', () => {
+    const document = blank()
+    expect(makeLayer(document, 'circle').geometry).toEqual({ type: 'ellipse' })
+    const line = makeLayer(document, 'line')
+    expect(line.geometry?.type).toBe('line')
+    expect(line.style.stroke).toBeTruthy()
+    expect(line.constraints.lockAspectRatio).toBe(false)
+  })
+})

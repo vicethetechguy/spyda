@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
-import { Group, Image as KonvaImage, Layer, Rect, Stage, Text, Transformer } from 'react-konva'
+import { Circle, Ellipse, Group, Image as KonvaImage, Layer, Line, Rect, Stage, Text, Transformer } from 'react-konva'
 import type Konva from 'konva'
 import type { DesignDocument, DesignObject, PercentBox } from '../../core/design-document'
 import { resolveFamily } from '../../lib/fonts'
@@ -39,6 +39,11 @@ export type LayerCanvasProps = {
   stageRef?: React.MutableRefObject<Konva.Stage | null>
   /** Double-click on a layer: the editor focuses its text, like Figma. */
   onEditText?: (objectId: string) => void
+  /** Pen tool: while active, clicks add points instead of selecting layers. */
+  penActive?: boolean
+  /** The path being drawn, in canvas percent. */
+  penPoints?: [number, number][]
+  onPenPoint?: (point: [number, number]) => void
 }
 
 function parseAspectRatio(value: string) {
@@ -137,6 +142,9 @@ export default function LayerCanvas({
   className,
   stageRef,
   onEditText,
+  penActive = false,
+  penPoints = [],
+  onPenPoint,
 }: LayerCanvasProps) {
   const containerRef = useRef<HTMLDivElement | null>(null)
   const transformerRef = useRef<Konva.Transformer | null>(null)
@@ -255,10 +263,22 @@ export default function LayerCanvas({
         width={display.width}
         height={display.height}
         onMouseDown={event => {
-          if (event.target === event.target.getStage()) onSelect(null)
+          const stage = event.target.getStage()
+          if (penActive && stage) {
+            const pointer = stage.getPointerPosition()
+            if (pointer) onPenPoint?.([toPercent(pointer.x, display.width), toPercent(pointer.y, display.height)])
+            return
+          }
+          if (event.target === stage) onSelect(null)
         }}
         onTouchStart={event => {
-          if (event.target === event.target.getStage()) onSelect(null)
+          const stage = event.target.getStage()
+          if (penActive && stage) {
+            const pointer = stage.getPointerPosition()
+            if (pointer) onPenPoint?.([toPercent(pointer.x, display.width), toPercent(pointer.y, display.height)])
+            return
+          }
+          if (event.target === stage) onSelect(null)
         }}
       >
         <Layer>
@@ -273,6 +293,9 @@ export default function LayerCanvas({
             const movable = !locked && !object.constraints.lockPosition && !isBackground
             const image = object.content.assetRef ? images[object.content.assetRef] : undefined
             const holdsPixels = object.kind === 'image' || object.kind === 'logo' || object.kind === 'icon'
+            // Roundness and stroke are stored in document pixels; the stage is scaled.
+            const radiusPx = Math.min((object.style.borderRadius ?? 0) * display.scale, widthPx / 2, heightPx / 2)
+            const strokePx = object.style.strokeWidth != null ? object.style.strokeWidth * display.scale : 1
             // Until a layer has pixels of its own, its own region of the flat flyer
             // stands in. Cropping per layer rather than laying the whole flyer
             // underneath keeps every pixel drawn exactly once: a text layer over a
@@ -299,7 +322,7 @@ export default function LayerCanvas({
                 opacity={object.transform.opacity}
                 draggable={movable}
                 dragBoundFunc={clampWithinCanvas(object)}
-                listening={!isBackground}
+                listening={!isBackground && !penActive}
                 ref={node => {
                   if (node) nodeRefs.current.set(object.id, node)
                   else nodeRefs.current.delete(object.id)
@@ -317,6 +340,12 @@ export default function LayerCanvas({
                   if (node) commitGeometry(object, node)
                 }}
               >
+                <Group
+                  x={object.transform.flipX ? widthPx : 0}
+                  y={object.transform.flipY ? heightPx : 0}
+                  scaleX={object.transform.flipX ? -1 : 1}
+                  scaleY={object.transform.flipY ? -1 : 1}
+                >
                 {usesTextMetrics(object) ? (() => {
                   const fontFamily = resolveFamily(object.style.fontFamily, missingFonts)
                   const bold = Number(object.style.fontWeight) >= 600
@@ -334,6 +363,9 @@ export default function LayerCanvas({
                     fill={object.style.fill || '#ffffff'}
                     lineHeight={object.style.lineHeight || 1.2}
                     letterSpacing={object.style.letterSpacing ?? 0}
+                    stroke={object.style.stroke || undefined}
+                    strokeWidth={object.style.stroke ? strokePx : 0}
+                    fillAfterStrokeEnabled
                   />
                   )
                 })() : source ? (
@@ -342,6 +374,9 @@ export default function LayerCanvas({
                     width={widthPx}
                     height={heightPx}
                     crop={crop}
+                    cornerRadius={radiusPx}
+                    stroke={object.style.stroke || undefined}
+                    strokeWidth={object.style.stroke ? strokePx : 0}
                   />
                 ) : holdsPixels ? (
                   // Found by the analyser, not cut out yet: keep the region
@@ -356,26 +391,73 @@ export default function LayerCanvas({
                     dash={[4, 4]}
                     cornerRadius={4}
                   />
+                ) : object.geometry?.type === 'ellipse' ? (
+                  <Ellipse
+                    x={widthPx / 2}
+                    y={heightPx / 2}
+                    radiusX={widthPx / 2}
+                    radiusY={heightPx / 2}
+                    fill={object.style.fill || undefined}
+                    stroke={object.style.stroke || undefined}
+                    strokeWidth={object.style.stroke ? strokePx : 0}
+                  />
+                ) : object.geometry?.type === 'line' || object.geometry?.type === 'path' ? (
+                  <Line
+                    points={(object.geometry.points ?? []).flatMap(([px, py]) => [px * widthPx, py * heightPx])}
+                    closed={object.geometry.type === 'path' && object.geometry.closed !== false}
+                    fill={object.geometry.type === 'path' && object.geometry.closed !== false ? object.style.fill || undefined : undefined}
+                    stroke={object.style.stroke || undefined}
+                    strokeWidth={object.style.stroke ? Math.max(1, strokePx) : 0}
+                    lineCap="round"
+                    lineJoin="round"
+                    hitStrokeWidth={Math.max(18, strokePx)}
+                  />
                 ) : (
                   <Rect
                     width={widthPx}
                     height={heightPx}
                     fill={object.style.fill || (isBackground ? 'rgba(255,255,255,0.04)' : 'rgba(255,255,255,0.08)')}
                     stroke={object.style.stroke || undefined}
-                    strokeWidth={object.style.stroke ? 1 : 0}
-                    cornerRadius={object.style.borderRadius ?? 0}
+                    strokeWidth={object.style.stroke ? strokePx : 0}
+                    cornerRadius={radiusPx}
                   />
                 )}
+                </Group>
               </Group>
             )
           })}
         </Layer>
         <Layer>
+          {penPoints.length ? (
+            <Group listening={false}>
+              <Line
+                points={penPoints.flatMap(([px, py]) => [(px / 100) * display.width, (py / 100) * display.height])}
+                stroke="#9dfab0"
+                strokeWidth={2}
+                dash={[6, 4]}
+                lineJoin="round"
+              />
+              {penPoints.map(([px, py], index) => (
+                <Circle
+                  key={index}
+                  x={(px / 100) * display.width}
+                  y={(py / 100) * display.height}
+                  radius={index === 0 ? 6 : 4}
+                  fill={index === 0 ? '#9dfab0' : '#050606'}
+                  stroke="#9dfab0"
+                  strokeWidth={1.5}
+                />
+              ))}
+            </Group>
+          ) : null}
+          {/* Free transform: any anchor, any form. Shift keeps proportions; rotation snaps every 45 degrees. */}
           <Transformer
             ref={transformerRef}
             rotateEnabled={!selectedObject?.constraints.lockRotation}
             resizeEnabled={!selectedObject?.constraints.lockSize}
             keepRatio={Boolean(selectedObject?.constraints.lockAspectRatio)}
+            rotationSnaps={[0, 45, 90, 135, 180, 225, 270, 315]}
+            rotationSnapTolerance={5}
             flipEnabled={false}
             borderStroke="rgba(157, 250, 176, 0.85)"
             borderStrokeWidth={1}

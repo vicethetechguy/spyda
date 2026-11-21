@@ -31,10 +31,13 @@ export function prepareForEditing(document: DesignDocument): DesignDocument {
     }
     // The content panel offers weight and alignment for type; the analysis only
     // grants the properties a rewrite would change, so add them for text here.
-    if (object.kind === 'text' || object.kind === 'action') {
-      for (const property of ['fontWeight', 'textAlign'] as const) {
-        if (!object.protection.editableProperties.includes(property)) object.protection.editableProperties.push(property)
-      }
+    // Free transform, and the properties the pro panel offers for each kind.
+    object.constraints.lockAspectRatio = false
+    const extras = object.kind === 'text' || object.kind === 'action'
+      ? ['fontWeight', 'textAlign', 'letterSpacing', 'lineHeight', 'stroke', 'strokeWidth']
+      : ['borderRadius', 'stroke', 'strokeWidth']
+    for (const property of extras) {
+      if (!object.protection.editableProperties.includes(property)) object.protection.editableProperties.push(property)
     }
   }
   return next

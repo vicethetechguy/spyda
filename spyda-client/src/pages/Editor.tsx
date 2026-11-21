@@ -14,9 +14,9 @@ import {
 import { CUTOUT_KINDS, extractLayers } from '../core/layer-extraction'
 import type { DesignEditIntent } from '../core/constraint-engine'
 import { putAsset } from '../lib/asset-store'
-import { makeLayer, type NewLayerKind } from '../lib/editor-objects'
+import { makeLayer, pathFromPoints, type NewLayerKind } from '../lib/editor-objects'
 import { describeCanvas, translateOperations } from '../lib/canvas-assist'
-import { requestCanvasAssist } from '../lib/chat'
+import { prepareImage, requestCanvasAssist } from '../lib/chat'
 import { spydaRequestHeaders } from '../lib/spyda-api'
 import { createMatteCutoutProducer, loadSourceImage, produceFullFrameBackground } from '../lib/cutout'
 import { prepareForEditing } from '../lib/editor-document'
@@ -35,10 +35,10 @@ import {
   undo,
   type IntentHistory,
 } from '../lib/intent-history'
-import { patchProject, readProject, type StoredProject } from '../lib/project-store'
+import { patchProject, readProject, saveProject, type StoredProject } from '../lib/project-store'
 import { segmentFlyer } from '../lib/segmentation'
 import LayerCanvas from '../components/editor/LayerCanvas'
-import ContentPanel from '../components/editor/ContentPanel'
+import PropertiesPanel from '../components/editor/PropertiesPanel'
 import LayerList from '../components/editor/LayerList'
 import { useAssetImages } from '../components/editor/useAssetImages'
 import AssistPanel, { type AssistEntry } from '../components/editor/AssistPanel'
@@ -178,6 +178,8 @@ export default function Editor() {
   const [assistBusy, setAssistBusy] = useState(false)
   const [exporting, setExporting] = useState(false)
   const stageRef = useRef<Konva.Stage | null>(null)
+  const [penPoints, setPenPoints] = useState<[number, number][] | null>(null)
+  const [pictureBusy, setPictureBusy] = useState<'background' | 'magic' | null>(null)
   const imageInputRef = useRef<HTMLInputElement | null>(null)
   const navigate = useNavigate()
   const edited = useRef(false)
@@ -424,6 +426,92 @@ export default function Editor() {
     }
   }, [design, project?.name])
 
+  /** Pen tool: points in canvas percent until the path closes or Enter ends it. */
+  const finishPen = useCallback((points: [number, number][], closed: boolean) => {
+    setPenPoints(null)
+    if (!design || points.length < 2) return
+    const layer = pathFromPoints(design, points, closed && points.length >= 3)
+    if (!layer) return
+    applyStep([{ objectId: layer.id, property: 'create', value: layer }], closed ? 'Draw shape' : 'Draw path')
+    setSelectedId(layer.id)
+  }, [applyStep, design])
+
+  // Decided from the current points, never inside a state updater: updaters
+  // must stay pure, and creating the layer there could run it twice.
+  const addPenPoint = useCallback((point: [number, number]) => {
+    const points = penPoints ?? []
+    const first = points[0]
+    // Clicking the first point again closes the shape.
+    if (first && points.length >= 3 && Math.hypot(point[0] - first[0], point[1] - first[1]) < 2.2) {
+      finishPen(points, true)
+      return
+    }
+    setPenPoints([...points, point])
+  }, [finishPen, penPoints])
+
+  /** The pixels of a picture layer: its own asset, or its region of the flat flyer. */
+  const pictureBlob = useCallback(async (object: DesignObject): Promise<Blob> => {
+    const own = object.content.assetRef ? images[object.content.assetRef] : undefined
+    if (own) return (await fetch(own.src)).blob()
+    const bounds = object.transform.bounds
+    if (!flatFlyer || !bounds) throw new Error('This picture has no pixels to work with yet.')
+    const canvas = document.createElement('canvas')
+    canvas.width = Math.max(1, Math.round((bounds.width / 100) * flatFlyer.naturalWidth))
+    canvas.height = Math.max(1, Math.round((bounds.height / 100) * flatFlyer.naturalHeight))
+    canvas.getContext('2d')?.drawImage(
+      flatFlyer,
+      (bounds.x / 100) * flatFlyer.naturalWidth, (bounds.y / 100) * flatFlyer.naturalHeight, canvas.width, canvas.height,
+      0, 0, canvas.width, canvas.height,
+    )
+    return new Promise((resolve, reject) => canvas.toBlob(blob => (blob ? resolve(blob) : reject(new Error('The picture could not be read.'))), 'image/png'))
+  }, [flatFlyer, images])
+
+  const handleRemoveBackground = useCallback(async (object: DesignObject) => {
+    setPictureBusy('background')
+    setNotice({ tone: 'info', text: 'Removing the background. The first time, the cut-out model downloads once.' })
+    try {
+      const source = await pictureBlob(object)
+      const { removeBackground } = await import('@imgly/background-removal')
+      const cutout = await removeBackground(source, { model: 'isnet_quint8' })
+      const id = await putAsset(cutout)
+      applyStep([{ objectId: object.id, property: 'assetRef', value: `asset:${id}` }], 'Remove background')
+      setNotice({ tone: 'info', text: 'Background removed. Undo brings it back.' })
+    } catch (error) {
+      setNotice({ tone: 'error', text: error instanceof Error ? error.message : 'The background could not be removed.' })
+    } finally {
+      setPictureBusy(null)
+    }
+  }, [applyStep, pictureBlob])
+
+  /** Magic layers: analyse a picture into its own layered design and open it. */
+  const handleMagicLayers = useCallback(async (object: DesignObject) => {
+    setPictureBusy('magic')
+    setNotice({ tone: 'info', text: 'Finding the text, pictures and shapes in this picture…' })
+    try {
+      const blob = await pictureBlob(object)
+      const prepared = await prepareImage(new File([blob], `${object.name}.png`, { type: blob.type || 'image/png' }))
+      const id = `spyda-${typeof crypto !== 'undefined' && 'randomUUID' in crypto ? crypto.randomUUID() : Date.now().toString(36)}`
+      const response = await fetch('/api/analyze', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', ...(await spydaRequestHeaders({ openai: '', groq: '' }, 'groq')) },
+        body: JSON.stringify({
+          base64Image: prepared.dataUrl,
+          aiProvider: 'groq',
+          sourceMetadata: { designId: id, width: prepared.width, height: prepared.height, fileName: prepared.name, mimeType: 'image/jpeg' },
+        }),
+      })
+      const data = await response.json().catch(() => null)
+      if (!response.ok || !data?.ok || !data.breakdown) throw new Error(data?.error || 'Spyda could not find layers in this picture.')
+      const now = new Date().toISOString()
+      saveProject({ id, name: `${object.name} layers`, createdAt: now, updatedAt: now, referencePreview: prepared.dataUrl, generatedImage: null, breakdown: data.breakdown })
+      // A full load: the editor reads its project once, when it starts.
+      window.location.assign(`/editor/${encodeURIComponent(id)}`)
+    } catch (error) {
+      setNotice({ tone: 'error', text: error instanceof Error ? error.message : 'Magic layers could not split this picture.' })
+      setPictureBusy(null)
+    }
+  }, [pictureBlob])
+
   /** Spyda AI: the canvas as layers out, validated operations back in, one undo step. */
   const runAssist = useCallback(async (instruction: string) => {
     if (!design || assistBusy) return
@@ -463,6 +551,12 @@ export default function Editor() {
         return
       }
       if (typing) return
+      // While drawing, the pen owns Enter, Escape and Backspace.
+      if (penPoints) {
+        if (event.key === 'Enter') { event.preventDefault(); finishPen(penPoints, false); return }
+        if (event.key === 'Escape') { event.preventDefault(); setPenPoints(null); return }
+        if (event.key === 'Backspace' || event.key === 'Delete') { event.preventDefault(); setPenPoints(penPoints.slice(0, -1)); return }
+      }
       const selected = selectedId ? design?.objects.find(object => object.id === selectedId) : null
       if ((event.metaKey || event.ctrlKey) && event.key.toLowerCase() === 'd' && selectedId) {
         event.preventDefault()
@@ -482,10 +576,11 @@ export default function Editor() {
         applyIntent({ objectId: selectedId, property: 'removed', value: true })
         return
       }
-      const tool = ({ v: 'select', t: 'text', r: 'rect', o: 'circle', i: 'image' } as const)[event.key.toLowerCase() as 'v' | 't' | 'r' | 'o' | 'i']
+      const tool = ({ v: 'select', t: 'text', r: 'rect', o: 'circle', i: 'image', l: 'line', p: 'pen' } as const)[event.key.toLowerCase() as 'v' | 't' | 'r' | 'o' | 'i' | 'l' | 'p']
       if (tool) {
         event.preventDefault()
-        if (tool === 'select') setSelectedId(null)
+        if (tool === 'select') { setSelectedId(null); setPenPoints(null) }
+        else if (tool === 'pen') { setSelectedId(null); setPenPoints(current => (current ? null : [])) }
         else addLayer(tool)
         return
       }
@@ -506,7 +601,7 @@ export default function Editor() {
 
     window.addEventListener('keydown', onKeyDown)
     return () => window.removeEventListener('keydown', onKeyDown)
-  }, [addLayer, applyIntent, applyStep, design?.objects, handleDuplicate, selectedId])
+  }, [addLayer, applyIntent, applyStep, design?.objects, finishPen, handleDuplicate, penPoints, selectedId])
 
   const selectLayer = (objectId: string | null) => {
     setSelectedId(objectId)
@@ -573,9 +668,18 @@ export default function Editor() {
   ]
 
   const inspector = selectedObject ? (
-    <div className="editor-dense">
-      <ContentPanel object={selectedObject} onIntent={applyIntent} onReplaceImage={handleReplaceImage} busy={Boolean(extracting)} />
-    </div>
+    <PropertiesPanel
+      object={selectedObject}
+      canvas={{ width: design?.canvas.width || 1080, height: design?.canvas.height || 1350 }}
+      onIntent={applyIntent}
+      onReplaceImage={file => handleReplaceImage(selectedObject.id, file)}
+      onRemoveBackground={() => handleRemoveBackground(selectedObject)}
+      onMagicLayers={() => handleMagicLayers(selectedObject)}
+      onDuplicate={() => handleDuplicate(selectedObject.id)}
+      onDelete={() => applyIntent({ objectId: selectedObject.id, property: 'removed', value: true })}
+      onReorder={direction => handleReorder(selectedObject.id, direction)}
+      pictureBusy={pictureBusy}
+    />
   ) : null
 
   const sectionLabel = (text: string) => (
@@ -992,6 +1096,9 @@ export default function Editor() {
             selectedId={selectedId}
             onSelect={selectLayer}
             onEditText={editText}
+            penActive={penPoints !== null}
+            penPoints={penPoints ?? []}
+            onPenPoint={addPenPoint}
             onGeometryChange={(objectId, bounds, rotation) => applyStep([
               { objectId, property: 'bounds', value: bounds, explicitGeometryChange: true },
               { objectId, property: 'rotation', value: rotation, explicitGeometryChange: true },
@@ -1013,10 +1120,17 @@ export default function Editor() {
             {extracting.total ? `Cutting out layer ${extracting.done} of ${extracting.total}…` : 'Reading the flyer once to build its mask…'}
           </p>
         ) : null}
+        {penPoints ? (
+          <p className="absolute inset-x-0 bottom-14 z-10 mx-auto w-fit rounded-full bg-black/75 px-3 py-1 text-[10px] text-white backdrop-blur" role="status">
+            Click to add points · click the first point to close · Enter to finish · Esc to cancel
+          </p>
+        ) : null}
         <div className="absolute inset-x-0 bottom-3 z-10 flex justify-center px-2">
           <CanvasToolbar
-            onSelectTool={() => setSelectedId(null)}
+            onSelectTool={() => { setSelectedId(null); setPenPoints(null) }}
             onAdd={kind => addLayer(kind)}
+            onPen={() => { setSelectedId(null); setPenPoints(current => (current ? null : [])) }}
+            penActive={penPoints !== null}
             onAssist={() => setPage('ai')}
             assistActive={page === 'ai'}
           />

@@ -39,6 +39,8 @@ export type DesignEditIntent = {
     | 'removed' | 'visible' | 'bounds' | 'rotation'
     | 'fontFamily' | 'fontSize' | 'fontWeight' | 'textAlign'
     | 'zIndex' | 'duplicate' | 'create'
+    | 'borderRadius' | 'strokeWidth' | 'letterSpacing' | 'lineHeight'
+    | 'flipX' | 'flipY' | 'lockAspectRatio'
   value: unknown
   explicitGeometryChange?: boolean
 }
@@ -46,6 +48,8 @@ export type DesignEditIntent = {
 /** Intents that are not property edits on `protection.editableProperties`. */
 const STRUCTURAL_PROPERTIES: ReadonlyArray<DesignEditIntent['property']> = [
   'removed', 'visible', 'bounds', 'rotation', 'zIndex', 'duplicate', 'create',
+  // Orientation and the proportion lock are transform settings, like rotation.
+  'flipX', 'flipY', 'lockAspectRatio',
 ]
 
 type DuplicateSpec = { id: string; name?: string; zIndex?: number }
@@ -160,6 +164,13 @@ export function applyDesignEdits(referenceInput: DesignDocument, intents: Design
     if (intent.property === 'fontWeight') object.style.fontWeight = String(intent.value ?? '') || null
     if (intent.property === 'textAlign') object.style.textAlign = readTextAlign(intent.value)
     if (intent.property === 'zIndex') object.zIndex = Math.round(Number(intent.value))
+    if (intent.property === 'borderRadius') object.style.borderRadius = Math.max(0, Number(intent.value) || 0)
+    if (intent.property === 'strokeWidth') object.style.strokeWidth = Math.max(0, Number(intent.value) || 0)
+    if (intent.property === 'letterSpacing') object.style.letterSpacing = Number.isFinite(Number(intent.value)) ? Number(intent.value) : null
+    if (intent.property === 'lineHeight') object.style.lineHeight = Number(intent.value) > 0 ? Number(intent.value) : null
+    if (intent.property === 'flipX') object.transform.flipX = Boolean(intent.value)
+    if (intent.property === 'flipY') object.transform.flipY = Boolean(intent.value)
+    if (intent.property === 'lockAspectRatio') object.constraints.lockAspectRatio = Boolean(intent.value)
 
     if (intent.property === 'duplicate') {
       const spec = readDuplicateSpec(intent.value)
