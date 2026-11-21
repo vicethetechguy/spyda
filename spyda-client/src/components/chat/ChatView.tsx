@@ -951,8 +951,10 @@ export default function ChatView({ modelProvider, headerSlot, seed, onOpenWallet
       ) : null}
 
       {empty ? (
-        <div className="relative flex min-h-0 flex-1 flex-col items-center overflow-y-auto px-4 pb-8 pt-8 sm:justify-center sm:pt-6">
-          <div className="w-full max-w-2xl text-center">
+        // Auto margins centre the welcome when it fits and start it at the top
+        // when it does not; justify-center would push the orb out of reach.
+        <div className="relative flex min-h-0 flex-1 flex-col items-center overflow-y-auto px-4 pb-8 pt-8 [scrollbar-width:none] sm:pt-10 [&::-webkit-scrollbar]:hidden">
+          <div className="my-auto w-full max-w-2xl text-center">
             <SpydaOrb />
             <h1 className="mt-7 font-heading text-[2rem] font-semibold leading-tight tracking-[-0.02em] sm:text-[2.6rem]">
               <span className="block text-muted-foreground">Hi{name ? `, ${name}` : ''}</span>
