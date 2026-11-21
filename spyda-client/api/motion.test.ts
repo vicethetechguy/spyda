@@ -24,7 +24,7 @@ describe('motion design', () => {
     const request = buildMotionRequest(readMotionInput({ image, brief: 'Launch teaser', format: 'story', duration: 6 }))
     expect(request.model).toBe('claude-opus-5-5')
     expect(request.fallbacks).toBe('default')
-    expect(request.system.at(-1)).toMatchObject({ text: MOTION_CODE_CONTRACT, cache_control: { type: 'ephemeral' } })
+    expect(request.system[request.system.length - 1]).toMatchObject({ text: MOTION_CODE_CONTRACT, cache_control: { type: 'ephemeral' } })
     const [picture, text] = request.messages[0].content
     expect(picture).toMatchObject({ type: 'image', source: { type: 'base64', media_type: 'image/jpeg', data: 'AAAA' } })
     expect(text).toMatchObject({ type: 'text' })
