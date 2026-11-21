@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it, vi } from 'vitest'
-import { MAX_IMAGES_PER_REQUEST, buildChatMessages, buildEditPrompt, readChatCompletion, readTurns, requestChatReply } from './_chat.js'
+import { MAX_IMAGES_PER_REQUEST, buildChatMessages, buildEditPrompt, readChatCompletion, readTurns, requestChatReply } from '../../api/_chat.js'
 
 const image = (n: number) => `data:image/jpeg;base64,${'A'.repeat(4)}${n}`
 

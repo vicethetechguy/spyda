@@ -1,6 +1,6 @@
 import formidable from 'formidable';
 import { readFile } from 'node:fs/promises';
-import { runGenerationQa } from './qa.js';
+import { runGenerationQa } from './_qa.js';
 
 export const config = {
   maxDuration: 60,

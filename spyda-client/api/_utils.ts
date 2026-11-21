@@ -4,13 +4,13 @@ declare const process: {
 
 export type ProviderApiKeys = { openai?: string; groq?: string };
 
-import { analysisModel, groqAnalysisModel, imageModel } from "./models.js";
+import { analysisModel, groqAnalysisModel, imageModel } from "./_models.js";
 import { adaptBreakdownToDesignDocument, designDocumentToLegacyBreakdown } from "../src/core/design-document.js";
 import { buildDesignIntelligence } from "../src/core/analysis-pipeline.js";
 import { planRecipeRenderStrategy } from "../src/core/render-strategy.js";
-import { buildApprovedDifferenceContract } from "./qa-contract.js";
+import { buildApprovedDifferenceContract } from "./_qa-contract.js";
 
-export { analysisModel, groqAnalysisModel, imageModel } from "./models.js";
+export { analysisModel, groqAnalysisModel, imageModel } from "./_models.js";
 
 type OcrWord = {
   text: string;

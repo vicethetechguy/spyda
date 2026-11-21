@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest'
-import { buildApprovedDifferenceContract, buildGenerationQaPrompt, findMissingRequiredText } from './qa-contract.js'
-import { normalizeQaReport } from './qa.js'
-import { buildGenerationPrompt, mapOutputSize, normalizeGptImage2Dimensions } from './_utils.js'
+import { buildApprovedDifferenceContract, buildGenerationQaPrompt, findMissingRequiredText } from '../../api/_qa-contract.js'
+import { normalizeQaReport } from '../../api/_qa.js'
+import { buildGenerationPrompt, mapOutputSize, normalizeGptImage2Dimensions } from '../../api/_utils.js'
 
 const recipe = {
   compositeMode: true,

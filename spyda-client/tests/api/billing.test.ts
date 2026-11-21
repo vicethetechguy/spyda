@@ -4,7 +4,7 @@ const imageEdit = vi.fn()
 const generateDesign = vi.fn()
 const analyzeDesign = vi.fn()
 
-vi.mock('./_utils.js', () => ({
+vi.mock('../../api/_utils.js', () => ({
   imageModel: 'gpt-image-2',
   mapOutputSize: () => '1024x1536',
   mapQuality: () => 'high',
@@ -13,13 +13,13 @@ vi.mock('./_utils.js', () => ({
   generateDesign: (...args: unknown[]) => generateDesign(...args),
   analyzeDesign: (...args: unknown[]) => analyzeDesign(...args),
 }))
-vi.mock('./_ocr_service.js', () => ({ runOcr: async () => ({ enabled: false, fullText: '', words: [] }) }))
-vi.mock('./qa.js', () => ({ runGenerationQa: async () => ({ ok: true, passed: true, score: 1 }) }))
+vi.mock('../../api/_ocr_service.js', () => ({ runOcr: async () => ({ enabled: false, fullText: '', words: [] }) }))
+vi.mock('../../api/_qa.js', () => ({ runGenerationQa: async () => ({ ok: true, passed: true, score: 1 }) }))
 
-const { setBillingDb, requireUser, readModelMode, isByok, withGenerationCharge } = await import('./_billing.js')
-const chat = (await import('./chat.js')).default
-const generate = (await import('./generate.js')).default
-const analyze = (await import('./analyze.js')).default
+const { setBillingDb, requireUser, readModelMode, isByok, withGenerationCharge } = await import('../../api/_billing.js')
+const chat = (await import('../../api/chat.js')).default
+const generate = (await import('../../api/generate.js')).default
+const analyze = (await import('../../api/analyze.js')).default
 
 type Call = { fn: string; args: Record<string, unknown> }
 

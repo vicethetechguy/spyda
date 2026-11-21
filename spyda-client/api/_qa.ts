@@ -1,9 +1,9 @@
 import { extractJson } from "./_utils.js";
-import { analysisModel } from "./models.js";
+import { analysisModel } from "./_models.js";
 import { applyDesignEdits, enforceDesignConstraints, type DesignEditIntent } from "../src/core/constraint-engine.js";
 import { parseDesignDocument } from "../src/core/design-document.js";
 import { validateDesignFidelity, validateRenderedDimensions, type FidelityReport, type RenderedDimensionReport } from "../src/core/validation-engine.js";
-import { buildApprovedDifferenceContract, buildGenerationQaPrompt, findMissingRequiredText } from "./qa-contract.js";
+import { buildApprovedDifferenceContract, buildGenerationQaPrompt, findMissingRequiredText } from "./_qa-contract.js";
 import { runOcr } from "./_ocr_service.js";
 
 declare const process: {

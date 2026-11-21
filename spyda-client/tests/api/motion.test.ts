@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
-import { MOTION_MODEL, buildMotionRequest, generateMotion, readMotionInput, readMotionReply } from './_motion.js'
-import { MOTION_CODE_CONTRACT } from './_motion-template.js'
+import { MOTION_MODEL, buildMotionRequest, generateMotion, readMotionInput, readMotionReply } from '../../api/_motion.js'
+import { MOTION_CODE_CONTRACT } from '../../api/_motion-template.js'
 
 const image = 'data:image/jpeg;base64,AAAA'
 const playable = 'TITLE: Grand opening\n```javascript\nfunction draw({ ctx, t }) { ctx.fillRect(0, 0, 10, 10) }\n```'

@@ -1,5 +1,5 @@
 import { generateDesign } from './_utils.js';
-import { runGenerationQa } from './qa.js';
+import { runGenerationQa } from './_qa.js';
 import { HttpError, billingSummary, isByok, readModelMode, requireUser, withGenerationCharge } from './_billing.js';
 import formidable from 'formidable';
 import { readFile } from 'node:fs/promises';

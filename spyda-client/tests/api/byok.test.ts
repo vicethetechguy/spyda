@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it, vi } from 'vitest'
-import { analyzeDesignWithGroq, analyzeDesignWithOpenAI, extractJson } from './_utils.js'
+import { analyzeDesignWithGroq, analyzeDesignWithOpenAI, extractJson } from '../../api/_utils.js'
 
 describe('bring your API key routing', () => {
   afterEach(() => vi.unstubAllGlobals())
