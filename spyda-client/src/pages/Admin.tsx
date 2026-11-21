@@ -28,7 +28,7 @@ import {
   AtSign,
   Bell,
   CheckCheck,
-} from 'lucide-react'
+} from '../components/ui/icons'
 import { useAuth } from '../lib/AuthContext'
 import { supabase } from '../lib/supabase'
 import {

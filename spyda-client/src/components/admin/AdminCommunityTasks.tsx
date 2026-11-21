@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useState } from 'react'
-import { Check, CircleCheck, Gift, Loader2, Pause, Play, Plus, RefreshCw, XCircle } from 'lucide-react'
+import { Check, CircleCheck, Gift, Loader2, Pause, Play, Plus, RefreshCw, XCircle } from '../ui/icons'
 import {
   adminCreateCommunityTask,
   adminListCommunityTaskClaims,

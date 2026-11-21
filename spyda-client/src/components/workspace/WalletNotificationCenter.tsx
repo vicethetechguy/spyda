@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
-import { ArrowDownToLine, ArrowUpRight, Bell, CheckCheck, Loader2, Wallet } from 'lucide-react'
+import { ArrowDownToLine, ArrowUpRight, Bell, CheckCheck, Loader2, Wallet } from '../ui/icons'
 import { supabase } from '../../lib/supabase'
 import {
   listWalletNotifications,

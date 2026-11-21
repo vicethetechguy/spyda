@@ -1,4 +1,4 @@
-import { useEffect, useState, type ReactNode } from 'react'
+import { useEffect, useRef, useState, type ReactNode } from 'react'
 import {
   ArrowDown,
   ArrowRight,
@@ -19,7 +19,7 @@ import {
   Users,
   Wallet,
   Zap,
-} from 'lucide-react'
+} from '../ui/icons'
 
 const chapters = [
   { id: 'vision', number: '01', label: 'The vision' },
@@ -73,6 +73,20 @@ function SpydaTokenIcon({ className = '' }: { className?: string }) {
   return <img src="/assets/spyda-credit.png" alt="" aria-hidden="true" className={`shrink-0 object-contain ${className}`} />
 }
 
+/**
+ * A feature icon on a lit glass tile: a gradient hairline rim, a soft inner
+ * highlight and a green glow under a duotone glyph.
+ */
+function IconTile({ icon: Glyph }: { icon: typeof Wallet }) {
+  return (
+    <span className="relative inline-flex h-11 w-11 items-center justify-center rounded-[14px] bg-[linear-gradient(150deg,rgba(157,250,176,0.55),rgba(136,168,255,0.18)_45%,rgba(255,255,255,0.06))] p-px shadow-[0_10px_28px_rgba(157,250,176,0.12)]">
+      <span className="flex h-full w-full items-center justify-center rounded-[13px] bg-[radial-gradient(circle_at_30%_20%,rgba(157,250,176,0.22),transparent_60%),linear-gradient(180deg,#141a19,#0b0e0e)] shadow-[inset_0_1px_0_rgba(255,255,255,0.12)]">
+        <Glyph className="h-[22px] w-[22px] text-primary drop-shadow-[0_0_8px_rgba(157,250,176,0.35)]" />
+      </span>
+    </span>
+  )
+}
+
 function WhitepaperChapter({
   id,
   number,
@@ -107,7 +121,45 @@ export function WhitepaperView() {
   const [creditSpend, setCreditSpend] = useState('1000')
   const normalizedCredits = Math.max(0, Math.min(1_000_000_000, Number(creditSpend) || 0))
   const earnedSpyda = normalizedCredits / 1000
-  const readingProgress = ((activeChapter + 1) / chapters.length) * 100
+  const articleRef = useRef<HTMLElement>(null)
+  const barRef = useRef<HTMLDivElement>(null)
+  const [readingProgress, setReadingProgress] = useState(0)
+
+  // The line follows the scroll position itself, not the chapter, so it moves
+  // as the reader moves and fills exactly when they reach the end.
+  useEffect(() => {
+    const article = articleRef.current
+    if (!article) return
+    let scroller: HTMLElement | null = article.parentElement
+    while (scroller && !/(auto|scroll)/.test(getComputedStyle(scroller).overflowY)) scroller = scroller.parentElement
+    const target: HTMLElement | Window = scroller || window
+    let frame = 0
+
+    const measure = () => {
+      frame = 0
+      const viewport = scroller ? scroller.clientHeight : window.innerHeight
+      const top = scroller ? scroller.getBoundingClientRect().top : 0
+      const rect = article.getBoundingClientRect()
+      const travel = rect.height - viewport
+      const read = travel > 0 ? (top - rect.top) / travel : 1
+      const ratio = Math.min(1, Math.max(0, read))
+      if (barRef.current) barRef.current.style.transform = `scaleX(${ratio})`
+      setReadingProgress(Math.round(ratio * 100))
+    }
+    const schedule = () => { if (!frame) frame = requestAnimationFrame(measure) }
+
+    measure()
+    target.addEventListener('scroll', schedule, { passive: true })
+    window.addEventListener('resize', schedule)
+    const resize = typeof ResizeObserver === 'undefined' ? null : new ResizeObserver(schedule)
+    resize?.observe(article)
+    return () => {
+      if (frame) cancelAnimationFrame(frame)
+      target.removeEventListener('scroll', schedule)
+      window.removeEventListener('resize', schedule)
+      resize?.disconnect()
+    }
+  }, [])
 
   useEffect(() => {
     const sections = chapters
@@ -134,7 +186,7 @@ export function WhitepaperView() {
   }
 
   return (
-    <article className="min-h-full bg-[#080a0a] text-foreground">
+    <article ref={articleRef} className="min-h-full bg-[#080a0a] text-foreground">
       <div className="sticky top-0 z-20 border-b border-white/[0.08] bg-[#080a0a]/95 backdrop-blur-xl">
         <div className="mx-auto flex w-full max-w-[1240px] items-center gap-4 px-4 py-3 sm:px-6 lg:px-8">
           <div className="hidden items-center gap-2 text-xs font-semibold sm:flex"><BookOpen className="h-4 w-4 text-primary" /> Whitepaper journey</div>
@@ -147,9 +199,11 @@ export function WhitepaperView() {
               ))}
             </div>
           </div>
-          <span className="shrink-0 text-[10px] font-semibold text-primary">{Math.round(readingProgress)}%</span>
+          <span className="shrink-0 text-[10px] font-semibold tabular-nums text-primary" aria-live="off">{readingProgress === 100 ? 'Done' : `${readingProgress}%`}</span>
         </div>
-        <div className="h-0.5 bg-white/[0.05]"><div className="h-full bg-[linear-gradient(90deg,#9dfab0,#88a8ff,#ff8f5c)] transition-[width] duration-500" style={{ width: `${readingProgress}%` }} /></div>
+        <div className="h-[3px] bg-white/[0.05]" role="progressbar" aria-label="Reading progress" aria-valuemin={0} aria-valuemax={100} aria-valuenow={readingProgress}>
+          <div ref={barRef} className="h-full origin-left bg-[linear-gradient(90deg,#9dfab0,#88a8ff,#ff8f5c)] shadow-[0_0_12px_rgba(157,250,176,0.45)] will-change-transform" style={{ transform: 'scaleX(0)' }} />
+        </div>
       </div>
 
       <div className="mx-auto w-full max-w-[1240px] px-4 sm:px-6 lg:px-8">
@@ -201,7 +255,7 @@ export function WhitepaperView() {
                   [Gift, 'Accrue', 'Earn SPYDA allocation'],
                 ].map(([Icon, title, copy], index) => {
                   const StepIcon = Icon as typeof Wallet
-                  return <div key={String(title)} className="relative bg-[#0b0d0d] p-5"><StepIcon className="h-5 w-5 text-primary" /><p className="mt-5 text-[10px] font-semibold uppercase text-muted-foreground">Step {index + 1}</p><p className="mt-1 text-sm font-semibold">{String(title)}</p><p className="mt-1 text-xs leading-5 text-muted-foreground">{String(copy)}</p></div>
+                  return <div key={String(title)} className="relative bg-[#0b0d0d] p-5"><IconTile icon={StepIcon} /><p className="mt-5 text-[10px] font-semibold uppercase text-muted-foreground">Step {index + 1}</p><p className="mt-1 text-sm font-semibold">{String(title)}</p><p className="mt-1 text-xs leading-5 text-muted-foreground">{String(copy)}</p></div>
                 })}
               </div>
               <div className="mt-6 rounded-lg border border-primary/20 bg-primary/[0.045] p-5">
@@ -233,9 +287,9 @@ export function WhitepaperView() {
             </div>
           </div>
           <div className="mt-8 grid gap-3 md:grid-cols-3">
-            <div className="rounded-lg border border-white/[0.08] bg-surface p-5"><Users className="h-5 w-5 text-primary" /><h3 className="mt-4 text-sm font-semibold">User-earned threshold</h3><p className="mt-2 text-xs leading-5 text-muted-foreground">The 1 billion target refers to cumulative eligible SPYDA accrued to user accounts before launch.</p></div>
-            <div className="rounded-lg border border-white/[0.08] bg-surface p-5"><ShieldCheck className="h-5 w-5 text-primary" /><h3 className="mt-4 text-sm font-semibold">Readiness gates</h3><p className="mt-2 text-xs leading-5 text-muted-foreground">Security audits, legal review, network selection, claim controls, and utility must be ready before activation.</p></div>
-            <div className="rounded-lg border border-white/[0.08] bg-surface p-5"><Gift className="h-5 w-5 text-primary" /><h3 className="mt-4 text-sm font-semibold">Balance recognition</h3><p className="mt-2 text-xs leading-5 text-muted-foreground">The intended launch design recognizes each eligible recorded SPYDA balance on a one-for-one token allocation basis, subject to final published terms.</p></div>
+            <div className="rounded-lg border border-white/[0.08] bg-surface p-5"><IconTile icon={Users} /><h3 className="mt-4 text-sm font-semibold">User-earned threshold</h3><p className="mt-2 text-xs leading-5 text-muted-foreground">The 1 billion target refers to cumulative eligible SPYDA accrued to user accounts before launch.</p></div>
+            <div className="rounded-lg border border-white/[0.08] bg-surface p-5"><IconTile icon={ShieldCheck} /><h3 className="mt-4 text-sm font-semibold">Readiness gates</h3><p className="mt-2 text-xs leading-5 text-muted-foreground">Security audits, legal review, network selection, claim controls, and utility must be ready before activation.</p></div>
+            <div className="rounded-lg border border-white/[0.08] bg-surface p-5"><IconTile icon={Gift} /><h3 className="mt-4 text-sm font-semibold">Balance recognition</h3><p className="mt-2 text-xs leading-5 text-muted-foreground">The intended launch design recognizes each eligible recorded SPYDA balance on a one-for-one token allocation basis, subject to final published terms.</p></div>
           </div>
         </WhitepaperChapter>
 
@@ -267,7 +321,7 @@ export function WhitepaperView() {
               [Globe2, 'Settlement layer', 'Progressive Web3', 'Smart contracts, token claims, external wallets, marketplace settlement, and portable participation activate after readiness gates pass.'],
             ].map(([Icon, label, title, copy]) => {
               const LayerIcon = Icon as typeof Layers3
-              return <div key={String(title)} className="bg-[#0b0d0d] p-6"><LayerIcon className="h-6 w-6 text-primary" /><p className="mt-6 text-[10px] font-semibold uppercase tracking-[0.15em] text-muted-foreground">{String(label)}</p><h3 className="mt-2 font-heading text-lg font-semibold">{String(title)}</h3><p className="mt-3 text-sm leading-6 text-muted-foreground">{String(copy)}</p></div>
+              return <div key={String(title)} className="bg-[#0b0d0d] p-6"><IconTile icon={LayerIcon} /><p className="mt-6 text-[10px] font-semibold uppercase tracking-[0.15em] text-muted-foreground">{String(label)}</p><h3 className="mt-2 font-heading text-lg font-semibold">{String(title)}</h3><p className="mt-3 text-sm leading-6 text-muted-foreground">{String(copy)}</p></div>
             })}
           </div>
           <div className="mt-5 flex items-start gap-3 rounded-lg border border-primary/20 bg-primary/[0.045] p-5"><Network className="mt-0.5 h-5 w-5 shrink-0 text-primary" /><div><p className="text-sm font-semibold">One interface, separate ledgers</p><p className="mt-1 text-xs leading-5 text-muted-foreground">Spyda Credits, fiat balances, and SPYDA allocations appear in one wallet but remain separate assets with different accounting, transfer, withdrawal, and compliance rules.</p></div></div>
@@ -293,7 +347,7 @@ export function WhitepaperView() {
               [Zap, 'Product utility first', 'The strongest foundation for the network is a product people choose because it produces better creative work.'],
             ].map(([Icon, title, copy]) => {
               const TrustIcon = Icon as typeof ShieldCheck
-              return <div key={String(title)} className="rounded-lg border border-white/[0.08] bg-surface p-5"><TrustIcon className="h-5 w-5 text-primary" /><h3 className="mt-4 text-sm font-semibold">{String(title)}</h3><p className="mt-2 text-xs leading-5 text-muted-foreground">{String(copy)}</p></div>
+              return <div key={String(title)} className="rounded-lg border border-white/[0.08] bg-surface p-5"><IconTile icon={TrustIcon} /><h3 className="mt-4 text-sm font-semibold">{String(title)}</h3><p className="mt-2 text-xs leading-5 text-muted-foreground">{String(copy)}</p></div>
             })}
           </div>
           <div className="mt-8 rounded-lg border border-[#ff8f5c]/25 bg-[#ff8f5c]/[0.045] p-5 sm:p-6">

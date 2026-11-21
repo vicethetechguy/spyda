@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
-import { Clapperboard, Coins, Download, FileCode2, Loader2, RefreshCw, RotateCcw, Wrench } from 'lucide-react'
+import { Clapperboard, Coins, Download, FileCode2, Loader2, RefreshCw, RotateCcw, Wrench } from '../ui/icons'
 import { MOTION_FORMATS, motionDocument, playerConfig, type MotionPlayerMessage } from '../../lib/motion-harness'
 import type { ChatMotion } from '../../lib/chat'
 

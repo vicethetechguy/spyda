@@ -51,7 +51,7 @@ import {
   ChevronRight,
   Ticket,
   Layers
-} from 'lucide-react'
+} from '../components/ui/icons'
 import { Link } from 'react-router-dom'
 import {
   isAdminEmail,

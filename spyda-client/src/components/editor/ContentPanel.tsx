@@ -1,5 +1,5 @@
 import { useId } from 'react'
-import { AlertTriangle, ImageUp, Lock } from 'lucide-react'
+import { AlertTriangle, ImageUp, Lock } from '../ui/icons'
 import type { DesignObject } from '../../core/design-document'
 import type { DesignEditIntent } from '../../core/constraint-engine'
 import { BUNDLED_FAMILIES } from '../../lib/fonts'

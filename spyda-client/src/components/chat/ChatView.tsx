@@ -19,7 +19,7 @@ import {
   Square,
   WandSparkles,
   X,
-} from 'lucide-react'
+} from '../ui/icons'
 import BrandMark from '../brand/BrandMark'
 import ChatMarkdown from './ChatMarkdown'
 import MotionCard from './MotionCard'
@@ -130,7 +130,7 @@ function SpydaOrb({ busy = false }: { busy?: boolean }) {
         <div className="h-full w-full rounded-full bg-[radial-gradient(circle_at_32%_28%,rgba(255,255,255,0.28),transparent_34%),radial-gradient(circle_at_70%_78%,rgba(139,211,255,0.35),transparent_45%),radial-gradient(circle_at_50%_50%,#0e2a24,#050606_72%)]" />
       </div>
       <div className="absolute inset-0 flex items-center justify-center">
-        <BrandMark size={64} />
+        <BrandMark size={64} animated />
       </div>
     </div>
   )
@@ -145,6 +145,7 @@ function RewardsStrip({ standing, onOpenWallet, mode }: { standing: RewardStandi
       onClick={onOpenWallet}
       className="flex w-full items-center gap-2 px-4 pb-2 pt-2.5 text-left text-[11px] text-white/75 transition-colors hover:text-white"
     >
+      <BrandMark size={18} animated />
       <span className="min-w-0 flex-1 truncate">
         {mode === 'motion' ? `Motion by Claude Opus 5.5 · ${SPYDA_MOTION_CREDITS} credits a video · ` : ''}
         Every 1,000 credits you use earns 1 SPYDA
@@ -460,7 +461,8 @@ function EditCard({ edit, canAfford, onGenerate, onDecline, onOpenWallet, onOpen
   )
 }
 
-function MessageRow({ message, children }: { message: ChatMessage; children?: React.ReactNode }) {
+/** `live` runs the liquid-metal mark; only the newest reply gets it, so a long chat holds one WebGL context, not one per message. */
+function MessageRow({ message, live = false, children }: { message: ChatMessage; live?: boolean; children?: React.ReactNode }) {
   if (message.role === 'user') {
     return (
       <div className="flex justify-end">
@@ -483,7 +485,7 @@ function MessageRow({ message, children }: { message: ChatMessage; children?: Re
   return (
     <div className="flex gap-3">
       <div className="mt-0.5 flex h-8 w-8 shrink-0 items-center justify-center rounded-full border border-primary/25 bg-[#0b1412]">
-        <BrandMark size={20} />
+        <BrandMark size={22} animated={live} />
       </div>
       <div className="min-w-0 flex-1">
         {message.error ? (
@@ -500,7 +502,7 @@ function MessageRow({ message, children }: { message: ChatMessage; children?: Re
 function ThinkingRow() {
   return (
     <div className="flex items-center gap-3" role="status" aria-label="Spyda is thinking">
-      <div className="flex h-8 w-8 items-center justify-center rounded-full border border-primary/25 bg-[#0b1412]"><BrandMark size={20} /></div>
+      <div className="flex h-8 w-8 items-center justify-center rounded-full border border-primary/25 bg-[#0b1412]"><BrandMark size={22} animated /></div>
       <div className="flex gap-1.5">
         {[0, 1, 2].map(dot => (
           <span key={dot} className="h-2 w-2 rounded-full bg-primary/70 motion-safe:animate-bounce" style={{ animationDelay: `${dot * 140}ms` }} />
@@ -537,6 +539,7 @@ export default function ChatView({ modelProvider, headerSlot, seed, onOpenWallet
   const byok = Boolean(keys.openai)
   const cost = generationCreditCost(modelProvider, byok)
   const messages = conversation.messages
+  const lastReplyIndex = messages.map(message => message.role).lastIndexOf('assistant')
   const flyer = useMemo(() => latestFlyer(messages), [messages])
 
   const refreshStanding = useCallback(async () => {
@@ -980,7 +983,7 @@ export default function ChatView({ modelProvider, headerSlot, seed, onOpenWallet
           <div ref={scrollRef} className="relative min-h-0 flex-1 overflow-y-auto px-4 pt-6">
             <div className="mx-auto flex max-w-3xl flex-col gap-7 pb-6">
               {messages.map((message, index) => (
-                <MessageRow key={message.id} message={message}>
+                <MessageRow key={message.id} message={message} live={!thinking && index === lastReplyIndex}>
                   {message.error && index === messages.length - 1 ? (
                     <button type="button" onClick={retryLast} className="mt-2 inline-flex items-center gap-1.5 text-xs font-semibold text-primary"><RefreshCw className="h-3.5 w-3.5" /> Try again</button>
                   ) : null}

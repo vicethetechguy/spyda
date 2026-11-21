@@ -13,9 +13,10 @@ const LiquidMetal = lazy(async () => {
 const LOGO_SRC = '/assets/spyda-logo.png'
 
 /**
- * Below this edge the stripe pattern collapses into a flat dark mark: the
+ * Below this edge the full stripe pattern collapses into a flat dark mark: the
  * shader reads as chrome from ~72px up and as smudge under it. Small marks keep
- * the plain gradient logo, which also keeps their WebGL context count at zero.
+ * the plain gradient logo unless they opt in with `animated`, which switches to
+ * a coarser stripe tuned to stay legible at icon sizes.
  */
 const MIN_SHADER_SIZE = 72
 
@@ -27,6 +28,11 @@ type BrandMarkProps = {
   /** Accessible name. Omit for decorative marks (splash, footer). */
   label?: string
   className?: string
+  /**
+   * Run the liquid-metal shader below MIN_SHADER_SIZE too. Each animated mark
+   * holds a WebGL context, so keep this to a handful of marks per screen.
+   */
+  animated?: boolean
 }
 
 /**
@@ -34,7 +40,7 @@ type BrandMarkProps = {
  * when the tab is hidden or the mark leaves the viewport, so a mounted mark is
  * cheap; the cost worth deferring is the initial mask solve.
  */
-export default function BrandMark({ size, tint = '#9dfab0', label, className = '' }: BrandMarkProps) {
+export default function BrandMark({ size, tint = '#9dfab0', label, className = '', animated = false }: BrandMarkProps) {
   const hostRef = useRef<HTMLDivElement>(null)
   const reducedMotion = usePrefersReducedMotion()
   const [eligible, setEligible] = useState(false)
@@ -44,7 +50,8 @@ export default function BrandMark({ size, tint = '#9dfab0', label, className = '
   }, [])
 
   const seen = useSeen(hostRef, eligible)
-  const showShader = eligible && seen && (size === undefined || size >= MIN_SHADER_SIZE)
+  const small = size !== undefined && size < MIN_SHADER_SIZE
+  const showShader = eligible && seen && (!small || animated)
 
   return (
     <div
@@ -73,10 +80,11 @@ export default function BrandMark({ size, tint = '#9dfab0', label, className = '
             // a dark tile on top of the splash gradient.
             colorBack="#00000000"
             colorTint={tint}
-            repetition={2.4}
-            softness={0.16}
+            // Small marks get fewer, wider bands so the chrome still reads.
+            repetition={small ? 1.5 : 2.4}
+            softness={small ? 0.3 : 0.16}
             distortion={0.08}
-            contour={0.45}
+            contour={small ? 0.25 : 0.45}
             shiftRed={0.32}
             shiftBlue={0.36}
             angle={70}
@@ -84,7 +92,7 @@ export default function BrandMark({ size, tint = '#9dfab0', label, className = '
             // speed 0 stops the rAF loop entirely; frame pins the still pose.
             speed={reducedMotion ? 0 : 0.6}
             frame={1400}
-            minPixelRatio={2}
+            minPixelRatio={small ? 3 : 2}
             maxPixelCount={362000}
           />
         </Suspense>

@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react'
-import { Download, Share, Plus, X, SquarePlus } from 'lucide-react'
+import { Download, Share, Plus, X, SquarePlus } from './ui/icons'
 import {
   INSTALL_AVAILABLE_EVENT,
   INSTALL_COMPLETED_EVENT,

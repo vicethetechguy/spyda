@@ -26,7 +26,7 @@ import {
   Wallet,
   Wand2,
   Zap,
-} from 'lucide-react'
+} from '../ui/icons'
 
 /* ═══════════════════════════════════════════════
    Guide content model

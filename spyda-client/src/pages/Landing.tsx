@@ -37,7 +37,7 @@ import {
   WandSparkles,
   X,
   Zap,
-} from 'lucide-react'
+} from '../components/ui/icons'
 
 import {
   INSTALL_AVAILABLE_EVENT,
@@ -576,7 +576,7 @@ export default function Landing() {
 
             <header className="relative z-20 flex h-16 items-center justify-between px-4 sm:h-20 sm:px-7">
               <Link to="/" className="flex items-center gap-2.5" aria-label="Spyda home">
-                <BrandMark size={32} />
+                <BrandMark size={32} animated />
                 <span className="font-heading text-lg font-semibold text-white">Spyda</span>
               </Link>
               <nav className="hidden items-center gap-7 lg:flex" aria-label="Sections">
@@ -869,7 +869,7 @@ export default function Landing() {
               <h2 className="font-heading text-[2.2rem] font-semibold leading-[1.08] tracking-[-0.02em] sm:text-5xl">Pay for the design work you need.</h2>
               <p className="mt-5 text-base leading-7 text-muted-foreground">Fund your wallet, subscribe for a larger workload, or connect your own API key for a lower Spyda credit rate.</p>
             </div>
-            <div className="mx-auto mt-14 flex max-w-7xl snap-x snap-mandatory gap-4 overflow-x-auto px-[8vw] pb-3 md:grid md:grid-cols-2 md:overflow-visible md:px-0 md:pb-0 xl:grid-cols-4">
+            <div className="mx-auto mt-12 flex max-w-7xl snap-x snap-mandatory gap-4 overflow-x-auto px-[8vw] pb-3 pt-2 md:mt-14 md:grid md:pt-0 md:grid-cols-2 md:overflow-visible md:px-0 md:pb-0 xl:grid-cols-4">
               <PricingCard name="Wallet Funding" price="Any amount" detail="$1 = 100 Spyda credits" desc="Fund your wallet with the amount that matches the work in front of you." features={['Credits stay in your account', 'No recurring payment', '20 credits: Groq + GPT-Image 2', '30 credits: GPT-Image 2 only', '50 credits: motion by Claude Opus 5.5', 'Eligible spend accrues SPYDA']} texture="starter" />
               <PricingCard name="Creator" price="NGN 12,000" detail="30 days of access" desc="For creators handling regular campaigns, promotions, and client revisions." features={['1,200 credits per access period', 'Unlimited saved projects', 'Brand asset library', 'Eligible spend accrues SPYDA']} texture="creator" featured />
               <PricingCard name="Studio" price="NGN 30,000" detail="30 days of access" desc="For teams and high-volume creative work that needs more room to move." features={['3,500 credits per access period', 'Everything in Creator', 'Faster processing queue', 'Eligible spend accrues SPYDA']} texture="pro" />
