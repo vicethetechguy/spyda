@@ -842,7 +842,8 @@
 /* Canvas mode: a quiet dot grid behind the artboard, and the older inspector
    and layer list scaled to the editor's denser chrome. */
 .editor-stage {
-  background-color: #0d0e11;
+  /* Figma-grey workspace in Spyda's darks. */
+  background-color: #16171a;
   background-image: radial-gradient(rgba(255, 255, 255, 0.07) 1px, transparent 1px);
   background-size: 18px 18px;
 }

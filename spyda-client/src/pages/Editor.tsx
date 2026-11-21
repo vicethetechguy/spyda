@@ -1,8 +1,8 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { Link, useNavigate, useParams } from 'react-router-dom'
 import {
-  ArrowLeft, Check, Clock, Copy, Download, Eye, Image as ImageIcon, Layers, Loader2, Move, Palette, Plus, Redo2, Sparkles,
-  Trash2, Type, Undo2, Wand2, X, type LucideIcon,
+  ArrowLeft, Clock, Copy, Download, Eye, Image as ImageIcon, Layers, Loader2, Move, Palette, Plus, Redo2, Sparkles,
+  Trash2, Type, Undo2, Wand2, type LucideIcon,
 } from '../components/ui/icons'
 import type Konva from 'konva'
 import {
@@ -75,8 +75,8 @@ function streamKey(intent: DesignEditIntent) {
 type BootState = { project: StoredProject | null; history: IntentHistory | null }
 
 /** The editor's pages, like a video editor's: one job each, the canvas always in the middle. */
-type EditorPage = 'design' | 'text' | 'colour' | 'media' | 'ai' | 'deliver'
-const PAGE_ORDER: EditorPage[] = ['design', 'text', 'colour', 'media', 'ai', 'deliver']
+type EditorPage = 'design' | 'text' | 'colour' | 'media' | 'ai' | 'deliver' | 'history'
+const PAGE_ORDER: EditorPage[] = ['design', 'text', 'colour', 'media', 'ai', 'deliver', 'history']
 type Delivery = { format: 'png' | 'jpeg'; scale: number; name: string }
 type LayerFilter = 'all' | 'text' | 'pictures' | 'logos' | 'shapes'
 
@@ -512,6 +512,18 @@ export default function Editor() {
     setSelectedId(objectId)
   }
 
+  const editText = (objectId: string) => {
+    const object = design?.objects.find(item => item.id === objectId)
+    if (!object || !matchesFilter(object, 'text')) return
+    setSelectedId(objectId)
+    setPage('design')
+    window.setTimeout(() => {
+      const field = document.getElementById('spyda-layer-text') as HTMLTextAreaElement | null
+      field?.focus()
+      field?.select()
+    }, 60)
+  }
+
   if (!project) {
     return (
       <main className="mx-auto flex min-h-[70vh] max-w-lg flex-col items-center justify-center gap-4 px-6 text-center">
@@ -557,6 +569,7 @@ export default function Editor() {
     { id: 'media', label: 'Media', icon: ImageIcon },
     { id: 'ai', label: 'Spyda AI', icon: Sparkles },
     { id: 'deliver', label: 'Deliver', icon: Download },
+    { id: 'history', label: 'History', icon: Clock },
   ]
 
   const inspector = selectedObject ? (
@@ -600,42 +613,34 @@ export default function Editor() {
   ) : null
 
   const panels: Record<EditorPage, React.ReactNode> = {
-    design: (
-      <div className="flex min-h-0 flex-col gap-3">
+    design: selectedObject ? (
+      <div>
+        {sectionLabel('Properties')}
+        {inspector}
+      </div>
+    ) : (
+      <div className="space-y-3">
         <div>
-          <div className="mb-1.5 flex flex-wrap gap-1">
-            {FILTERS.map(item => (
-              <button
-                key={item.id}
-                type="button"
-                onClick={() => setFilter(item.id)}
-                aria-pressed={filter === item.id}
-                className={`h-6 rounded-md px-2 text-[10px] font-medium transition-colors ${filter === item.id ? 'bg-white text-[#0b1210]' : 'bg-white/[0.05] text-muted-foreground hover:text-foreground'}`}
-              >
-                {item.label}
-              </button>
-            ))}
-          </div>
-          <div className="editor-dense max-h-[38vh] overflow-y-auto lg:max-h-[34vh]">
-            <LayerList
-              objects={filtered}
-              selectedId={selectedId}
-              onSelect={selectLayer}
-              onReorder={handleReorder}
-              onToggleVisibility={handleToggleVisibility}
-              onDuplicate={handleDuplicate}
-              onRemove={objectId => applyIntent({ objectId, property: 'removed', value: true })}
-            />
+          {sectionLabel('Frame')}
+          <div className="grid grid-cols-2 gap-1.5">
+            <span className="flex h-7 items-center justify-between rounded-md bg-white/[0.04] px-2 text-[11px]"><span className="text-muted-foreground">W</span>{design?.canvas.width ?? '—'}</span>
+            <span className="flex h-7 items-center justify-between rounded-md bg-white/[0.04] px-2 text-[11px]"><span className="text-muted-foreground">H</span>{design?.canvas.height ?? '—'}</span>
           </div>
         </div>
+        <div>
+          {sectionLabel('Fill')}
+          {backgroundControl ?? <p className="text-[11px] text-muted-foreground">This flyer's background is part of the picture.</p>}
+        </div>
+        <div>
+          {sectionLabel('Insert')}
+          {quickAdd([['text', 'Text'], ['rect', 'Rectangle'], ['circle', 'Circle'], ['image', 'Image']])}
+        </div>
         <div className="border-t border-white/[0.06] pt-3">
-          {sectionLabel(selectedObject ? 'Properties' : 'Canvas')}
-          {inspector ?? (
-            <div className="space-y-2">
-              {backgroundControl}
-              {quickAdd([['text', 'Text'], ['rect', 'Rectangle'], ['circle', 'Circle'], ['image', 'Image']])}
-            </div>
-          )}
+          <div className="flex items-center justify-between">
+            {sectionLabel('Export')}
+            <button type="button" onClick={() => setPage('deliver')} aria-label="Export settings" className="-mt-1.5 flex h-6 w-6 items-center justify-center rounded text-muted-foreground hover:bg-white/[0.06] hover:text-foreground"><Plus className="h-3 w-3" /></button>
+          </div>
+          <p className="text-[10px] leading-4 text-muted-foreground">Select a layer to edit it. Double-click text to change its words.</p>
         </div>
       </div>
     ),
@@ -767,6 +772,36 @@ export default function Editor() {
     ai: (
       <AssistPanel entries={assistEntries} draft={assistDraft} setDraft={setAssistDraft} onSend={runAssist} busy={assistBusy} blank={blankCanvas} />
     ),
+    history: steps.length ? (
+      <ol className="space-y-0.5">
+        <li>
+          <button
+            type="button"
+            onClick={() => setHistory(current => (current ? jumpTo(current, 0) : current))}
+            className={`flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-left text-[11px] transition-colors hover:bg-white/[0.05] ${cursor === 0 ? 'text-primary' : 'text-muted-foreground'}`}
+          >
+            <Clock className="h-3 w-3" /> Original
+          </button>
+        </li>
+        {steps.map((step, index) => {
+          const Icon = stepIcon(step.intents)
+          const applied = index < cursor
+          return (
+            <li key={index}>
+              <button
+                type="button"
+                onClick={() => setHistory(current => (current ? jumpTo(current, index + 1) : current))}
+                className={`flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-left text-[11px] transition-colors hover:bg-white/[0.05] ${
+                  index === cursor - 1 ? 'bg-primary/15 text-primary' : applied ? 'text-foreground/90' : 'text-muted-foreground/50 line-through'
+                }`}
+              >
+                <Icon className="h-3 w-3 shrink-0" /> <span className="truncate">{step.label}</span>
+              </button>
+            </li>
+          )
+        })}
+      </ol>
+    ) : <p className="px-0.5 text-[11px] text-muted-foreground">Every edit lands here. Click one to go back to it.</p>,
     deliver: (
       <div className="space-y-3">
         <div>
@@ -827,24 +862,170 @@ export default function Editor() {
   const pageTitle = pages.find(item => item.id === page)?.label
 
   return (
-    <main className="flex min-h-[100dvh] flex-col bg-[#07080a] text-foreground lg:h-[100dvh] lg:overflow-hidden">
-      {/* Slim top bar: everything else belongs to the canvas */}
-      <header className="flex h-11 shrink-0 items-center gap-2 border-b border-white/[0.06] bg-[#0c0d0f] px-2 sm:px-3">
-        <button
-          type="button"
-          onClick={() => navigate('/workspace')}
-          aria-label="Close canvas mode and go back to Spyda AI"
-          title="Back to Spyda AI"
-          className="flex h-7 w-7 shrink-0 items-center justify-center rounded-full bg-white/[0.08] text-muted-foreground transition-colors hover:bg-white/[0.14] hover:text-foreground"
-        >
-          <X className="h-3.5 w-3.5" />
-        </button>
-        <div className="flex min-w-0 items-baseline gap-2">
-          <h1 className="truncate font-heading text-[13px] font-semibold">{project.name}</h1>
-          <span className="hidden shrink-0 text-[10px] text-muted-foreground sm:inline">{size}</span>
-          <span className="hidden shrink-0 text-[10px] text-muted-foreground md:inline">{saved ? '· Saved' : ''}</span>
+    <main className="figma-editor flex min-h-[100dvh] flex-col bg-[#0b0c0e] text-foreground lg:h-[100dvh] lg:flex-row lg:overflow-hidden">
+      {/* Left: file, pages, layers */}
+      <aside className="order-2 flex w-full shrink-0 flex-col border-t border-white/[0.06] bg-[#111214] lg:order-1 lg:h-full lg:w-[240px] lg:border-r lg:border-t-0">
+        <div className="flex h-11 shrink-0 items-center gap-2 border-b border-white/[0.06] px-2.5">
+          <button
+            type="button"
+            onClick={() => navigate('/workspace')}
+            aria-label="Close canvas mode and go back to Spyda AI"
+            title="Back to Spyda AI"
+            className="flex h-7 w-7 shrink-0 items-center justify-center rounded-md transition-colors hover:bg-white/[0.08]"
+          >
+            <img src="/assets/spyda-logo.png" alt="" className="h-5 w-5 object-contain" />
+          </button>
+          <div className="min-w-0">
+            <h1 className="truncate text-[12px] font-semibold">{project.name}</h1>
+            <p className="text-[10px] text-muted-foreground">{size}{saved ? ' · Saved' : ''}</p>
+          </div>
         </div>
-        <div className="ml-auto flex items-center gap-1">
+
+        <div className="shrink-0 border-b border-white/[0.06] px-2 py-2">
+          <p className="mb-1 px-1.5 text-[10px] font-semibold text-muted-foreground">Pages</p>
+          <div role="tablist" aria-label="Canvas pages" className="flex gap-0.5 overflow-x-auto [scrollbar-width:none] lg:flex-col [&::-webkit-scrollbar]:hidden">
+            {pages.map((item, index) => (
+              <button
+                key={item.id}
+                type="button"
+                role="tab"
+                aria-selected={page === item.id}
+                onClick={() => setPage(item.id)}
+                title={`${item.label} (Shift+${index + 1})`}
+                className={`flex h-7 shrink-0 items-center gap-2 whitespace-nowrap rounded-md px-2 text-[11px] transition-colors ${
+                  page === item.id ? 'bg-white/[0.08] font-semibold text-foreground' : 'text-muted-foreground hover:bg-white/[0.04] hover:text-foreground'
+                }`}
+              >
+                <item.icon className={`h-3.5 w-3.5 ${page === item.id ? 'text-primary' : ''}`} />
+                {item.label}
+              </button>
+            ))}
+          </div>
+        </div>
+
+        <div className="flex min-h-0 flex-1 flex-col px-2 py-2">
+          <div className="mb-1 flex items-center justify-between px-1.5">
+            <p className="text-[10px] font-semibold text-muted-foreground">Layers</p>
+            {missingAssets.length ? <span className="text-[10px] text-amber-300">{missingAssets.length} loading</span> : null}
+          </div>
+          <div className="mb-1.5 flex flex-wrap gap-1 px-0.5">
+            {FILTERS.map(item => (
+              <button
+                key={item.id}
+                type="button"
+                onClick={() => setFilter(item.id)}
+                aria-pressed={filter === item.id}
+                className={`h-5 rounded px-1.5 text-[9px] font-medium transition-colors ${filter === item.id ? 'bg-white/[0.12] text-foreground' : 'text-muted-foreground hover:text-foreground'}`}
+              >
+                {item.label}
+              </button>
+            ))}
+          </div>
+          <div className="editor-dense max-h-[40vh] min-h-0 flex-1 overflow-y-auto lg:max-h-none">
+            <LayerList
+              objects={filtered}
+              selectedId={selectedId}
+              onSelect={selectLayer}
+              onReorder={handleReorder}
+              onToggleVisibility={handleToggleVisibility}
+              onDuplicate={handleDuplicate}
+              onRemove={objectId => applyIntent({ objectId, property: 'removed', value: true })}
+            />
+          </div>
+        </div>
+      </aside>
+
+      {/* Centre: the canvas, with the tools floating at the bottom like Figma */}
+      <section className="editor-stage relative order-1 min-h-[70vh] flex-1 overflow-hidden lg:order-2 lg:min-h-0">
+        <div className="absolute left-2 top-2 z-10 flex min-w-0 items-center gap-2 lg:left-3 lg:top-2.5">
+          {/* On phones the file header sits below the canvas, so the way back is up here. */}
+          <button
+            type="button"
+            onClick={() => navigate('/workspace')}
+            aria-label="Back to Spyda AI"
+            className="flex h-7 w-7 shrink-0 items-center justify-center rounded-md bg-black/40 text-muted-foreground lg:hidden"
+          >
+            <ArrowLeft className="h-3.5 w-3.5" />
+          </button>
+          <p className="pointer-events-none truncate text-[10px] text-muted-foreground">
+            <span className="text-foreground/80">{project.name}</span> · {size}
+          </p>
+        </div>
+        {notice ? (
+          <div
+            role="status"
+            className={[
+              'absolute inset-x-3 top-8 z-20 mx-auto flex max-w-xl items-center gap-2 rounded-lg border px-3 py-1.5 text-[11px] shadow-lg',
+              notice.tone === 'error'
+                ? 'border-destructive/30 bg-[#2a1214] text-red-200'
+                : notice.tone === 'warn'
+                  ? 'border-amber-400/25 bg-[#2a2210] text-amber-200'
+                  : 'border-white/[0.08] bg-[#17181b] text-muted-foreground',
+            ].join(' ')}
+          >
+            <Sparkles className="h-3 w-3 shrink-0" aria-hidden />
+            <span className="flex-1 truncate">{notice.text}</span>
+            <button type="button" onClick={() => setNotice(null)} className="shrink-0 underline">Dismiss</button>
+          </div>
+        ) : null}
+        {missingFonts.size ? (
+          <p className="absolute right-3 top-2.5 z-10 max-w-[50%] truncate text-[10px] text-amber-200">
+            {[...missingFonts].join(', ')} not loaded · showing Montserrat
+          </p>
+        ) : null}
+        <input
+          ref={imageInputRef}
+          type="file"
+          accept="image/png,image/jpeg,image/webp"
+          className="hidden"
+          onChange={event => {
+            const file = event.target.files?.[0]
+            if (file) handleImageFile(file)
+            event.target.value = ''
+          }}
+        />
+        {design ? (
+          <LayerCanvas
+            document={design}
+            images={images}
+            fallbackImage={flatFlyer}
+            selectedId={selectedId}
+            onSelect={selectLayer}
+            onEditText={editText}
+            onGeometryChange={(objectId, bounds, rotation) => applyStep([
+              { objectId, property: 'bounds', value: bounds, explicitGeometryChange: true },
+              { objectId, property: 'rotation', value: rotation, explicitGeometryChange: true },
+            ], 'Move layer', `move:${objectId}`)}
+            missingFonts={missingFonts}
+            stageRef={stageRef}
+            className="absolute inset-x-4 bottom-16 top-8 flex items-center justify-center"
+          />
+        ) : project.referencePreview ? (
+          <div className="absolute inset-0 flex flex-col items-center justify-center gap-3 p-6 text-center">
+            <img src={project.referencePreview} alt="Reference flyer" className="max-h-[60vh] w-auto rounded-lg border border-white/10" />
+            <p className="max-w-xs text-[11px] leading-relaxed text-muted-foreground">
+              This flyer is still a flat picture. Open it from Spyda AI again so its parts become layers.
+            </p>
+          </div>
+        ) : null}
+        {extracting ? (
+          <p className="absolute bottom-16 left-3 rounded-full bg-black/75 px-2.5 py-1 text-[10px] text-white backdrop-blur" role="status">
+            {extracting.total ? `Cutting out layer ${extracting.done} of ${extracting.total}…` : 'Reading the flyer once to build its mask…'}
+          </p>
+        ) : null}
+        <div className="absolute inset-x-0 bottom-3 z-10 flex justify-center px-2">
+          <CanvasToolbar
+            onSelectTool={() => setSelectedId(null)}
+            onAdd={kind => addLayer(kind)}
+            onAssist={() => setPage('ai')}
+            assistActive={page === 'ai'}
+          />
+        </div>
+      </section>
+
+      {/* Right: actions, then the current page's panel */}
+      <aside className="order-3 flex min-h-[340px] w-full shrink-0 flex-col border-t border-white/[0.06] bg-[#111214] lg:h-full lg:min-h-0 lg:w-[264px] lg:border-l lg:border-t-0">
+        <div className="flex h-11 shrink-0 items-center gap-1 border-b border-white/[0.06] px-2.5">
           <button
             type="button"
             onClick={() => setHistory(current => (current ? undo(current) : current))}
@@ -869,157 +1050,20 @@ export default function Editor() {
             type="button"
             onClick={() => handleExport(delivery)}
             disabled={exporting || !design}
-            className="ml-1 inline-flex h-7 items-center gap-1.5 rounded-md bg-white px-2.5 text-[11px] font-semibold text-[#0b1210] transition-transform active:scale-[0.98] disabled:opacity-50"
+            className="ml-auto inline-flex h-7 items-center gap-1.5 rounded-md bg-primary px-3 text-[11px] font-semibold text-primary-foreground transition-transform active:scale-[0.98] disabled:opacity-50"
           >
             {exporting ? <Loader2 className="h-3 w-3 animate-spin" aria-hidden /> : <Download className="h-3 w-3" aria-hidden />}
             Export
           </button>
         </div>
-      </header>
-
-      {notice ? (
-        <div
-          role="status"
-          className={[
-            'flex shrink-0 items-center gap-2 border-b px-3 py-1.5 text-[11px]',
-            notice.tone === 'error'
-              ? 'border-destructive/30 bg-destructive/10 text-red-200'
-              : notice.tone === 'warn'
-                ? 'border-amber-400/25 bg-amber-400/[0.07] text-amber-200'
-                : 'border-white/[0.06] bg-white/[0.02] text-muted-foreground',
-          ].join(' ')}
-        >
-          <Sparkles className="h-3 w-3 shrink-0" aria-hidden />
-          <span className="flex-1 truncate">{notice.text}</span>
-          <button type="button" onClick={() => setNotice(null)} className="shrink-0 underline">Dismiss</button>
+        <div className="flex h-9 shrink-0 items-center gap-3 border-b border-white/[0.06] px-3">
+          <h2 className="text-[11px] font-semibold">{pageTitle}</h2>
+          {page === 'design' && selectedObject ? <span className="truncate text-[10px] text-muted-foreground">{selectedObject.name}</span> : null}
         </div>
-      ) : null}
-      {missingFonts.size ? (
-        <p className="shrink-0 border-b border-amber-400/20 bg-amber-400/[0.05] px-3 py-1 text-[10px] text-amber-200">
-          {[...missingFonts].join(', ')} {missingFonts.size > 1 ? 'are' : 'is'} not loaded on this device, so {missingFonts.size > 1 ? 'those layers render' : 'that layer renders'} in Montserrat.
-        </p>
-      ) : null}
-
-      <div className="flex min-h-0 flex-1 flex-col lg:flex-row">
-        {/* The canvas gets every pixel the panels do not need */}
-        <section className="editor-stage relative min-h-[64vh] flex-1 overflow-hidden lg:min-h-0">
-          {page !== 'deliver' ? (
-            <div className="absolute inset-x-0 top-2.5 z-10 flex justify-center px-2">
-              <CanvasToolbar
-                onSelectTool={() => setSelectedId(null)}
-                onAdd={kind => addLayer(kind)}
-                onAssist={() => setPage('ai')}
-                assistActive={page === 'ai'}
-              />
-            </div>
-          ) : null}
-          <input
-            ref={imageInputRef}
-            type="file"
-            accept="image/png,image/jpeg,image/webp"
-            className="hidden"
-            onChange={event => {
-              const file = event.target.files?.[0]
-              if (file) handleImageFile(file)
-              event.target.value = ''
-            }}
-          />
-          {design ? (
-            <LayerCanvas
-              document={design}
-              images={images}
-              fallbackImage={flatFlyer}
-              selectedId={selectedId}
-              onSelect={selectLayer}
-              onGeometryChange={(objectId, bounds, rotation) => applyStep([
-                { objectId, property: 'bounds', value: bounds, explicitGeometryChange: true },
-                { objectId, property: 'rotation', value: rotation, explicitGeometryChange: true },
-              ], 'Move layer', `move:${objectId}`)}
-              missingFonts={missingFonts}
-              stageRef={stageRef}
-              className={`absolute inset-x-3 bottom-3 flex items-center justify-center ${page === 'deliver' ? 'top-3' : 'top-14'}`}
-            />
-          ) : project.referencePreview ? (
-            <div className="absolute inset-0 flex flex-col items-center justify-center gap-3 p-6 text-center">
-              <img src={project.referencePreview} alt="Reference flyer" className="max-h-[60vh] w-auto rounded-lg border border-white/10" />
-              <p className="max-w-xs text-[11px] leading-relaxed text-muted-foreground">
-                This flyer is still a flat picture. Open it from Spyda AI again so its parts become layers.
-              </p>
-            </div>
-          ) : null}
-          {extracting ? (
-            <p className="absolute bottom-3 left-3 rounded-full bg-black/75 px-2.5 py-1 text-[10px] text-white backdrop-blur" role="status">
-              {extracting.total ? `Cutting out layer ${extracting.done} of ${extracting.total}…` : 'Reading the flyer once to build its mask…'}
-            </p>
-          ) : null}
-        </section>
-
-        <aside className="flex min-h-[340px] w-full shrink-0 flex-col border-t border-white/[0.06] bg-[#0c0d0f] lg:min-h-0 lg:w-[280px] lg:border-l lg:border-t-0">
-          <div className="flex h-9 shrink-0 items-center justify-between border-b border-white/[0.06] px-3">
-            <h2 className="text-[10px] font-semibold uppercase tracking-[0.16em] text-muted-foreground">{pageTitle}</h2>
-            {page === 'design' && missingAssets.length ? <span className="text-[10px] text-amber-300">{missingAssets.length} loading</span> : null}
-            {page === 'design' && !missingAssets.length ? <Check className="h-3 w-3 text-primary/70" aria-hidden /> : null}
-          </div>
-          <div className={`min-h-0 flex-1 p-2.5 ${page === 'ai' ? 'flex flex-col' : 'overflow-y-auto'}`}>
-            {panels[page]}
-          </div>
-        </aside>
-      </div>
-
-      {/* Resolve-style footer: the edit timeline, then the pages */}
-      <footer className="sticky bottom-0 z-20 shrink-0 border-t border-white/[0.06] bg-[#0a0b0d]">
-        <nav aria-label="Edit timeline" className="flex h-9 items-center gap-1 overflow-x-auto border-b border-white/[0.04] px-2 [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
-          <button
-            type="button"
-            onClick={() => setHistory(current => (current ? jumpTo(current, 0) : current))}
-            title="Back to the original"
-            aria-label="Back to the original"
-            className="flex h-6 shrink-0 items-center gap-1 rounded-md bg-white/[0.06] px-2 text-[10px] font-semibold text-muted-foreground hover:text-foreground"
-          >
-            <Clock className="h-3 w-3" /> Original
-          </button>
-          <span className="h-px w-3 shrink-0 bg-white/10" />
-          {steps.length ? steps.map((step, index) => {
-            const Icon = stepIcon(step.intents)
-            const current = index === cursor - 1
-            const applied = index < cursor
-            return (
-              <button
-                key={index}
-                type="button"
-                onClick={() => setHistory(value => (value ? jumpTo(value, index + 1) : value))}
-                title={step.label}
-                aria-label={`Go to: ${step.label}`}
-                aria-current={current ? 'step' : undefined}
-                className={`flex h-6 w-6 shrink-0 items-center justify-center rounded-md transition-colors ${
-                  current ? 'bg-primary text-primary-foreground' : applied ? 'bg-white/[0.07] text-foreground/80 hover:bg-white/[0.12]' : 'text-muted-foreground/40 hover:text-muted-foreground'
-                }`}
-              >
-                <Icon className="h-3 w-3" />
-              </button>
-            )
-          }) : <span className="text-[10px] text-muted-foreground/60">Edits line up here as you work.</span>}
-        </nav>
-        <div role="tablist" aria-label="Canvas pages" className="flex h-11 items-stretch justify-center overflow-x-auto px-1 [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
-          {pages.map((item, index) => (
-            <button
-              key={item.id}
-              type="button"
-              role="tab"
-              aria-selected={page === item.id}
-              onClick={() => setPage(item.id)}
-              title={`${item.label} (Shift+${index + 1})`}
-              className={`relative flex min-w-[58px] shrink-0 flex-col items-center justify-center gap-0.5 whitespace-nowrap px-2 text-[10px] font-medium transition-colors sm:min-w-[84px] sm:px-2.5 ${
-                page === item.id ? 'text-primary' : 'text-muted-foreground hover:text-foreground'
-              }`}
-            >
-              <item.icon className="h-4 w-4" />
-              {item.label}
-              {page === item.id ? <span className="absolute inset-x-3 top-0 h-0.5 rounded-full bg-primary" /> : null}
-            </button>
-          ))}
+        <div className={`min-h-0 flex-1 p-2.5 ${page === 'ai' ? 'flex flex-col' : 'overflow-y-auto'}`}>
+          {panels[page]}
         </div>
-      </footer>
+      </aside>
     </main>
   )
 }

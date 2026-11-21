@@ -128,6 +128,7 @@ export default function ContentPanel({ object, onIntent, onReplaceImage, busy = 
         <>
           <Field label="Text">
             <textarea
+              id="spyda-layer-text"
               value={object.content.text ?? ''}
               onChange={event => onIntent({ objectId: object.id, property: 'text', value: event.target.value })}
               rows={3}

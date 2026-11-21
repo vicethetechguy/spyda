@@ -37,6 +37,8 @@ export type LayerCanvasProps = {
   className?: string
   /** Filled with the Konva stage, for exporting the design as an image. */
   stageRef?: React.MutableRefObject<Konva.Stage | null>
+  /** Double-click on a layer: the editor focuses its text, like Figma. */
+  onEditText?: (objectId: string) => void
 }
 
 function parseAspectRatio(value: string) {
@@ -134,6 +136,7 @@ export default function LayerCanvas({
   missingFonts,
   className,
   stageRef,
+  onEditText,
 }: LayerCanvasProps) {
   const containerRef = useRef<HTMLDivElement | null>(null)
   const transformerRef = useRef<Konva.Transformer | null>(null)
@@ -303,6 +306,8 @@ export default function LayerCanvas({
                 }}
                 onMouseDown={() => onSelect(object.id)}
                 onTouchStart={() => onSelect(object.id)}
+                onDblClick={() => onEditText?.(object.id)}
+                onDblTap={() => onEditText?.(object.id)}
                 onDragEnd={() => {
                   const node = nodeRefs.current.get(object.id)
                   if (node) commitGeometry(object, node)
@@ -329,7 +334,6 @@ export default function LayerCanvas({
                     fill={object.style.fill || '#ffffff'}
                     lineHeight={object.style.lineHeight || 1.2}
                     letterSpacing={object.style.letterSpacing ?? 0}
-                    listening={false}
                   />
                   )
                 })() : source ? (
@@ -338,7 +342,6 @@ export default function LayerCanvas({
                     width={widthPx}
                     height={heightPx}
                     crop={crop}
-                    listening={false}
                   />
                 ) : holdsPixels ? (
                   // Found by the analyser, not cut out yet: keep the region
@@ -361,7 +364,6 @@ export default function LayerCanvas({
                     stroke={object.style.stroke || undefined}
                     strokeWidth={object.style.stroke ? 1 : 0}
                     cornerRadius={object.style.borderRadius ?? 0}
-                    listening={false}
                   />
                 )}
               </Group>
