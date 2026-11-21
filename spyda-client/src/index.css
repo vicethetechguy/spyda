@@ -644,3 +644,176 @@
 @media (prefers-reduced-motion: reduce) {
   .motion-preview-photo, .motion-preview-chip, .motion-preview-progress, .motion-preview-sweep { animation: none; }
 }
+
+/* Spyda coin.
+   A real-coin token in CSS 3D: stacked edge slices give it thickness, the rim
+   is a metallic conic gradient with a reeded edge, the field is enamel with an
+   embossed mark. One slow spin, a float, a light sweep; reduced motion rests. */
+.spyda-coin-scene { perspective: 1100px; }
+.spyda-coin-float { animation: spyda-coin-float 6s ease-in-out infinite; transform-style: preserve-3d; }
+.spyda-coin {
+  position: relative;
+  width: clamp(168px, 46vw, 244px);
+  aspect-ratio: 1;
+  transform-style: preserve-3d;
+  animation: spyda-coin-spin 11s cubic-bezier(0.45, 0, 0.55, 1) infinite;
+}
+.spyda-coin__edge {
+  position: absolute;
+  inset: 0;
+  border-radius: 9999px;
+}
+.spyda-coin__edge {
+  background: linear-gradient(90deg, #0f3b28 0%, #4fbf83 22%, #c9fbd9 50%, #4fbf83 78%, #0f3b28 100%);
+}
+/* Each face carries its own transform and hides its back, so the far face never
+   paints through. Nothing inside a face may composite on its own (no blend
+   modes), or it would ignore the hidden backface. */
+.spyda-coin__face {
+  position: absolute;
+  inset: 0;
+  border-radius: 9999px;
+  overflow: hidden;
+  backface-visibility: hidden;
+  -webkit-backface-visibility: hidden;
+}
+.spyda-coin__rim {
+  position: absolute;
+  inset: 0;
+  border-radius: inherit;
+  background: conic-gradient(from 200deg, #effff4, #8de9ad, #1d6a46, #a9f6c6, #f7fffa, #3c9c69, #c7fbd8, #1d6a46, #effff4);
+  box-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.35), inset 0 -6px 14px rgba(0, 40, 22, 0.45);
+}
+.spyda-coin__reeding {
+  position: absolute;
+  inset: 0;
+  border-radius: inherit;
+  background: repeating-conic-gradient(rgba(0, 30, 18, 0.32) 0deg 1.2deg, rgba(255, 255, 255, 0.12) 1.2deg 2.4deg, transparent 2.4deg 4deg);
+  -webkit-mask: radial-gradient(circle, transparent 0 86%, #000 87%);
+  mask: radial-gradient(circle, transparent 0 86%, #000 87%);
+}
+.spyda-coin__field {
+  position: absolute;
+  inset: 9%;
+  border-radius: 9999px;
+  background: radial-gradient(circle at 34% 28%, #2a6e52 0%, #12392a 42%, #071a12 100%);
+  box-shadow:
+    inset 0 3px 6px rgba(0, 0, 0, 0.55),
+    inset 0 -2px 3px rgba(190, 255, 214, 0.25),
+    0 0 0 2px rgba(10, 40, 26, 0.9),
+    0 0 0 3px rgba(220, 255, 232, 0.35);
+}
+.spyda-coin__beads {
+  position: absolute;
+  inset: 5%;
+  border-radius: 9999px;
+  border: 2px dotted rgba(205, 255, 222, 0.38);
+}
+.spyda-coin__lettering {
+  fill: rgba(214, 255, 228, 0.78);
+  font-family: 'Space Grotesk', Montserrat, sans-serif;
+  font-size: 11.5px;
+  font-weight: 600;
+  letter-spacing: 2.6px;
+}
+.spyda-coin__mark {
+  position: absolute;
+  left: 50%;
+  top: 46%;
+  width: 46%;
+  height: 46%;
+  object-fit: contain;
+  transform: translate(-50%, -50%);
+  filter: drop-shadow(0 2px 0 rgba(0, 0, 0, 0.55)) drop-shadow(0 -1px 0 rgba(255, 255, 255, 0.35)) saturate(1.1);
+}
+.spyda-coin__ticker {
+  position: absolute;
+  left: 0;
+  right: 0;
+  bottom: 20%;
+  text-align: center;
+  font-family: 'Space Grotesk', Montserrat, sans-serif;
+  font-size: clamp(10px, 1.1vw, 13px);
+  font-weight: 700;
+  letter-spacing: 0.32em;
+  color: #dfffea;
+  text-shadow: 0 1px 0 rgba(0, 0, 0, 0.6);
+}
+.spyda-coin__value {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  font-family: 'Space Grotesk', Montserrat, sans-serif;
+  color: #dfffea;
+  text-shadow: 0 2px 0 rgba(0, 0, 0, 0.55);
+}
+.spyda-coin__value-number { font-size: clamp(44px, 5vw, 64px); font-weight: 700; line-height: 1; }
+.spyda-coin__value-unit { margin-top: 2px; font-size: clamp(11px, 1.2vw, 14px); font-weight: 700; letter-spacing: 0.3em; }
+.spyda-coin__value-rate { margin-top: 6px; font-size: 9px; letter-spacing: 0.12em; color: rgba(214, 255, 228, 0.7); text-transform: uppercase; }
+.spyda-coin__shine {
+  position: absolute;
+  inset: 0;
+  border-radius: inherit;
+  background: linear-gradient(115deg, transparent 30%, rgba(255, 255, 255, 0.5) 48%, rgba(255, 255, 255, 0.08) 56%, transparent 70%);
+  background-size: 260% 260%;
+  animation: spyda-coin-shine 5.5s ease-in-out infinite;
+}
+.spyda-coin-shadow {
+  position: absolute;
+  left: 50%;
+  bottom: 17%;
+  width: 34%;
+  height: 5%;
+  margin-left: -17%;
+  border-radius: 9999px;
+  background: radial-gradient(closest-side, rgba(0, 0, 0, 0.65), transparent);
+  animation: spyda-coin-shadow 11s cubic-bezier(0.45, 0, 0.55, 1) infinite;
+}
+.spyda-coin-glow {
+  background: radial-gradient(closest-side, rgba(157, 250, 176, 0.22), transparent 72%);
+  animation: spyda-coin-glow 5.5s ease-in-out infinite;
+}
+.spyda-orbit { border-radius: 9999px; }
+.spyda-orbit--outer { animation: spin 16s linear infinite; }
+.spyda-orbit--inner { animation: spin 10s linear infinite reverse; }
+.spyda-orbit__dot {
+  position: absolute;
+  left: 50%;
+  top: -3px;
+  width: 6px;
+  height: 6px;
+  margin-left: -3px;
+  border-radius: 9999px;
+}
+.spyda-chip { animation: spyda-chip-float 5s ease-in-out infinite; }
+.spyda-chip--late { animation-delay: -2.5s; }
+.spyda-chip--slow { animation-duration: 7s; }
+
+/* Turns once, lingering on each face, with a slight tilt so the edge shows. */
+@keyframes spyda-coin-spin {
+  0% { transform: rotateX(10deg) rotateY(-24deg); }
+  40% { transform: rotateX(10deg) rotateY(24deg); }
+  50% { transform: rotateX(10deg) rotateY(180deg); }
+  90% { transform: rotateX(10deg) rotateY(204deg); }
+  100% { transform: rotateX(10deg) rotateY(336deg); }
+}
+@keyframes spyda-coin-shadow {
+  0%, 40% { transform: scaleX(1); opacity: 0.9; }
+  45% { transform: scaleX(0.35); opacity: 0.6; }
+  50%, 90% { transform: scaleX(1); opacity: 0.9; }
+  95% { transform: scaleX(0.35); opacity: 0.6; }
+  100% { transform: scaleX(1); opacity: 0.9; }
+}
+@keyframes spyda-coin-float { 0%, 100% { transform: translateY(-6px); } 50% { transform: translateY(8px); } }
+@keyframes spyda-coin-shine { 0%, 20% { background-position: 120% 120%; } 60%, 100% { background-position: -40% -40%; } }
+@keyframes spyda-coin-glow { 0%, 100% { opacity: 0.6; transform: scale(0.96); } 50% { opacity: 1; transform: scale(1.04); } }
+@keyframes spyda-chip-float { 0%, 100% { transform: translateY(0); } 50% { transform: translateY(-7px); } }
+
+@media (prefers-reduced-motion: reduce) {
+  .spyda-coin, .spyda-coin-float, .spyda-coin__shine, .spyda-coin-shadow, .spyda-coin-glow,
+  .spyda-orbit--outer, .spyda-orbit--inner, .spyda-chip { animation: none; }
+  .spyda-coin { transform: rotateX(10deg) rotateY(-20deg); }
+}

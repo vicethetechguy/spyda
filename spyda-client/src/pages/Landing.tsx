@@ -47,28 +47,7 @@ import {
 } from '../lib/pwa-install'
 import BrandMark from '../components/brand/BrandMark'
 import HeroField from '../components/HeroField'
-
-function SpydaCoinVisual() {
-  return (
-    <div className="relative mx-auto aspect-square w-full max-w-[430px]" aria-label="Spyda Token community reward coin">
-      <div className="absolute inset-[3%] rounded-full border border-dashed border-primary/25 motion-safe:animate-[spin_18s_linear_infinite]" />
-      <div className="absolute inset-[12%] rounded-full border border-[#88a8ff]/20 motion-safe:animate-[spin_13s_linear_infinite_reverse]" />
-      <div className="absolute inset-[21%] rounded-full border border-white/[0.08]" />
-
-      <div className="absolute left-1/2 top-1/2 h-[54%] w-[54%] -translate-x-[46%] -translate-y-[44%] rounded-full border border-black/70 bg-[#16221e] shadow-[0_30px_70px_rgba(0,0,0,.55)]" />
-      <div className="absolute left-1/2 top-1/2 flex h-[54%] w-[54%] -translate-x-1/2 -translate-y-1/2 flex-col items-center justify-center rounded-full border border-primary/50 bg-[linear-gradient(145deg,#18201e_0%,#0c0f10_46%,#203f36_100%)] shadow-[inset_0_1px_0_rgba(255,255,255,.15),inset_0_-12px_28px_rgba(0,0,0,.5),0_0_55px_rgba(157,250,176,.12)] motion-safe:animate-[pulse_4s_ease-in-out_infinite]">
-        <div className="absolute inset-3 rounded-full border border-white/[0.08]" />
-        <img src="/assets/spyda-credit.png" alt="Spyda Token" className="relative h-[48%] w-[48%] object-contain" />
-        <span className="relative mt-1 font-heading text-[10px] font-semibold tracking-[0.22em] text-white/75 sm:text-xs">SPYDA</span>
-      </div>
-
-      <div className="absolute left-0 top-[20%] rounded-md border border-white/[0.09] bg-black/70 px-3 py-2 backdrop-blur-md"><p className="text-[9px] font-semibold uppercase text-muted-foreground">Earn rate</p><p className="mt-1 text-xs font-semibold text-primary">1,000 : 1</p></div>
-      <div className="absolute bottom-[16%] right-0 rounded-md border border-white/[0.09] bg-black/70 px-3 py-2 text-right backdrop-blur-md"><p className="text-[9px] font-semibold uppercase text-muted-foreground">Launch mission</p><p className="mt-1 text-xs font-semibold text-[#a9bcff]">1B user-earned</p></div>
-      <div className="absolute right-[8%] top-[8%] flex h-8 w-8 items-center justify-center rounded-full border border-primary/30 bg-[#0b0e0d] text-primary shadow-[0_0_24px_rgba(157,250,176,.15)]"><Network className="h-3.5 w-3.5" /></div>
-      <div className="absolute bottom-[8%] left-[12%] flex h-8 w-8 items-center justify-center rounded-full border border-[#ff8f5c]/30 bg-[#0b0e0d] text-[#ffab84]"><Gift className="h-3.5 w-3.5" /></div>
-    </div>
-  )
-}
+import SpydaCoin from '../components/SpydaCoin'
 
 /* ── Hero mockup: a faithful miniature of the real Spyda workspace ── */
 
@@ -838,7 +817,7 @@ export default function Landing() {
 
                   <div className="mt-8 grid gap-3 sm:grid-cols-[1fr_auto_1fr] sm:items-stretch">
                     <div className="rounded-[20px] border border-white/[0.08] bg-surface p-5"><p className="text-[10px] font-semibold uppercase text-muted-foreground">Eligible usage</p><p className="mt-2 font-heading text-2xl font-semibold">1,000 credits</p><p className="mt-1 text-xs text-muted-foreground">consumed inside Spyda</p></div>
-                    <div className="flex items-center justify-center"><span className="flex h-10 w-10 items-center justify-center rounded-full bg-primary text-primary-foreground"><ArrowRight className="h-4 w-4 rotate-90 sm:rotate-0" /></span></div>
+                    <div className="flex items-center justify-center"><span className="relative flex h-10 w-10 items-center justify-center rounded-full bg-primary text-primary-foreground"><span aria-hidden="true" className="absolute inset-0 rounded-full bg-primary/40 motion-safe:animate-ping" /><ArrowRight className="relative h-4 w-4 rotate-90 sm:rotate-0" /></span></div>
                     <div className="rounded-[20px] border border-primary/30 bg-surface-raised p-5"><p className="text-[10px] font-semibold uppercase text-muted-foreground">Community reward</p><div className="mt-2 flex items-center gap-2"><img src="/assets/spyda-credit.png" alt="" className="h-7 w-7 object-contain" /><p className="font-heading text-2xl font-semibold">1 SPYDA</p></div><p className="mt-1 text-xs text-primary">pre-launch allocation</p></div>
                   </div>
 
@@ -860,7 +839,7 @@ export default function Landing() {
                   <p className="mt-5 max-w-2xl text-[11px] leading-5 text-muted-foreground">Pre-launch SPYDA is a non-transferable reward record, not cash, a refund, a stablecoin, or guaranteed market value. Launch requires the community threshold plus security, utility, network, and legal readiness.</p>
                 </div>
 
-                <SpydaCoinVisual />
+                <SpydaCoin />
               </div>
 
               <div className="mt-16 grid gap-4 md:grid-cols-3">
