@@ -74,7 +74,10 @@ function streamKey(intent: DesignEditIntent) {
 
 type BootState = { project: StoredProject | null; history: IntentHistory | null }
 
-type PanelTab = 'layers' | 'content' | 'assist' | 'history'
+/** The editor's pages, like a video editor's: one job each, the canvas always in the middle. */
+type EditorPage = 'design' | 'text' | 'colour' | 'media' | 'ai' | 'deliver'
+const PAGE_ORDER: EditorPage[] = ['design', 'text', 'colour', 'media', 'ai', 'deliver']
+type Delivery = { format: 'png' | 'jpeg'; scale: number; name: string }
 type LayerFilter = 'all' | 'text' | 'pictures' | 'logos' | 'shapes'
 
 const FILTERS: { id: LayerFilter; label: string }[] = [
@@ -163,7 +166,12 @@ export default function Editor() {
   const [fontReport, setFontReport] = useState<FontReport | null>(null)
   const [saved, setSaved] = useState(false)
   const [flatFlyer, setFlatFlyer] = useState<HTMLImageElement | null>(null)
-  const [tab, setTab] = useState<PanelTab>('layers')
+  const [page, setPage] = useState<EditorPage>('design')
+  const [delivery, setDelivery] = useState<Delivery>({ format: 'png', scale: 1, name: '' })
+  // Deliver shows the design as it will export: no selection handles.
+  useEffect(() => {
+    if (page === 'deliver') setSelectedId(null)
+  }, [page])
   const [filter, setFilter] = useState<LayerFilter>('all')
   const [assistEntries, setAssistEntries] = useState<AssistEntry[]>([])
   const [assistDraft, setAssistDraft] = useState('')
@@ -355,7 +363,6 @@ export default function Editor() {
     const layer = makeLayer(design, kind, { ...options, fill: textFill })
     applyStep([{ objectId: layer.id, property: 'create', value: layer }], `Add ${layer.name.toLowerCase()}`)
     setSelectedId(layer.id)
-    setTab('content')
   }, [applyStep, design])
 
   const handleImageFile = useCallback(async (file: File) => {
@@ -383,7 +390,7 @@ export default function Editor() {
     }
   }, [addLayer, design])
 
-  const handleExport = useCallback(async () => {
+  const handleExport = useCallback(async (options: Delivery = { format: 'png', scale: 1, name: '' }) => {
     const stage = stageRef.current
     if (!stage || !design) return
     setExporting(true)
@@ -391,11 +398,24 @@ export default function Editor() {
     // Let the selection handles disappear before the frame is captured.
     await new Promise(resolve => window.setTimeout(resolve, 80))
     try {
-      const pixelRatio = Math.max(1, (design.canvas.width || stage.width()) / stage.width())
-      const url = stage.toDataURL({ mimeType: 'image/png', pixelRatio })
+      // Render a little over size, then draw into a canvas of exactly the
+      // design's pixels: the on-screen stage is rounded, so its ratio is not.
+      const width = Math.round((design.canvas.width || stage.width()) * options.scale)
+      const height = Math.round((design.canvas.height || stage.height()) * options.scale)
+      const rendered = stage.toCanvas({ pixelRatio: Math.max(1, width / stage.width()) })
+      const output = document.createElement('canvas')
+      output.width = width
+      output.height = height
+      const context = output.getContext('2d')
+      if (!context) throw new Error('No canvas context')
+      context.imageSmoothingQuality = 'high'
+      context.drawImage(rendered, 0, 0, width, height)
+      const mimeType = options.format === 'jpeg' ? 'image/jpeg' : 'image/png'
+      const url = output.toDataURL(mimeType, 0.92)
       const link = document.createElement('a')
       link.href = url
-      link.download = `${(project?.name || 'spyda-design').replace(/[^a-z0-9]+/gi, '-').toLowerCase()}.png`
+      const base = (options.name.trim() || project?.name || 'spyda-design').replace(/[^a-z0-9]+/gi, '-').replace(/^-|-$/g, '').toLowerCase() || 'spyda-design'
+      link.download = `${base}.${options.format === 'jpeg' ? 'jpg' : 'png'}`
       link.click()
     } catch {
       setNotice({ tone: 'error', text: 'This design could not be exported. Remove any picture that failed to load and try again.' })
@@ -450,6 +470,12 @@ export default function Editor() {
         return
       }
       if (event.metaKey || event.ctrlKey || event.altKey) return
+      const pageIndex = event.shiftKey ? Number(event.code.replace('Digit', '')) - 1 : -1
+      if (pageIndex >= 0 && pageIndex < PAGE_ORDER.length) {
+        event.preventDefault()
+        setPage(PAGE_ORDER[pageIndex])
+        return
+      }
       if (event.key === 'Escape') setSelectedId(null)
       if ((event.key === 'Delete' || event.key === 'Backspace') && selectedId) {
         event.preventDefault()
@@ -484,7 +510,6 @@ export default function Editor() {
 
   const selectLayer = (objectId: string | null) => {
     setSelectedId(objectId)
-    if (objectId) setTab('content')
   }
 
   if (!project) {
@@ -510,12 +535,6 @@ export default function Editor() {
   const live = objects.filter(object => !object.status.removed)
   const cutoutTargets = objects.filter(object => CUTOUT_KINDS.includes(object.kind))
   const extracted = objects.some(object => object.content.assetRef)
-  const stats = [
-    { label: 'Layers', value: live.length },
-    { label: 'Text', value: live.filter(object => matchesFilter(object, 'text')).length },
-    { label: 'Pictures', value: live.filter(object => object.kind !== 'background' && (matchesFilter(object, 'pictures') || matchesFilter(object, 'logos'))).length },
-    { label: 'Hidden', value: live.filter(object => !object.status.visible).length },
-  ]
   const size = design?.canvas.width && design.canvas.height
     ? `${design.canvas.width} × ${design.canvas.height}`
     : design?.canvas.aspectRatio || ''
@@ -523,344 +542,484 @@ export default function Editor() {
   const cursor = history?.cursor ?? 0
   const filtered = objects.filter(object => matchesFilter(object, filter))
   const background = live.find(object => object.kind === 'background')
+  const textLayers = live.filter(object => matchesFilter(object, 'text')).sort((left, right) => right.zIndex - left.zIndex)
+  const imageLayers = live.filter(object => object.kind !== 'background' && (matchesFilter(object, 'pictures') || matchesFilter(object, 'logos')))
+  const designColours = [...new Set(live.flatMap(object => [object.style.fill, object.style.stroke])
+    .filter((value): value is string => typeof value === 'string' && /^#[0-9a-f]{3,8}$/i.test(value))
+    .map(value => value.toUpperCase()))].slice(0, 18)
+  const selectedFillable = selectedObject && !selectedObject.protection.locked && selectedObject.protection.editableProperties.includes('fill')
+  const blankCanvas = live.every(object => object.kind === 'background')
 
-  const tabs: { id: PanelTab; label: string; icon: LucideIcon }[] = [
-    { id: 'layers', label: 'Layers', icon: Layers },
-    { id: 'content', label: 'Content', icon: Type },
-    { id: 'assist', label: 'Spyda AI', icon: Sparkles },
-    { id: 'history', label: 'History', icon: Clock },
+  const pages: { id: EditorPage; label: string; icon: LucideIcon }[] = [
+    { id: 'design', label: 'Design', icon: Layers },
+    { id: 'text', label: 'Text', icon: Type },
+    { id: 'colour', label: 'Colour', icon: Palette },
+    { id: 'media', label: 'Media', icon: ImageIcon },
+    { id: 'ai', label: 'Spyda AI', icon: Sparkles },
+    { id: 'deliver', label: 'Deliver', icon: Download },
   ]
 
-  return (
-    <main className="min-h-screen bg-background p-2 sm:p-4 lg:h-[100dvh] lg:overflow-hidden">
-      {/* On desktop the frame is exactly one screen, so the layer list scrolls inside its card and the canvas keeps its size. */}
-      <div className="mx-auto flex min-h-[calc(100dvh-1rem)] max-w-[1500px] flex-col rounded-[30px] border border-white/[0.08] bg-[#15161a] p-1.5 sm:min-h-[calc(100dvh-2rem)] sm:rounded-[38px] sm:p-2 lg:h-full lg:min-h-0">
-        {/* Header: close, the title tab that runs into the panel, panel pills */}
-        <header className="flex flex-wrap items-end gap-2 px-1 pt-1 sm:gap-3">
-          <button
-            type="button"
-            onClick={() => navigate('/workspace')}
-            aria-label="Close canvas mode and go back to Spyda AI"
-            title="Back to Spyda AI"
-            className="mb-2 flex h-11 w-11 shrink-0 items-center justify-center rounded-full bg-white text-[#0b1210] transition-transform hover:-translate-y-0.5 active:scale-95"
-          >
-            <X className="h-4 w-4" />
-          </button>
-          <div className="min-w-0 rounded-t-[24px] bg-[#0c0d0f] px-5 pb-3 pt-3 sm:px-7">
-            <p className="text-[10px] font-semibold uppercase tracking-[0.16em] text-primary">Canvas mode</p>
-            <h1 className="max-w-[46vw] truncate font-heading text-xl font-semibold sm:text-[1.7rem]">{project.name}</h1>
-          </div>
+  const inspector = selectedObject ? (
+    <div className="editor-dense">
+      <ContentPanel object={selectedObject} onIntent={applyIntent} onReplaceImage={handleReplaceImage} busy={Boolean(extracting)} />
+    </div>
+  ) : null
 
-          <div className="mb-2 ml-auto flex flex-wrap items-center gap-1.5">
-            {tabs.map(item => (
+  const sectionLabel = (text: string) => (
+    <p className="mb-1.5 px-0.5 text-[9px] font-semibold uppercase tracking-[0.16em] text-muted-foreground/80">{text}</p>
+  )
+
+  const quickAdd = (kinds: ReadonlyArray<readonly [NewLayerKind, string]>) => (
+    <div className="grid grid-cols-2 gap-1.5">
+      {kinds.map(([kind, label]) => (
+        <button
+          key={kind}
+          type="button"
+          onClick={() => addLayer(kind)}
+          className="inline-flex h-7 items-center justify-center gap-1 rounded-md bg-white/[0.05] text-[11px] font-medium transition-colors hover:bg-white/[0.09]"
+        >
+          <Plus className="h-3 w-3" /> {label}
+        </button>
+      ))}
+    </div>
+  )
+
+  const backgroundControl = background && !background.protection.locked && background.protection.editableProperties.includes('fill') ? (
+    <label className="flex items-center justify-between gap-2 rounded-md bg-white/[0.03] px-2 py-1.5">
+      <span className="text-[11px] text-muted-foreground">Background</span>
+      <span className="flex items-center gap-1.5">
+        <span className="font-mono text-[10px] text-muted-foreground">{background.style.fill || '#FFFFFF'}</span>
+        <input
+          type="color"
+          value={/^#[0-9a-f]{6}$/i.test(background.style.fill || '') ? background.style.fill! : '#ffffff'}
+          onChange={event => applyIntent({ objectId: background.id, property: 'fill', value: event.target.value })}
+          className="h-6 w-8 cursor-pointer rounded border border-white/10 bg-transparent"
+        />
+      </span>
+    </label>
+  ) : null
+
+  const panels: Record<EditorPage, React.ReactNode> = {
+    design: (
+      <div className="flex min-h-0 flex-col gap-3">
+        <div>
+          <div className="mb-1.5 flex flex-wrap gap-1">
+            {FILTERS.map(item => (
               <button
                 key={item.id}
                 type="button"
-                onClick={() => setTab(item.id)}
-                aria-pressed={tab === item.id}
-                aria-label={item.label}
-                className={`inline-flex h-10 items-center gap-2 rounded-full px-4 text-xs font-semibold transition-all ${
-                  tab === item.id
-                    ? 'bg-primary text-primary-foreground shadow-[0_8px_22px_rgba(157,250,176,0.2)]'
-                    : 'border border-white/[0.08] bg-white/[0.04] text-muted-foreground hover:text-foreground'
-                }`}
+                onClick={() => setFilter(item.id)}
+                aria-pressed={filter === item.id}
+                className={`h-6 rounded-md px-2 text-[10px] font-medium transition-colors ${filter === item.id ? 'bg-white text-[#0b1210]' : 'bg-white/[0.05] text-muted-foreground hover:text-foreground'}`}
               >
-                <item.icon className="h-3.5 w-3.5" aria-hidden /> <span className="hidden sm:inline">{item.label}</span>
+                {item.label}
               </button>
             ))}
-            <span className="mx-1 hidden h-6 w-px bg-white/10 sm:block" />
-            <button
-              type="button"
-              onClick={() => setHistory(current => (current ? undo(current) : current))}
-              disabled={!history || !canUndo(history)}
-              title={(history && nextUndoLabel(history)) || 'Nothing to undo'}
-              aria-label="Undo"
-              className="flex h-10 w-10 items-center justify-center rounded-full border border-white/[0.08] bg-white/[0.04] text-muted-foreground transition-colors hover:text-foreground disabled:opacity-30"
-            >
-              <Undo2 className="h-4 w-4" aria-hidden />
-            </button>
-            <button
-              type="button"
-              onClick={() => setHistory(current => (current ? redo(current) : current))}
-              disabled={!history || !canRedo(history)}
-              title={(history && nextRedoLabel(history)) || 'Nothing to redo'}
-              aria-label="Redo"
-              className="flex h-10 w-10 items-center justify-center rounded-full border border-white/[0.08] bg-white/[0.04] text-muted-foreground transition-colors hover:text-foreground disabled:opacity-30"
-            >
-              <Redo2 className="h-4 w-4" aria-hidden />
-            </button>
-            {project.referencePreview ? (
-              <button
-                type="button"
-                onClick={handleExtract}
-                disabled={Boolean(extracting) || !design}
-                className="inline-flex h-10 items-center gap-2 rounded-full border border-white/[0.12] bg-white/[0.04] px-4 text-xs font-semibold transition-all hover:-translate-y-0.5 active:translate-y-0 active:scale-[0.98] disabled:opacity-50"
-              >
-                {extracting ? <Loader2 className="h-3.5 w-3.5 animate-spin" aria-hidden /> : <Wand2 className="h-3.5 w-3.5" aria-hidden />}
-                <span className="hidden sm:inline">{extracting ? 'Cutting out…' : extracted ? 'Refresh cut-outs' : 'Make it editable'}</span>
-              </button>
-            ) : null}
-            <button
-              type="button"
-              onClick={handleExport}
-              disabled={exporting || !design}
-              className="inline-flex h-10 items-center gap-2 rounded-full bg-white px-4 text-xs font-semibold text-[#0b1210] transition-all hover:-translate-y-0.5 active:translate-y-0 active:scale-[0.98] disabled:opacity-50"
-            >
-              {exporting ? <Loader2 className="h-3.5 w-3.5 animate-spin" aria-hidden /> : <Download className="h-3.5 w-3.5" aria-hidden />}
-              Export PNG
-            </button>
           </div>
-        </header>
-
-        <div className="flex min-h-0 flex-1 flex-col gap-3 rounded-[24px] bg-[#0c0d0f] p-3 sm:rounded-[30px] sm:p-4">
-          {/* Summary: the flyer card, its numbers, the layer filters */}
-          <div className="flex flex-col gap-3 lg:flex-row lg:items-stretch">
-            <div className="flex items-center gap-3 rounded-[22px] bg-surface-raised p-2.5 pr-5 lg:w-[300px]">
-              {project.referencePreview ? (
-                <img src={project.referencePreview} alt="" className="h-16 w-14 shrink-0 rounded-[14px] border border-white/10 object-cover" />
-              ) : null}
-              <div className="min-w-0">
-                <p className="text-[10px] text-muted-foreground">{size}</p>
-                <p className="truncate text-sm font-semibold">{project.name}</p>
-                <p className="mt-0.5 text-[10px] text-muted-foreground">{saved ? 'Saved on this device' : 'No changes yet'}</p>
-              </div>
-            </div>
-            <div className="flex min-w-0 flex-1 flex-col justify-between gap-3">
-              <div className="flex flex-wrap items-end gap-x-8 gap-y-2 px-1">
-                {stats.map(stat => (
-                  <div key={stat.label}>
-                    <p className="text-[10px] text-muted-foreground">{stat.label}</p>
-                    <p className="font-heading text-2xl font-semibold leading-tight">{stat.value}</p>
-                  </div>
-                ))}
-              </div>
-              <div className="flex flex-wrap gap-1.5">
-                {FILTERS.map(item => (
-                  <button
-                    key={item.id}
-                    type="button"
-                    onClick={() => { setFilter(item.id); setTab('layers') }}
-                    aria-pressed={filter === item.id}
-                    className={`h-8 rounded-full px-3.5 text-[11px] font-medium transition-colors ${
-                      filter === item.id ? 'bg-white text-[#0b1210]' : 'bg-white/[0.05] text-muted-foreground hover:text-foreground'
-                    }`}
-                  >
-                    {item.label}
-                  </button>
-                ))}
-              </div>
-            </div>
+          <div className="editor-dense max-h-[38vh] overflow-y-auto lg:max-h-[34vh]">
+            <LayerList
+              objects={filtered}
+              selectedId={selectedId}
+              onSelect={selectLayer}
+              onReorder={handleReorder}
+              onToggleVisibility={handleToggleVisibility}
+              onDuplicate={handleDuplicate}
+              onRemove={objectId => applyIntent({ objectId, property: 'removed', value: true })}
+            />
           </div>
-
-          {notice ? (
-            <div
-              role="status"
-              className={[
-                'flex items-start gap-2 rounded-2xl border px-3 py-2 text-[11px] leading-relaxed',
-                notice.tone === 'error'
-                  ? 'border-destructive/30 bg-destructive/10 text-red-200'
-                  : notice.tone === 'warn'
-                    ? 'border-amber-400/25 bg-amber-400/[0.07] text-amber-200'
-                    : 'border-white/10 bg-white/[0.03] text-muted-foreground',
-              ].join(' ')}
-            >
-              <Sparkles className="mt-0.5 h-3 w-3 shrink-0" aria-hidden />
-              <span className="flex-1">{notice.text}</span>
-              <button type="button" onClick={() => setNotice(null)} className="shrink-0 underline">Dismiss</button>
+        </div>
+        <div className="border-t border-white/[0.06] pt-3">
+          {sectionLabel(selectedObject ? 'Properties' : 'Canvas')}
+          {inspector ?? (
+            <div className="space-y-2">
+              {backgroundControl}
+              {quickAdd([['text', 'Text'], ['rect', 'Rectangle'], ['circle', 'Circle'], ['image', 'Image']])}
             </div>
-          ) : null}
-
-          {missingFonts.size ? (
-            <p className="rounded-2xl border border-amber-400/20 bg-amber-400/[0.05] px-3 py-2 text-[11px] text-amber-200">
-              {[...missingFonts].join(', ')} {missingFonts.size > 1 ? 'are' : 'is'} not loaded on this device, so
-              {missingFonts.size > 1 ? ' those layers render' : ' that layer renders'} in Montserrat.
-            </p>
-          ) : null}
-
-          <div className="flex min-h-0 flex-1 flex-col gap-3 lg:flex-row">
-            <section className="relative min-h-[56vh] flex-1 overflow-hidden rounded-[24px] border border-white/[0.06] bg-[#08090a] lg:min-h-0">
-              <div className="absolute inset-x-0 top-4 z-10 flex justify-center px-3">
-                <CanvasToolbar
-                  onSelectTool={() => setSelectedId(null)}
-                  onAdd={kind => addLayer(kind)}
-                  onAssist={() => setTab('assist')}
-                  assistActive={tab === 'assist'}
-                />
-              </div>
-              <input
-                ref={imageInputRef}
-                type="file"
-                accept="image/png,image/jpeg,image/webp"
-                className="hidden"
-                onChange={event => {
-                  const file = event.target.files?.[0]
-                  if (file) handleImageFile(file)
-                  event.target.value = ''
-                }}
-              />
-              {design ? (
-                <LayerCanvas
-                  document={design}
-                  images={images}
-                  fallbackImage={flatFlyer}
-                  selectedId={selectedId}
-                  onSelect={selectLayer}
-                  onGeometryChange={(objectId, bounds, rotation) => applyStep([
-                    { objectId, property: 'bounds', value: bounds, explicitGeometryChange: true },
-                    { objectId, property: 'rotation', value: rotation, explicitGeometryChange: true },
-                  ], 'Move layer', `move:${objectId}`)}
-                  missingFonts={missingFonts}
-                  stageRef={stageRef}
-                  className="absolute inset-x-6 bottom-6 top-20 flex items-center justify-center sm:inset-x-10 sm:bottom-10"
-                />
-              ) : project.referencePreview ? (
-                <div className="absolute inset-0 flex flex-col items-center justify-center gap-3 p-6 text-center">
-                  <img src={project.referencePreview} alt="Reference flyer" className="max-h-[52vh] w-auto rounded-2xl border border-white/10" />
-                  <p className="max-w-xs text-xs leading-relaxed text-muted-foreground">
-                    This flyer is still a flat picture. Open it from Spyda AI again so its parts become layers.
-                  </p>
-                </div>
-              ) : null}
-              {extracting ? (
-                <p className="absolute bottom-4 left-4 rounded-full bg-black/75 px-3 py-1.5 text-[11px] text-white backdrop-blur" role="status">
-                  {extracting.total ? `Cutting out layer ${extracting.done} of ${extracting.total}…` : 'Reading the flyer once to build its mask…'}
-                </p>
-              ) : design && project.referencePreview && !cutoutTargets.length ? (
-                <p className="absolute bottom-4 left-4 rounded-full bg-black/60 px-3 py-1.5 text-[11px] text-muted-foreground">No pictures to cut out on this flyer.</p>
-              ) : null}
-            </section>
-
-            <aside className="flex min-h-[320px] w-full shrink-0 flex-col rounded-[24px] bg-surface-raised p-3 lg:w-[340px]">
-              <div className="flex items-center justify-between px-1.5 pb-3 pt-1">
-                <h2 className="font-heading text-lg font-semibold">{tabs.find(item => item.id === tab)?.label}</h2>
-                {tab === 'layers' ? (
-                  missingAssets.length
-                    ? <span className="text-[10px] text-amber-300">{missingAssets.length} loading</span>
-                    : <span className="flex h-8 w-8 items-center justify-center rounded-full bg-white/[0.06]"><Check className="h-3.5 w-3.5 text-primary" aria-hidden /></span>
-                ) : null}
-              </div>
-              <div className="min-h-0 flex-1 overflow-y-auto">
-                {tab === 'layers' ? (
-                  <LayerList
-                    objects={filtered}
-                    selectedId={selectedId}
-                    onSelect={selectLayer}
-                    onReorder={handleReorder}
-                    onToggleVisibility={handleToggleVisibility}
-                    onDuplicate={handleDuplicate}
-                    onRemove={objectId => applyIntent({ objectId, property: 'removed', value: true })}
-                  />
-                ) : tab === 'assist' ? (
-                  <AssistPanel
-                    entries={assistEntries}
-                    draft={assistDraft}
-                    setDraft={setAssistDraft}
-                    onSend={runAssist}
-                    busy={assistBusy}
-                    blank={live.every(object => object.kind === 'background')}
-                  />
-                ) : tab === 'content' ? (
-                  selectedObject ? (
-                    <ContentPanel
-                      object={selectedObject}
-                      onIntent={applyIntent}
-                      onReplaceImage={handleReplaceImage}
-                      busy={Boolean(extracting)}
-                    />
-                  ) : (
-                    <div className="space-y-4 px-1.5">
-                      <p className="text-xs leading-5 text-muted-foreground">Select a layer to edit it, or add one with the toolbar.</p>
-                      {background && !background.protection.locked && background.protection.editableProperties.includes('fill') ? (
-                        <label className="block">
-                          <span className="text-[10px] font-semibold uppercase tracking-[0.14em] text-muted-foreground">Background</span>
-                          <span className="mt-2 flex items-center gap-2">
-                            <input
-                              type="color"
-                              value={/^#[0-9a-f]{6}$/i.test(background.style.fill || '') ? background.style.fill! : '#ffffff'}
-                              onChange={event => applyIntent({ objectId: background.id, property: 'fill', value: event.target.value })}
-                              className="h-9 w-12 cursor-pointer rounded-lg border border-white/10 bg-transparent"
-                            />
-                            <span className="font-mono text-xs text-muted-foreground">{background.style.fill || '#ffffff'}</span>
-                          </span>
-                        </label>
-                      ) : null}
-                      <div className="grid grid-cols-2 gap-2">
-                        {([['text', 'Text'], ['rect', 'Rectangle'], ['circle', 'Circle'], ['image', 'Image']] as const).map(([kind, label]) => (
-                          <button
-                            key={kind}
-                            type="button"
-                            onClick={() => addLayer(kind)}
-                            className="inline-flex h-10 items-center justify-center gap-1.5 rounded-xl bg-white/[0.05] text-xs font-semibold transition-colors hover:bg-white/[0.09]"
-                          >
-                            <Plus className="h-3.5 w-3.5" /> {label}
-                          </button>
-                        ))}
-                      </div>
-                    </div>
-                  )
-                ) : steps.length ? (
-                  <ol className="space-y-1.5">
-                    {steps.map((step, index) => {
-                      const Icon = stepIcon(step.intents)
-                      const applied = index < cursor
-                      return (
-                        <li key={index}>
-                          <button
-                            type="button"
-                            onClick={() => setHistory(current => (current ? jumpTo(current, index + 1) : current))}
-                            className={`flex w-full items-center gap-3 rounded-2xl px-2.5 py-2 text-left text-[13px] transition-colors hover:bg-white/[0.05] ${applied ? 'text-foreground' : 'text-muted-foreground/60 line-through'}`}
-                          >
-                            <span className={`flex h-8 w-8 shrink-0 items-center justify-center rounded-full ${index === cursor - 1 ? 'bg-primary text-primary-foreground' : 'bg-white/[0.06]'}`}><Icon className="h-3.5 w-3.5" /></span>
-                            {step.label}
-                          </button>
-                        </li>
-                      )
-                    })}
-                  </ol>
-                ) : (
-                  <p className="px-2 py-6 text-xs leading-relaxed text-muted-foreground">Every change you make shows up here and on the timeline below. Click one to go back to it.</p>
-                )}
-              </div>
-            </aside>
-          </div>
-
-          {/* Timeline: every edit is a stop, the current one is lit */}
-          <nav aria-label="Edit timeline" className="flex items-center gap-2 overflow-x-auto rounded-full bg-white p-1.5 text-[#0b1210] [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
-            <button
-              type="button"
-              onClick={() => setHistory(current => (current ? jumpTo(current, 0) : current))}
-              title="Back to the original"
-              aria-label="Back to the original"
-              className="flex h-10 shrink-0 items-center gap-2 rounded-full bg-[#0b1210] px-3.5 text-[11px] font-semibold text-white"
-            >
-              <Clock className="h-3.5 w-3.5" /> Original
-            </button>
-            {steps.length ? steps.map((step, index) => {
-              const Icon = stepIcon(step.intents)
-              const current = index === cursor - 1
-              const applied = index < cursor
-              return (
-                <button
-                  key={index}
-                  type="button"
-                  onClick={() => setHistory(value => (value ? jumpTo(value, index + 1) : value))}
-                  title={step.label}
-                  aria-label={`Go to: ${step.label}`}
-                  aria-current={current ? 'step' : undefined}
-                  className={`relative flex h-9 w-9 shrink-0 items-center justify-center rounded-full transition-all ${
-                    current ? 'bg-primary text-primary-foreground ring-4 ring-primary/30' : applied ? 'bg-[#0b1210]/[0.08]' : 'bg-transparent text-[#0b1210]/35'
-                  }`}
-                >
-                  <Icon className="h-3.5 w-3.5" />
-                  {step.intents.length > 1 ? (
-                    <span className="absolute -right-1 -top-1 flex h-4 min-w-4 items-center justify-center rounded-full bg-primary px-1 text-[9px] font-bold text-primary-foreground">{step.intents.length}</span>
-                  ) : null}
-                </button>
-              )
-            }) : <span className="px-2 text-[11px] text-[#0b1210]/55">Your edits line up here as you work.</span>}
-          </nav>
+          )}
         </div>
       </div>
+    ),
+    text: (
+      <div className="space-y-3">
+        <div>
+          {sectionLabel(`Text layers · ${textLayers.length}`)}
+          <div className="space-y-1">
+            {textLayers.map(object => (
+              <button
+                key={object.id}
+                type="button"
+                onClick={() => selectLayer(object.id)}
+                className={`block w-full rounded-md px-2 py-1.5 text-left transition-colors ${object.id === selectedId ? 'bg-primary/15' : 'bg-white/[0.03] hover:bg-white/[0.06]'}`}
+              >
+                <span className="block truncate text-[12px] font-medium">{object.content.text || object.name}</span>
+                <span className="block truncate text-[10px] text-muted-foreground">{object.style.fontFamily || 'Default'} · {object.style.fontSize ? `${object.style.fontSize}px` : 'auto'}</span>
+              </button>
+            ))}
+            {!textLayers.length ? <p className="px-0.5 text-[11px] text-muted-foreground">No text yet.</p> : null}
+          </div>
+          <div className="mt-2">{quickAdd([['text', 'Add text']])}</div>
+        </div>
+        <div className="border-t border-white/[0.06] pt-3">
+          {sectionLabel('Typography')}
+          {selectedObject && matchesFilter(selectedObject, 'text') ? inspector : <p className="px-0.5 text-[11px] text-muted-foreground">Select a text layer to set its font, size, weight and alignment.</p>}
+        </div>
+      </div>
+    ),
+    colour: (
+      <div className="space-y-3">
+        {backgroundControl}
+        <div>
+          {sectionLabel('Colours in this design')}
+          <div className="flex flex-wrap gap-1.5">
+            {designColours.map(colour => (
+              <button
+                key={colour}
+                type="button"
+                title={selectedFillable ? `Apply ${colour} to ${selectedObject!.name}` : colour}
+                onClick={() => { if (selectedFillable) applyIntent({ objectId: selectedObject!.id, property: 'fill', value: colour }) }}
+                className="group flex flex-col items-center gap-0.5"
+              >
+                <span className="h-7 w-7 rounded-md border border-white/15 transition-transform group-hover:scale-110" style={{ backgroundColor: colour }} />
+                <span className="font-mono text-[8px] text-muted-foreground">{colour}</span>
+              </button>
+            ))}
+            {!designColours.length ? <p className="text-[11px] text-muted-foreground">No colours yet.</p> : null}
+          </div>
+          <p className="mt-1.5 text-[10px] leading-4 text-muted-foreground">
+            {selectedFillable ? `Click a swatch to apply it to ${selectedObject!.name}.` : 'Select a layer, then click a swatch to apply it.'}
+          </p>
+        </div>
+        {selectedFillable ? (
+          <label className="flex items-center justify-between gap-2 rounded-md bg-white/[0.03] px-2 py-1.5">
+            <span className="truncate text-[11px] text-muted-foreground">{selectedObject!.name} fill</span>
+            <input
+              type="color"
+              value={/^#[0-9a-f]{6}$/i.test(selectedObject!.style.fill || '') ? selectedObject!.style.fill! : '#ffffff'}
+              onChange={event => applyIntent({ objectId: selectedObject!.id, property: 'fill', value: event.target.value })}
+              className="h-6 w-8 cursor-pointer rounded border border-white/10 bg-transparent"
+            />
+          </label>
+        ) : null}
+        <div>
+          {sectionLabel('Ask Spyda AI')}
+          <div className="space-y-1">
+            {['Give it a bold, modern colour palette', 'Make it feel warm and inviting', 'Raise the contrast so the text is easy to read'].map(idea => (
+              <button
+                key={idea}
+                type="button"
+                onClick={() => { setPage('ai'); runAssist(idea) }}
+                disabled={assistBusy}
+                className="block w-full rounded-md bg-white/[0.04] px-2 py-1.5 text-left text-[11px] text-muted-foreground transition-colors hover:bg-white/[0.08] hover:text-foreground disabled:opacity-50"
+              >
+                {idea}
+              </button>
+            ))}
+          </div>
+        </div>
+      </div>
+    ),
+    media: (
+      <div className="space-y-3">
+        {quickAdd([['image', 'Add image']])}
+        <div>
+          {sectionLabel(`Pictures · ${imageLayers.length}`)}
+          <div className="grid grid-cols-3 gap-1.5">
+            {imageLayers.map(object => {
+              const source = object.content.assetRef ? images[object.content.assetRef]?.src : undefined
+              return (
+                <button
+                  key={object.id}
+                  type="button"
+                  onClick={() => selectLayer(object.id)}
+                  title={object.name}
+                  className={`aspect-square overflow-hidden rounded-md border transition-colors ${object.id === selectedId ? 'border-primary' : 'border-white/10 hover:border-white/30'}`}
+                >
+                  {source
+                    ? <img src={source} alt={object.name} className="h-full w-full object-contain" />
+                    : <span className="flex h-full items-center justify-center px-1 text-[9px] text-muted-foreground">{object.name}</span>}
+                </button>
+              )
+            })}
+          </div>
+          {!imageLayers.length ? <p className="px-0.5 text-[11px] text-muted-foreground">No pictures yet.</p> : null}
+        </div>
+        {project.referencePreview ? (
+          <div className="rounded-md bg-white/[0.03] p-2">
+            {sectionLabel('Cut-outs')}
+            <p className="text-[10px] leading-4 text-muted-foreground">Separate this flyer's pictures from their background so each one moves on its own.</p>
+            <button
+              type="button"
+              onClick={handleExtract}
+              disabled={Boolean(extracting) || !design}
+              className="mt-2 inline-flex h-7 items-center gap-1.5 rounded-md bg-primary px-2.5 text-[11px] font-semibold text-primary-foreground disabled:opacity-50"
+            >
+              {extracting ? <Loader2 className="h-3 w-3 animate-spin" /> : <Wand2 className="h-3 w-3" />}
+              {extracting ? 'Cutting out…' : extracted ? 'Refresh cut-outs' : 'Make it editable'}
+            </button>
+            {!cutoutTargets.length ? <p className="mt-1.5 text-[10px] text-muted-foreground">No pictures to cut out on this flyer.</p> : null}
+          </div>
+        ) : null}
+        {selectedObject && imageLayers.some(object => object.id === selectedObject.id) ? (
+          <div className="border-t border-white/[0.06] pt-3">{sectionLabel('Selected picture')}{inspector}</div>
+        ) : null}
+      </div>
+    ),
+    ai: (
+      <AssistPanel entries={assistEntries} draft={assistDraft} setDraft={setAssistDraft} onSend={runAssist} busy={assistBusy} blank={blankCanvas} />
+    ),
+    deliver: (
+      <div className="space-y-3">
+        <div>
+          {sectionLabel('Format')}
+          <div className="grid grid-cols-2 gap-1.5">
+            {(['png', 'jpeg'] as const).map(format => (
+              <button
+                key={format}
+                type="button"
+                onClick={() => setDelivery(current => ({ ...current, format }))}
+                aria-pressed={delivery.format === format}
+                className={`h-8 rounded-md text-[11px] font-semibold ${delivery.format === format ? 'bg-white text-[#0b1210]' : 'bg-white/[0.05] text-muted-foreground hover:text-foreground'}`}
+              >
+                {format === 'png' ? 'PNG · sharpest' : 'JPEG · smaller'}
+              </button>
+            ))}
+          </div>
+        </div>
+        <div>
+          {sectionLabel('Size')}
+          <div className="grid grid-cols-2 gap-1.5">
+            {[1, 2].map(scale => (
+              <button
+                key={scale}
+                type="button"
+                onClick={() => setDelivery(current => ({ ...current, scale }))}
+                aria-pressed={delivery.scale === scale}
+                className={`h-8 rounded-md text-[11px] font-semibold ${delivery.scale === scale ? 'bg-white text-[#0b1210]' : 'bg-white/[0.05] text-muted-foreground hover:text-foreground'}`}
+              >
+                {scale}× · {(design?.canvas.width || 0) * scale} × {(design?.canvas.height || 0) * scale}
+              </button>
+            ))}
+          </div>
+        </div>
+        <label className="block">
+          {sectionLabel('File name')}
+          <input
+            value={delivery.name}
+            onChange={event => setDelivery(current => ({ ...current, name: event.target.value }))}
+            placeholder={project.name}
+            className="h-8 w-full rounded-md border border-white/10 bg-[#08090a] px-2 text-[12px] outline-none focus:border-primary/50"
+          />
+        </label>
+        <button
+          type="button"
+          onClick={() => handleExport(delivery)}
+          disabled={exporting || !design}
+          className="inline-flex h-9 w-full items-center justify-center gap-2 rounded-md bg-primary text-[12px] font-semibold text-primary-foreground transition-transform active:scale-[0.99] disabled:opacity-50"
+        >
+          {exporting ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Download className="h-3.5 w-3.5" />}
+          Export {delivery.format.toUpperCase()}
+        </button>
+        <p className="text-[10px] leading-4 text-muted-foreground">Exports exactly what is on the canvas, at the size you pick.</p>
+      </div>
+    ),
+  }
+
+  const pageTitle = pages.find(item => item.id === page)?.label
+
+  return (
+    <main className="flex min-h-[100dvh] flex-col bg-[#07080a] text-foreground lg:h-[100dvh] lg:overflow-hidden">
+      {/* Slim top bar: everything else belongs to the canvas */}
+      <header className="flex h-11 shrink-0 items-center gap-2 border-b border-white/[0.06] bg-[#0c0d0f] px-2 sm:px-3">
+        <button
+          type="button"
+          onClick={() => navigate('/workspace')}
+          aria-label="Close canvas mode and go back to Spyda AI"
+          title="Back to Spyda AI"
+          className="flex h-7 w-7 shrink-0 items-center justify-center rounded-full bg-white/[0.08] text-muted-foreground transition-colors hover:bg-white/[0.14] hover:text-foreground"
+        >
+          <X className="h-3.5 w-3.5" />
+        </button>
+        <div className="flex min-w-0 items-baseline gap-2">
+          <h1 className="truncate font-heading text-[13px] font-semibold">{project.name}</h1>
+          <span className="hidden shrink-0 text-[10px] text-muted-foreground sm:inline">{size}</span>
+          <span className="hidden shrink-0 text-[10px] text-muted-foreground md:inline">{saved ? '· Saved' : ''}</span>
+        </div>
+        <div className="ml-auto flex items-center gap-1">
+          <button
+            type="button"
+            onClick={() => setHistory(current => (current ? undo(current) : current))}
+            disabled={!history || !canUndo(history)}
+            title={(history && nextUndoLabel(history)) || 'Nothing to undo'}
+            aria-label="Undo"
+            className="flex h-7 w-7 items-center justify-center rounded-md text-muted-foreground transition-colors hover:bg-white/[0.08] hover:text-foreground disabled:opacity-30"
+          >
+            <Undo2 className="h-3.5 w-3.5" aria-hidden />
+          </button>
+          <button
+            type="button"
+            onClick={() => setHistory(current => (current ? redo(current) : current))}
+            disabled={!history || !canRedo(history)}
+            title={(history && nextRedoLabel(history)) || 'Nothing to redo'}
+            aria-label="Redo"
+            className="flex h-7 w-7 items-center justify-center rounded-md text-muted-foreground transition-colors hover:bg-white/[0.08] hover:text-foreground disabled:opacity-30"
+          >
+            <Redo2 className="h-3.5 w-3.5" aria-hidden />
+          </button>
+          <button
+            type="button"
+            onClick={() => handleExport(delivery)}
+            disabled={exporting || !design}
+            className="ml-1 inline-flex h-7 items-center gap-1.5 rounded-md bg-white px-2.5 text-[11px] font-semibold text-[#0b1210] transition-transform active:scale-[0.98] disabled:opacity-50"
+          >
+            {exporting ? <Loader2 className="h-3 w-3 animate-spin" aria-hidden /> : <Download className="h-3 w-3" aria-hidden />}
+            Export
+          </button>
+        </div>
+      </header>
+
+      {notice ? (
+        <div
+          role="status"
+          className={[
+            'flex shrink-0 items-center gap-2 border-b px-3 py-1.5 text-[11px]',
+            notice.tone === 'error'
+              ? 'border-destructive/30 bg-destructive/10 text-red-200'
+              : notice.tone === 'warn'
+                ? 'border-amber-400/25 bg-amber-400/[0.07] text-amber-200'
+                : 'border-white/[0.06] bg-white/[0.02] text-muted-foreground',
+          ].join(' ')}
+        >
+          <Sparkles className="h-3 w-3 shrink-0" aria-hidden />
+          <span className="flex-1 truncate">{notice.text}</span>
+          <button type="button" onClick={() => setNotice(null)} className="shrink-0 underline">Dismiss</button>
+        </div>
+      ) : null}
+      {missingFonts.size ? (
+        <p className="shrink-0 border-b border-amber-400/20 bg-amber-400/[0.05] px-3 py-1 text-[10px] text-amber-200">
+          {[...missingFonts].join(', ')} {missingFonts.size > 1 ? 'are' : 'is'} not loaded on this device, so {missingFonts.size > 1 ? 'those layers render' : 'that layer renders'} in Montserrat.
+        </p>
+      ) : null}
+
+      <div className="flex min-h-0 flex-1 flex-col lg:flex-row">
+        {/* The canvas gets every pixel the panels do not need */}
+        <section className="editor-stage relative min-h-[64vh] flex-1 overflow-hidden lg:min-h-0">
+          {page !== 'deliver' ? (
+            <div className="absolute inset-x-0 top-2.5 z-10 flex justify-center px-2">
+              <CanvasToolbar
+                onSelectTool={() => setSelectedId(null)}
+                onAdd={kind => addLayer(kind)}
+                onAssist={() => setPage('ai')}
+                assistActive={page === 'ai'}
+              />
+            </div>
+          ) : null}
+          <input
+            ref={imageInputRef}
+            type="file"
+            accept="image/png,image/jpeg,image/webp"
+            className="hidden"
+            onChange={event => {
+              const file = event.target.files?.[0]
+              if (file) handleImageFile(file)
+              event.target.value = ''
+            }}
+          />
+          {design ? (
+            <LayerCanvas
+              document={design}
+              images={images}
+              fallbackImage={flatFlyer}
+              selectedId={selectedId}
+              onSelect={selectLayer}
+              onGeometryChange={(objectId, bounds, rotation) => applyStep([
+                { objectId, property: 'bounds', value: bounds, explicitGeometryChange: true },
+                { objectId, property: 'rotation', value: rotation, explicitGeometryChange: true },
+              ], 'Move layer', `move:${objectId}`)}
+              missingFonts={missingFonts}
+              stageRef={stageRef}
+              className={`absolute inset-x-3 bottom-3 flex items-center justify-center ${page === 'deliver' ? 'top-3' : 'top-14'}`}
+            />
+          ) : project.referencePreview ? (
+            <div className="absolute inset-0 flex flex-col items-center justify-center gap-3 p-6 text-center">
+              <img src={project.referencePreview} alt="Reference flyer" className="max-h-[60vh] w-auto rounded-lg border border-white/10" />
+              <p className="max-w-xs text-[11px] leading-relaxed text-muted-foreground">
+                This flyer is still a flat picture. Open it from Spyda AI again so its parts become layers.
+              </p>
+            </div>
+          ) : null}
+          {extracting ? (
+            <p className="absolute bottom-3 left-3 rounded-full bg-black/75 px-2.5 py-1 text-[10px] text-white backdrop-blur" role="status">
+              {extracting.total ? `Cutting out layer ${extracting.done} of ${extracting.total}…` : 'Reading the flyer once to build its mask…'}
+            </p>
+          ) : null}
+        </section>
+
+        <aside className="flex min-h-[340px] w-full shrink-0 flex-col border-t border-white/[0.06] bg-[#0c0d0f] lg:min-h-0 lg:w-[280px] lg:border-l lg:border-t-0">
+          <div className="flex h-9 shrink-0 items-center justify-between border-b border-white/[0.06] px-3">
+            <h2 className="text-[10px] font-semibold uppercase tracking-[0.16em] text-muted-foreground">{pageTitle}</h2>
+            {page === 'design' && missingAssets.length ? <span className="text-[10px] text-amber-300">{missingAssets.length} loading</span> : null}
+            {page === 'design' && !missingAssets.length ? <Check className="h-3 w-3 text-primary/70" aria-hidden /> : null}
+          </div>
+          <div className={`min-h-0 flex-1 p-2.5 ${page === 'ai' ? 'flex flex-col' : 'overflow-y-auto'}`}>
+            {panels[page]}
+          </div>
+        </aside>
+      </div>
+
+      {/* Resolve-style footer: the edit timeline, then the pages */}
+      <footer className="sticky bottom-0 z-20 shrink-0 border-t border-white/[0.06] bg-[#0a0b0d]">
+        <nav aria-label="Edit timeline" className="flex h-9 items-center gap-1 overflow-x-auto border-b border-white/[0.04] px-2 [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
+          <button
+            type="button"
+            onClick={() => setHistory(current => (current ? jumpTo(current, 0) : current))}
+            title="Back to the original"
+            aria-label="Back to the original"
+            className="flex h-6 shrink-0 items-center gap-1 rounded-md bg-white/[0.06] px-2 text-[10px] font-semibold text-muted-foreground hover:text-foreground"
+          >
+            <Clock className="h-3 w-3" /> Original
+          </button>
+          <span className="h-px w-3 shrink-0 bg-white/10" />
+          {steps.length ? steps.map((step, index) => {
+            const Icon = stepIcon(step.intents)
+            const current = index === cursor - 1
+            const applied = index < cursor
+            return (
+              <button
+                key={index}
+                type="button"
+                onClick={() => setHistory(value => (value ? jumpTo(value, index + 1) : value))}
+                title={step.label}
+                aria-label={`Go to: ${step.label}`}
+                aria-current={current ? 'step' : undefined}
+                className={`flex h-6 w-6 shrink-0 items-center justify-center rounded-md transition-colors ${
+                  current ? 'bg-primary text-primary-foreground' : applied ? 'bg-white/[0.07] text-foreground/80 hover:bg-white/[0.12]' : 'text-muted-foreground/40 hover:text-muted-foreground'
+                }`}
+              >
+                <Icon className="h-3 w-3" />
+              </button>
+            )
+          }) : <span className="text-[10px] text-muted-foreground/60">Edits line up here as you work.</span>}
+        </nav>
+        <div role="tablist" aria-label="Canvas pages" className="flex h-11 items-stretch justify-center overflow-x-auto px-1 [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
+          {pages.map((item, index) => (
+            <button
+              key={item.id}
+              type="button"
+              role="tab"
+              aria-selected={page === item.id}
+              onClick={() => setPage(item.id)}
+              title={`${item.label} (Shift+${index + 1})`}
+              className={`relative flex min-w-[58px] shrink-0 flex-col items-center justify-center gap-0.5 whitespace-nowrap px-2 text-[10px] font-medium transition-colors sm:min-w-[84px] sm:px-2.5 ${
+                page === item.id ? 'text-primary' : 'text-muted-foreground hover:text-foreground'
+              }`}
+            >
+              <item.icon className="h-4 w-4" />
+              {item.label}
+              {page === item.id ? <span className="absolute inset-x-3 top-0 h-0.5 rounded-full bg-primary" /> : null}
+            </button>
+          ))}
+        </div>
+      </footer>
     </main>
   )
 }

@@ -29,7 +29,7 @@ type CanvasToolbarProps = {
 
 export default function CanvasToolbar({ onSelectTool, onAdd, onAssist, assistActive }: CanvasToolbarProps) {
   return (
-    <div role="toolbar" aria-label="Canvas tools" className="flex items-center gap-1 rounded-full border border-white/[0.1] bg-[#121316]/95 p-1 shadow-[0_14px_40px_rgba(0,0,0,0.5)] backdrop-blur">
+    <div role="toolbar" aria-label="Canvas tools" className="flex items-center gap-0.5 rounded-full border border-white/[0.1] bg-[#121316]/95 p-0.5 shadow-[0_10px_30px_rgba(0,0,0,0.5)] backdrop-blur">
       {TOOLS.map(tool => (
         <button
           key={tool.id}
@@ -37,17 +37,17 @@ export default function CanvasToolbar({ onSelectTool, onAdd, onAssist, assistAct
           onClick={() => (tool.id === 'select' ? onSelectTool() : onAdd(tool.id))}
           title={`${tool.label} (${tool.key})`}
           aria-label={`${tool.label}, shortcut ${tool.key}`}
-          className="group relative flex h-9 w-9 items-center justify-center rounded-full text-muted-foreground transition-colors hover:bg-white/[0.08] hover:text-foreground"
+          className="group relative flex h-8 w-8 items-center justify-center rounded-full text-muted-foreground transition-colors hover:bg-white/[0.08] hover:text-foreground"
         >
-          <tool.icon className="h-4 w-4" />
+          <tool.icon className="h-3.5 w-3.5" />
         </button>
       ))}
-      <span className="mx-1 h-5 w-px bg-white/10" />
+      <span className="mx-0.5 h-4 w-px bg-white/10" />
       <button
         type="button"
         onClick={onAssist}
         aria-pressed={assistActive}
-        className={`inline-flex h-9 items-center gap-1.5 whitespace-nowrap rounded-full px-3 text-xs font-semibold transition-colors sm:px-3.5 ${
+        className={`inline-flex h-8 items-center gap-1.5 whitespace-nowrap rounded-full px-3 text-[11px] font-semibold transition-colors ${
           assistActive ? 'bg-primary text-primary-foreground' : 'text-primary hover:bg-primary/10'
         }`}
       >
