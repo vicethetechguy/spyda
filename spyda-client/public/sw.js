@@ -1,10 +1,11 @@
-const CACHE_NAME = "spyda-shell-v6";
+const CACHE_NAME = "spyda-shell-v7";
 const APP_SHELL = [
   "/",
   "/workspace",
   "/auth",
   "/manifest.webmanifest",
-  "/favicon.svg",
+  "/favicon.ico",
+  "/assets/spyda-favicon-32.png",
   "/assets/spyda-icon-192.png",
   "/assets/spyda-icon-512.png",
   "/assets/spyda-icon-maskable-512.png",

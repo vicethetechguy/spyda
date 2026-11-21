@@ -35,11 +35,7 @@
   ],
   "rewrites": [
     {
-      "source": "/favicon.ico",
-      "destination": "/favicon.svg"
-    },
-    {
-      "source": "/((?!api/|assets/|favicon.svg|manifest.webmanifest|sw.js|icons.svg).*)",
+      "source": "/((?!api/|assets/|favicon.ico|manifest.webmanifest|sw.js|icons.svg).*)",
       "destination": "/index.html"
     }
   ]
