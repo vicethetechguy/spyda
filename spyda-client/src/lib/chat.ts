@@ -271,3 +271,16 @@ export async function requestMotion(
     billing?: { creditsCharged: number; tokensAwarded: number; walletBalance: number }
   }>(response)
 }
+
+/** Spyda AI in canvas mode: layer operations for the editor to validate and apply. */
+export async function requestCanvasAssist(
+  input: { instruction: string; canvas: { width: number; height: number }; layers: unknown[] },
+  headers: Record<string, string>,
+) {
+  const response = await fetch('/api/chat', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', ...headers },
+    body: JSON.stringify({ action: 'assist', ...input }),
+  })
+  return readJson<{ ok: true; reply: string; operations: unknown[] }>(response)
+}

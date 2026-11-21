@@ -114,7 +114,7 @@ const ObjectStatusSchema = z.object({
   consumed: z.boolean(),
 }).strict()
 
-const DesignObjectSchema = z.object({
+export const DesignObjectSchema = z.object({
   id: z.string().min(1),
   name: z.string().min(1),
   kind: DesignObjectKindSchema,

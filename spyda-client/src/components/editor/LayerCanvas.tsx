@@ -35,6 +35,8 @@ export type LayerCanvasProps = {
   onGeometryChange: (objectId: string, bounds: PercentBox, rotation: number) => void
   missingFonts: ReadonlySet<string>
   className?: string
+  /** Filled with the Konva stage, for exporting the design as an image. */
+  stageRef?: React.MutableRefObject<Konva.Stage | null>
 }
 
 function parseAspectRatio(value: string) {
@@ -131,6 +133,7 @@ export default function LayerCanvas({
   onGeometryChange,
   missingFonts,
   className,
+  stageRef,
 }: LayerCanvasProps) {
   const containerRef = useRef<HTMLDivElement | null>(null)
   const transformerRef = useRef<Konva.Transformer | null>(null)
@@ -245,6 +248,7 @@ export default function LayerCanvas({
   return (
     <div ref={containerRef} className={className}>
       <Stage
+        ref={node => { if (stageRef) stageRef.current = node }}
         width={display.width}
         height={display.height}
         onMouseDown={event => {

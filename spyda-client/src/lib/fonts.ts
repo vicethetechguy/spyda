@@ -17,7 +17,36 @@ export const FALLBACK_FAMILY = 'Montserrat'
 export const BUNDLED_FAMILIES: ReadonlyArray<{ family: string; weights: string[] }> = [
   { family: 'Montserrat', weights: ['400', '500', '600', '700'] },
   { family: 'Space Grotesk', weights: ['500', '600', '700'] },
+  { family: 'Inter', weights: ['400', '500', '600', '700', '800'] },
+  { family: 'Poppins', weights: ['400', '500', '600', '700', '800'] },
+  { family: 'DM Sans', weights: ['400', '500', '700'] },
+  { family: 'Outfit', weights: ['400', '500', '600', '700', '800'] },
+  { family: 'Playfair Display', weights: ['400', '600', '700', '800'] },
+  { family: 'Bebas Neue', weights: ['400'] },
 ]
+
+/** index.html already loads these two; the rest come from Google Fonts on first use. */
+const PAGE_FAMILIES = new Set(['Montserrat', 'Space Grotesk'])
+const requestedStylesheets = new Set<string>()
+
+/** Adds the Google Fonts stylesheet for families a layer uses, once each. */
+function ensureStylesheet(families: string[]) {
+  const needed = families.filter(family => !PAGE_FAMILIES.has(family) && !requestedStylesheets.has(family))
+    .map(family => BUNDLED_FAMILIES.find(item => item.family === family))
+    .filter((item): item is { family: string; weights: string[] } => Boolean(item))
+  if (!needed.length || typeof document === 'undefined') return Promise.resolve()
+  needed.forEach(item => requestedStylesheets.add(item.family))
+  const query = needed.map(item => `family=${item.family.replace(/ /g, '+')}:wght@${item.weights.join(';')}`).join('&')
+  return new Promise<void>(resolve => {
+    const link = document.createElement('link')
+    link.rel = 'stylesheet'
+    link.href = `https://fonts.googleapis.com/css2?${query}&display=swap`
+    link.onload = () => resolve()
+    link.onerror = () => resolve()
+    document.head.appendChild(link)
+    window.setTimeout(resolve, 4000)
+  })
+}
 
 export type FontRequest = { family: string; weight?: string | null }
 
@@ -49,6 +78,8 @@ export async function preloadFonts(requests: FontRequest[]): Promise<FontReport>
     const key = `${family}|${weight}`
     if (!unique.has(key)) unique.set(key, { family, weight })
   }
+
+  await ensureStylesheet([...new Set([...unique.values()].map(item => item.family))])
 
   const loaded = new Set<string>()
   const missing = new Set<string>()

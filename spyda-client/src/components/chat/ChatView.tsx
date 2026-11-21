@@ -901,9 +901,9 @@ export default function ChatView({ modelProvider, headerSlot, seed, onOpenWallet
       </button>
       <button
         type="button"
-        onClick={() => openCanvas()}
-        disabled={!flyer || canvasBusy}
-        title={flyer ? 'Edit this flyer by hand in canvas mode' : 'Import a flyer to use canvas mode'}
+        onClick={() => (flyer ? openCanvas() : navigate('/editor/new'))}
+        disabled={canvasBusy}
+        title={flyer ? 'Edit this flyer by hand in canvas mode' : 'Design from a blank canvas'}
         className="inline-flex h-8 items-center gap-1.5 rounded-full bg-primary px-3 text-xs font-semibold text-primary-foreground transition-all hover:-translate-y-0.5 active:translate-y-0 active:scale-[0.98] disabled:translate-y-0 disabled:bg-white/10 disabled:text-muted-foreground"
       >
         {canvasBusy ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Layers className="h-3.5 w-3.5" />}

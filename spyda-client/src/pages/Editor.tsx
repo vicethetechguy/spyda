@@ -1,9 +1,10 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { Link, useNavigate, useParams } from 'react-router-dom'
 import {
-  ArrowLeft, Check, Clock, Copy, Eye, Image as ImageIcon, Layers, Loader2, Move, Palette, Redo2, Sparkles,
+  ArrowLeft, Check, Clock, Copy, Download, Eye, Image as ImageIcon, Layers, Loader2, Move, Palette, Plus, Redo2, Sparkles,
   Trash2, Type, Undo2, Wand2, X, type LucideIcon,
 } from '../components/ui/icons'
+import type Konva from 'konva'
 import {
   adaptBreakdownToDesignDocument,
   designDocumentToLegacyBreakdown,
@@ -13,6 +14,10 @@ import {
 import { CUTOUT_KINDS, extractLayers } from '../core/layer-extraction'
 import type { DesignEditIntent } from '../core/constraint-engine'
 import { putAsset } from '../lib/asset-store'
+import { makeLayer, type NewLayerKind } from '../lib/editor-objects'
+import { describeCanvas, translateOperations } from '../lib/canvas-assist'
+import { requestCanvasAssist } from '../lib/chat'
+import { spydaRequestHeaders } from '../lib/spyda-api'
 import { createMatteCutoutProducer, loadSourceImage, produceFullFrameBackground } from '../lib/cutout'
 import { prepareForEditing } from '../lib/editor-document'
 import { collectFontRequests, preloadFonts, type FontReport } from '../lib/fonts'
@@ -36,6 +41,8 @@ import LayerCanvas from '../components/editor/LayerCanvas'
 import ContentPanel from '../components/editor/ContentPanel'
 import LayerList from '../components/editor/LayerList'
 import { useAssetImages } from '../components/editor/useAssetImages'
+import AssistPanel, { type AssistEntry } from '../components/editor/AssistPanel'
+import CanvasToolbar from '../components/editor/CanvasToolbar'
 
 /**
  * The layer editor.
@@ -67,7 +74,7 @@ function streamKey(intent: DesignEditIntent) {
 
 type BootState = { project: StoredProject | null; history: IntentHistory | null }
 
-type PanelTab = 'layers' | 'content' | 'history'
+type PanelTab = 'layers' | 'content' | 'assist' | 'history'
 type LayerFilter = 'all' | 'text' | 'pictures' | 'logos' | 'shapes'
 
 const FILTERS: { id: LayerFilter; label: string }[] = [
@@ -96,7 +103,17 @@ function stepIcon(intents: DesignEditIntent[]): LucideIcon {
   if (property === 'duplicate') return Copy
   if (property === 'removed') return Trash2
   if (property === 'visible') return Eye
+  if (property === 'create') return Plus
   return Sparkles
+}
+
+/** True for light colours, so text drawn on them should be dark. */
+function isLight(colour: string | null | undefined) {
+  const hex = /^#([0-9a-f]{3}|[0-9a-f]{6})$/i.exec(colour?.trim() || '')?.[1]
+  if (!hex) return true
+  const full = hex.length === 3 ? hex.split('').map(char => char + char).join('') : hex
+  const [r, g, b] = [0, 2, 4].map(index => parseInt(full.slice(index, index + 2), 16) / 255)
+  return 0.2126 * r + 0.7152 * g + 0.0722 * b > 0.6
 }
 
 /** Undo or redo until `target` steps are applied: one click on the timeline. */
@@ -148,6 +165,12 @@ export default function Editor() {
   const [flatFlyer, setFlatFlyer] = useState<HTMLImageElement | null>(null)
   const [tab, setTab] = useState<PanelTab>('layers')
   const [filter, setFilter] = useState<LayerFilter>('all')
+  const [assistEntries, setAssistEntries] = useState<AssistEntry[]>([])
+  const [assistDraft, setAssistDraft] = useState('')
+  const [assistBusy, setAssistBusy] = useState(false)
+  const [exporting, setExporting] = useState(false)
+  const stageRef = useRef<Konva.Stage | null>(null)
+  const imageInputRef = useRef<HTMLInputElement | null>(null)
   const navigate = useNavigate()
   const edited = useRef(false)
 
@@ -319,6 +342,93 @@ export default function Editor() {
     applyIntent({ objectId: object.id, property: 'visible', value: !object.status.visible })
   }, [applyIntent])
 
+  /** A new layer from the toolbar or a shortcut, selected and ready to edit. */
+  const addLayer = useCallback((kind: NewLayerKind, options: Parameters<typeof makeLayer>[2] = {}) => {
+    if (!design) return
+    if (kind === 'image' && !options.assetRef) {
+      imageInputRef.current?.click()
+      return
+    }
+    // New text contrasts with the background it lands on.
+    const backdrop = design.objects.find(object => object.kind === 'background' && !object.status.removed)?.style.fill
+    const textFill = kind === 'text' && options.fill === undefined ? (isLight(backdrop) ? '#0b1210' : '#ffffff') : options.fill
+    const layer = makeLayer(design, kind, { ...options, fill: textFill })
+    applyStep([{ objectId: layer.id, property: 'create', value: layer }], `Add ${layer.name.toLowerCase()}`)
+    setSelectedId(layer.id)
+    setTab('content')
+  }, [applyStep, design])
+
+  const handleImageFile = useCallback(async (file: File) => {
+    if (!design) return
+    try {
+      const id = await putAsset(file)
+      const url = URL.createObjectURL(file)
+      const size = await new Promise<{ width: number; height: number }>((resolve, reject) => {
+        const image = new Image()
+        image.onload = () => resolve({ width: image.naturalWidth, height: image.naturalHeight })
+        image.onerror = () => reject(new Error('That picture could not be opened.'))
+        image.src = url
+      }).finally(() => URL.revokeObjectURL(url))
+      // Half the canvas width, at the picture's own proportions, centred.
+      const canvasRatio = (design.canvas.width || 1) / (design.canvas.height || 1)
+      const width = 50
+      const height = Math.min(90, width * (size.height / size.width) * canvasRatio)
+      addLayer('image', {
+        assetRef: `asset:${id}`,
+        name: file.name.replace(/\.[a-z0-9]+$/i, '').slice(0, 40) || 'Image',
+        bounds: { x: (100 - width) / 2, y: (100 - height) / 2, width, height },
+      })
+    } catch (error) {
+      setNotice({ tone: 'error', text: error instanceof Error ? error.message : 'That picture could not be added.' })
+    }
+  }, [addLayer, design])
+
+  const handleExport = useCallback(async () => {
+    const stage = stageRef.current
+    if (!stage || !design) return
+    setExporting(true)
+    setSelectedId(null)
+    // Let the selection handles disappear before the frame is captured.
+    await new Promise(resolve => window.setTimeout(resolve, 80))
+    try {
+      const pixelRatio = Math.max(1, (design.canvas.width || stage.width()) / stage.width())
+      const url = stage.toDataURL({ mimeType: 'image/png', pixelRatio })
+      const link = document.createElement('a')
+      link.href = url
+      link.download = `${(project?.name || 'spyda-design').replace(/[^a-z0-9]+/gi, '-').toLowerCase()}.png`
+      link.click()
+    } catch {
+      setNotice({ tone: 'error', text: 'This design could not be exported. Remove any picture that failed to load and try again.' })
+    } finally {
+      setExporting(false)
+    }
+  }, [design, project?.name])
+
+  /** Spyda AI: the canvas as layers out, validated operations back in, one undo step. */
+  const runAssist = useCallback(async (instruction: string) => {
+    if (!design || assistBusy) return
+    const entry = (role: AssistEntry['role'], text: string, error = false): AssistEntry => ({ id: `${Date.now()}-${Math.random()}`, role, text, error })
+    setAssistEntries(current => [...current, entry('user', instruction)])
+    setAssistDraft('')
+    setAssistBusy(true)
+    try {
+      const result = await requestCanvasAssist(
+        { instruction, ...describeCanvas(design) },
+        await spydaRequestHeaders({ openai: '', groq: '' }, 'groq'),
+      )
+      const { intents, skipped } = translateOperations(design, result.operations)
+      if (intents.length) applyStep(intents, `Spyda AI: ${instruction.slice(0, 40)}`)
+      const note = !intents.length
+        ? ' No changes could be applied.'
+        : skipped ? ` (${skipped} change${skipped > 1 ? 's' : ''} skipped.)` : ''
+      setAssistEntries(current => [...current, entry('assistant', `${result.reply}${note}`)])
+    } catch (error) {
+      setAssistEntries(current => [...current, entry('assistant', error instanceof Error ? error.message : 'Spyda AI could not change the design.', true)])
+    } finally {
+      setAssistBusy(false)
+    }
+  }, [applyStep, assistBusy, design])
+
   useEffect(() => {
     const onKeyDown = (event: KeyboardEvent) => {
       const target = event.target as HTMLElement | null
@@ -333,16 +443,44 @@ export default function Editor() {
         return
       }
       if (typing) return
+      const selected = selectedId ? design?.objects.find(object => object.id === selectedId) : null
+      if ((event.metaKey || event.ctrlKey) && event.key.toLowerCase() === 'd' && selectedId) {
+        event.preventDefault()
+        handleDuplicate(selectedId)
+        return
+      }
+      if (event.metaKey || event.ctrlKey || event.altKey) return
       if (event.key === 'Escape') setSelectedId(null)
       if ((event.key === 'Delete' || event.key === 'Backspace') && selectedId) {
         event.preventDefault()
         applyIntent({ objectId: selectedId, property: 'removed', value: true })
+        return
+      }
+      const tool = ({ v: 'select', t: 'text', r: 'rect', o: 'circle', i: 'image' } as const)[event.key.toLowerCase() as 'v' | 't' | 'r' | 'o' | 'i']
+      if (tool) {
+        event.preventDefault()
+        if (tool === 'select') setSelectedId(null)
+        else addLayer(tool)
+        return
+      }
+      // Arrow keys nudge the selection; shift moves further. One undo per burst.
+      const step = event.shiftKey ? 2 : 0.5
+      const delta = { ArrowLeft: [-step, 0], ArrowRight: [step, 0], ArrowUp: [0, -step], ArrowDown: [0, step] }[event.key as 'ArrowLeft']
+      if (delta && selected?.transform.bounds && !selected.protection.locked && !selected.constraints.lockPosition) {
+        event.preventDefault()
+        const bounds = selected.transform.bounds
+        applyStep([{
+          objectId: selected.id,
+          property: 'bounds',
+          value: { ...bounds, x: Math.round((bounds.x + delta[0]) * 10) / 10, y: Math.round((bounds.y + delta[1]) * 10) / 10 },
+          explicitGeometryChange: true,
+        }], 'Nudge layer', `move:${selected.id}`)
       }
     }
 
     window.addEventListener('keydown', onKeyDown)
     return () => window.removeEventListener('keydown', onKeyDown)
-  }, [applyIntent, selectedId])
+  }, [addLayer, applyIntent, applyStep, design?.objects, handleDuplicate, selectedId])
 
   const selectLayer = (objectId: string | null) => {
     setSelectedId(objectId)
@@ -375,7 +513,7 @@ export default function Editor() {
   const stats = [
     { label: 'Layers', value: live.length },
     { label: 'Text', value: live.filter(object => matchesFilter(object, 'text')).length },
-    { label: 'Pictures', value: live.filter(object => matchesFilter(object, 'pictures') || matchesFilter(object, 'logos')).length },
+    { label: 'Pictures', value: live.filter(object => object.kind !== 'background' && (matchesFilter(object, 'pictures') || matchesFilter(object, 'logos'))).length },
     { label: 'Hidden', value: live.filter(object => !object.status.visible).length },
   ]
   const size = design?.canvas.width && design.canvas.height
@@ -384,10 +522,12 @@ export default function Editor() {
   const steps = history?.steps ?? []
   const cursor = history?.cursor ?? 0
   const filtered = objects.filter(object => matchesFilter(object, filter))
+  const background = live.find(object => object.kind === 'background')
 
   const tabs: { id: PanelTab; label: string; icon: LucideIcon }[] = [
     { id: 'layers', label: 'Layers', icon: Layers },
     { id: 'content', label: 'Content', icon: Type },
+    { id: 'assist', label: 'Spyda AI', icon: Sparkles },
     { id: 'history', label: 'History', icon: Clock },
   ]
 
@@ -449,14 +589,25 @@ export default function Editor() {
             >
               <Redo2 className="h-4 w-4" aria-hidden />
             </button>
+            {project.referencePreview ? (
+              <button
+                type="button"
+                onClick={handleExtract}
+                disabled={Boolean(extracting) || !design}
+                className="inline-flex h-10 items-center gap-2 rounded-full border border-white/[0.12] bg-white/[0.04] px-4 text-xs font-semibold transition-all hover:-translate-y-0.5 active:translate-y-0 active:scale-[0.98] disabled:opacity-50"
+              >
+                {extracting ? <Loader2 className="h-3.5 w-3.5 animate-spin" aria-hidden /> : <Wand2 className="h-3.5 w-3.5" aria-hidden />}
+                <span className="hidden sm:inline">{extracting ? 'Cutting out…' : extracted ? 'Refresh cut-outs' : 'Make it editable'}</span>
+              </button>
+            ) : null}
             <button
               type="button"
-              onClick={handleExtract}
-              disabled={Boolean(extracting) || !design || !project.referencePreview}
+              onClick={handleExport}
+              disabled={exporting || !design}
               className="inline-flex h-10 items-center gap-2 rounded-full bg-white px-4 text-xs font-semibold text-[#0b1210] transition-all hover:-translate-y-0.5 active:translate-y-0 active:scale-[0.98] disabled:opacity-50"
             >
-              {extracting ? <Loader2 className="h-3.5 w-3.5 animate-spin" aria-hidden /> : <Wand2 className="h-3.5 w-3.5" aria-hidden />}
-              {extracting ? 'Cutting out…' : extracted ? 'Refresh cut-outs' : 'Make it editable'}
+              {exporting ? <Loader2 className="h-3.5 w-3.5 animate-spin" aria-hidden /> : <Download className="h-3.5 w-3.5" aria-hidden />}
+              Export PNG
             </button>
           </div>
         </header>
@@ -528,7 +679,25 @@ export default function Editor() {
 
           <div className="flex min-h-0 flex-1 flex-col gap-3 lg:flex-row">
             <section className="relative min-h-[56vh] flex-1 overflow-hidden rounded-[24px] border border-white/[0.06] bg-[#08090a] lg:min-h-0">
-              <div aria-hidden="true" className="absolute inset-x-6 top-5 h-px bg-[linear-gradient(90deg,transparent,rgba(157,250,176,0.5),rgba(139,211,255,0.4),transparent)]" />
+              <div className="absolute inset-x-0 top-4 z-10 flex justify-center px-3">
+                <CanvasToolbar
+                  onSelectTool={() => setSelectedId(null)}
+                  onAdd={kind => addLayer(kind)}
+                  onAssist={() => setTab('assist')}
+                  assistActive={tab === 'assist'}
+                />
+              </div>
+              <input
+                ref={imageInputRef}
+                type="file"
+                accept="image/png,image/jpeg,image/webp"
+                className="hidden"
+                onChange={event => {
+                  const file = event.target.files?.[0]
+                  if (file) handleImageFile(file)
+                  event.target.value = ''
+                }}
+              />
               {design ? (
                 <LayerCanvas
                   document={design}
@@ -541,7 +710,8 @@ export default function Editor() {
                     { objectId, property: 'rotation', value: rotation, explicitGeometryChange: true },
                   ], 'Move layer', `move:${objectId}`)}
                   missingFonts={missingFonts}
-                  className="absolute inset-6 flex items-center justify-center sm:inset-10"
+                  stageRef={stageRef}
+                  className="absolute inset-x-6 bottom-6 top-20 flex items-center justify-center sm:inset-x-10 sm:bottom-10"
                 />
               ) : project.referencePreview ? (
                 <div className="absolute inset-0 flex flex-col items-center justify-center gap-3 p-6 text-center">
@@ -555,7 +725,7 @@ export default function Editor() {
                 <p className="absolute bottom-4 left-4 rounded-full bg-black/75 px-3 py-1.5 text-[11px] text-white backdrop-blur" role="status">
                   {extracting.total ? `Cutting out layer ${extracting.done} of ${extracting.total}…` : 'Reading the flyer once to build its mask…'}
                 </p>
-              ) : design && !cutoutTargets.length ? (
+              ) : design && project.referencePreview && !cutoutTargets.length ? (
                 <p className="absolute bottom-4 left-4 rounded-full bg-black/60 px-3 py-1.5 text-[11px] text-muted-foreground">No pictures to cut out on this flyer.</p>
               ) : null}
             </section>
@@ -580,13 +750,54 @@ export default function Editor() {
                     onDuplicate={handleDuplicate}
                     onRemove={objectId => applyIntent({ objectId, property: 'removed', value: true })}
                   />
-                ) : tab === 'content' ? (
-                  <ContentPanel
-                    object={selectedObject}
-                    onIntent={applyIntent}
-                    onReplaceImage={handleReplaceImage}
-                    busy={Boolean(extracting)}
+                ) : tab === 'assist' ? (
+                  <AssistPanel
+                    entries={assistEntries}
+                    draft={assistDraft}
+                    setDraft={setAssistDraft}
+                    onSend={runAssist}
+                    busy={assistBusy}
+                    blank={live.every(object => object.kind === 'background')}
                   />
+                ) : tab === 'content' ? (
+                  selectedObject ? (
+                    <ContentPanel
+                      object={selectedObject}
+                      onIntent={applyIntent}
+                      onReplaceImage={handleReplaceImage}
+                      busy={Boolean(extracting)}
+                    />
+                  ) : (
+                    <div className="space-y-4 px-1.5">
+                      <p className="text-xs leading-5 text-muted-foreground">Select a layer to edit it, or add one with the toolbar.</p>
+                      {background && !background.protection.locked && background.protection.editableProperties.includes('fill') ? (
+                        <label className="block">
+                          <span className="text-[10px] font-semibold uppercase tracking-[0.14em] text-muted-foreground">Background</span>
+                          <span className="mt-2 flex items-center gap-2">
+                            <input
+                              type="color"
+                              value={/^#[0-9a-f]{6}$/i.test(background.style.fill || '') ? background.style.fill! : '#ffffff'}
+                              onChange={event => applyIntent({ objectId: background.id, property: 'fill', value: event.target.value })}
+                              className="h-9 w-12 cursor-pointer rounded-lg border border-white/10 bg-transparent"
+                            />
+                            <span className="font-mono text-xs text-muted-foreground">{background.style.fill || '#ffffff'}</span>
+                          </span>
+                        </label>
+                      ) : null}
+                      <div className="grid grid-cols-2 gap-2">
+                        {([['text', 'Text'], ['rect', 'Rectangle'], ['circle', 'Circle'], ['image', 'Image']] as const).map(([kind, label]) => (
+                          <button
+                            key={kind}
+                            type="button"
+                            onClick={() => addLayer(kind)}
+                            className="inline-flex h-10 items-center justify-center gap-1.5 rounded-xl bg-white/[0.05] text-xs font-semibold transition-colors hover:bg-white/[0.09]"
+                          >
+                            <Plus className="h-3.5 w-3.5" /> {label}
+                          </button>
+                        ))}
+                      </div>
+                    </div>
+                  )
                 ) : steps.length ? (
                   <ol className="space-y-1.5">
                     {steps.map((step, index) => {

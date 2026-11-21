@@ -36,6 +36,7 @@ const Workspace = lazyRoute(() => import('./pages/Workspace'))
 const Auth = lazyRoute(() => import('./pages/Auth'))
 const Admin = lazyRoute(() => import('./pages/Admin'))
 const Editor = lazyRoute(() => import('./pages/Editor'))
+const NewCanvas = lazyRoute(() => import('./pages/NewCanvas'))
 
 const SPLASH_SEEN_KEY = 'spyda.splashSeen'
 
@@ -123,6 +124,13 @@ function App() {
               <WorkspaceErrorBoundary>
                 <Workspace />
               </WorkspaceErrorBoundary>
+            </ProtectedRoute>
+          } />
+          <Route path="/editor/new" element={
+            <ProtectedRoute>
+              <Suspense fallback={<SpydaSplash message="Opening canvas mode" />}>
+                <NewCanvas />
+              </Suspense>
             </ProtectedRoute>
           } />
           <Route path="/editor/:projectId" element={

@@ -1,4 +1,5 @@
-import { buildEditPrompt, readTurns, requestChatReply } from './_chat.js';
+import { buildEditPrompt, chatProviderOrder, readTurns, requestChatReply } from './_chat.js';
+import { readAssistInput, requestAssist } from './_assist.js';
 import { billingSummary, isByok, readModelMode, requireUser, sendError, withGenerationCharge } from './_billing.js';
 import { imageModel, mapOutputSize, mapQuality, normalizeGeneratedImageOutput, requestOpenAiImageEdit } from './_utils.js';
 
@@ -32,6 +33,13 @@ export default async function handler(req: any, res: any) {
 
     const openaiKey = String(req.headers?.['x-spyda-openai-key'] || '').trim() || process.env.OPENAI_API_KEY || '';
     const groqKey = String(req.headers?.['x-spyda-groq-key'] || '').trim() || process.env.GROQ_API_KEY || '';
+
+    // Spyda AI in canvas mode: layer operations for the editor to validate and apply.
+    if (body.action === 'assist') {
+      const keys = { groq: groqKey, openai: openaiKey };
+      const result = await requestAssist(readAssistInput(body), keys, chatProviderOrder(readModelMode(req, body.modelMode), keys));
+      return res.status(200).json({ ok: true, ...result });
+    }
 
     if (body.action === 'edit') {
       // Groq has no image model, so generating a version always needs OpenAI.

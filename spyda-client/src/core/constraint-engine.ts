@@ -1,4 +1,4 @@
-import { parseDesignDocument, type DesignDocument, type DesignObject } from './design-document.js'
+import { DesignObjectSchema, parseDesignDocument, type DesignDocument, type DesignObject } from './design-document.js'
 import type { LayoutIntelligenceModel } from './layout-intelligence.js'
 
 export type ConstraintViolation = {
@@ -38,14 +38,14 @@ export type DesignEditIntent = {
     | 'text' | 'assetRef' | 'fill' | 'stroke' | 'opacity'
     | 'removed' | 'visible' | 'bounds' | 'rotation'
     | 'fontFamily' | 'fontSize' | 'fontWeight' | 'textAlign'
-    | 'zIndex' | 'duplicate'
+    | 'zIndex' | 'duplicate' | 'create'
   value: unknown
   explicitGeometryChange?: boolean
 }
 
 /** Intents that are not property edits on `protection.editableProperties`. */
 const STRUCTURAL_PROPERTIES: ReadonlyArray<DesignEditIntent['property']> = [
-  'removed', 'visible', 'bounds', 'rotation', 'zIndex', 'duplicate',
+  'removed', 'visible', 'bounds', 'rotation', 'zIndex', 'duplicate', 'create',
 ]
 
 type DuplicateSpec = { id: string; name?: string; zIndex?: number }
@@ -105,6 +105,28 @@ export function applyDesignEdits(referenceInput: DesignDocument, intents: Design
   const violations: ConstraintViolation[] = []
 
   for (const intent of intents) {
+    // A new layer: the whole object travels in the intent, so replaying the log
+    // rebuilds it exactly and undo removes it.
+    if (intent.property === 'create') {
+      const parsed = DesignObjectSchema.safeParse(intent.value)
+      if (!parsed.success || parsed.data.id !== intent.objectId) {
+        violations.push({ code: 'create-invalid', severity: 'error', objectId: intent.objectId, message: 'That new layer is not a valid design object.' })
+        continue
+      }
+      if (candidate.objects.some(item => item.id === parsed.data.id)) {
+        violations.push({ code: 'create-id-taken', severity: 'error', objectId: intent.objectId, message: `Object id ${parsed.data.id} is already used.` })
+        continue
+      }
+      const created = structuredClone(parsed.data)
+      const section = candidate.sections.find(item => item.id === created.sectionId) ?? candidate.sections[0]
+      if (section) {
+        created.sectionId = section.id
+        if (!section.objectIds.includes(created.id)) section.objectIds.push(created.id)
+      }
+      candidate.objects.push(created)
+      continue
+    }
+
     const object = candidate.objects.find(item => item.id === intent.objectId)
     if (!object) {
       violations.push({ code: 'unknown-object', severity: 'error', objectId: intent.objectId, message: `Unknown design object: ${intent.objectId}` })
