@@ -2,6 +2,8 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { Link } from 'react-router-dom'
 import {
   AlertTriangle,
+  Clapperboard,
+  Download,
   Layers,
   Archive,
   ArchiveRestore,
@@ -11,6 +13,7 @@ import {
   FolderKanban,
   ImagePlus,
   LayoutTemplate,
+  Play,
   Loader2,
   Palette,
   Plus,
@@ -32,9 +35,13 @@ import {
   fetchMarketplaceTemplates,
   fetchMyPurchases,
   fetchTemplateCategories,
+  MOTION_FILE_LIMIT,
   listTemplate,
   purchaseTemplate,
+  templateFileUrl,
+  uploadTemplateFile,
   uploadTemplateImage,
+  type MarketplaceKind,
   type MarketplaceTemplate,
 } from '../../lib/marketplace'
 
@@ -310,6 +317,7 @@ type DisplayTemplate = {
   source: string
   price: number
   kind: 'spyda' | 'community'
+  section: MarketplaceKind
   isOwner?: boolean
   owned?: boolean
   template?: MarketplaceTemplate
@@ -323,6 +331,7 @@ export function TemplatesView({ onUseTemplate }: { onUseTemplate: (source: strin
   const [applying, setApplying] = useState<string | null>(null)
   const [actionError, setActionError] = useState('')
   const [showList, setShowList] = useState(false)
+  const [section, setSection] = useState<MarketplaceKind>('flyer')
 
   const [templates, setTemplates] = useState<MarketplaceTemplate[]>([])
   const [dbCategories, setDbCategories] = useState<string[]>([])
@@ -354,7 +363,7 @@ export function TemplatesView({ onUseTemplate }: { onUseTemplate: (source: strin
   useEffect(() => { void refresh() }, [refresh])
 
   const builtIns: DisplayTemplate[] = useMemo(
-    () => TEMPLATE_LIBRARY.map(([name, type, source]) => ({ key: `spyda:${source}`, name, category: type, source, price: 0, kind: 'spyda' })),
+    () => TEMPLATE_LIBRARY.map(([name, type, source]) => ({ key: `spyda:${source}`, name, category: type, source, price: 0, kind: 'spyda' as const, section: 'flyer' as const })),
     [],
   )
 
@@ -366,6 +375,7 @@ export function TemplatesView({ onUseTemplate }: { onUseTemplate: (source: strin
       source: template.image_url,
       price: template.price,
       kind: 'community' as const,
+      section: template.kind === 'motion' ? 'motion' as const : 'flyer' as const,
       isOwner: template.owner_id === user?.id,
       owned: template.owner_id === user?.id || template.price <= 0 || purchased.has(template.id),
       template,
@@ -373,18 +383,20 @@ export function TemplatesView({ onUseTemplate }: { onUseTemplate: (source: strin
     [templates, purchased, user?.id],
   )
 
+  // Each section shows only the categories it actually has listings in.
   const categories = useMemo(
-    () => ['All', ...Array.from(new Set([...builtIns.map(item => item.category), ...dbCategories]))],
-    [builtIns, dbCategories],
+    () => ['All', ...Array.from(new Set([...community, ...builtIns].filter(item => item.section === section).map(item => item.category)))],
+    [builtIns, community, section],
   )
 
   const visible = useMemo(() => {
     const query = search.toLowerCase().trim()
     return [...community, ...builtIns].filter(item =>
+      item.section === section &&
       (!ownerOnly || item.isOwner) &&
       (category === 'All' || item.category === category) &&
       item.name.toLowerCase().includes(query))
-  }, [community, builtIns, category, ownerOnly, search])
+  }, [community, builtIns, category, ownerOnly, search, section])
 
   const handleListed = (template: MarketplaceTemplate) => {
     setTemplates(previous => [template, ...previous.filter(item => item.id !== template.id)])
@@ -392,6 +404,7 @@ export function TemplatesView({ onUseTemplate }: { onUseTemplate: (source: strin
     setCategory('All')
     setSearch('')
     setOwnerOnly(true)
+    setSection(template.kind === 'motion' ? 'motion' : 'flyer')
     setShowList(false)
   }
 
@@ -402,6 +415,14 @@ export function TemplatesView({ onUseTemplate }: { onUseTemplate: (source: strin
       if (item.kind === 'community' && item.template && !item.owned) {
         await purchaseTemplate(item.template.id)
         setPurchased(prev => new Set(prev).add(item.template!.id))
+      }
+      if (item.section === 'motion' && item.template) {
+        // Motion designs are delivered as their file: the signed link downloads it.
+        const link = document.createElement('a')
+        link.href = await templateFileUrl(item.template)
+        link.rel = 'noopener'
+        link.click()
+        return
       }
       await onUseTemplate(item.source, `${item.name}.jpeg`)
     } catch (error) {
@@ -427,20 +448,38 @@ export function TemplatesView({ onUseTemplate }: { onUseTemplate: (source: strin
       <PageIntro
         eyebrow="Template marketplace"
         title="Templates"
-        copy="Start from a polished reference, or list your own template to earn Spyda credits every time someone uses it."
+        copy="Flyers and motion designs from Spyda and the community. List your own, set a price in Spyda credits, and earn every time someone gets it."
         action={(
           <button type="button" onClick={() => setShowList(true)} className="inline-flex h-10 items-center gap-2 rounded-lg bg-primary px-4 text-xs font-semibold text-primary-foreground">
-            <Plus className="h-4 w-4" /> List a template
+            <Plus className="h-4 w-4" /> {section === 'motion' ? 'List a motion design' : 'List a flyer'}
           </button>
         )}
       />
 
-      <div className="mt-6 flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+      <div role="tablist" aria-label="Template type" className="mt-6 inline-flex rounded-xl border border-white/[0.08] bg-surface p-1">
+        {([['flyer', 'Flyers', LayoutTemplate], ['motion', 'Motion designs', Clapperboard]] as const).map(([value, label, Icon]) => (
+          <button
+            key={value}
+            type="button"
+            role="tab"
+            aria-selected={section === value}
+            onClick={() => { setSection(value); setCategory('All') }}
+            className={`inline-flex h-9 items-center gap-2 rounded-lg px-4 text-xs font-semibold transition-colors ${section === value ? 'bg-primary text-primary-foreground' : 'text-muted-foreground hover:text-foreground'}`}
+          >
+            <Icon className="h-4 w-4" /> {label}
+            <span className={`rounded-full px-1.5 text-[10px] ${section === value ? 'bg-black/15' : 'bg-white/[0.06]'}`}>
+              {[...community, ...builtIns].filter(item => item.section === value).length}
+            </span>
+          </button>
+        ))}
+      </div>
+
+      <div className="mt-4 flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
         <div className="flex gap-2 overflow-x-auto pb-1">
           {user && <button type="button" onClick={() => { setOwnerOnly(value => !value); setCategory('All') }} className={`h-9 shrink-0 rounded-lg border px-4 text-xs font-semibold ${ownerOnly ? 'border-primary/40 bg-primary/10 text-primary' : 'border-white/[0.08] text-muted-foreground'}`}>My listings</button>}
           {categories.map(value => <button key={value} type="button" onClick={() => { setCategory(value); setOwnerOnly(false) }} className={`h-9 shrink-0 rounded-lg border px-4 text-xs font-semibold ${!ownerOnly && category === value ? 'border-primary/40 bg-primary/10 text-primary' : 'border-white/[0.08] text-muted-foreground'}`}>{value}</button>)}
         </div>
-        <label className="flex h-10 items-center gap-2 rounded-lg border border-white/[0.08] bg-surface px-3 sm:w-64"><Search className="h-4 w-4 text-muted-foreground" /><input value={search} onChange={event => setSearch(event.target.value)} placeholder="Search templates" className="min-w-0 flex-1 bg-transparent text-sm outline-none" /></label>
+        <label className="flex h-10 items-center gap-2 rounded-lg border border-white/[0.08] bg-surface px-3 sm:w-64"><Search className="h-4 w-4 text-muted-foreground" /><input value={search} onChange={event => setSearch(event.target.value)} placeholder={section === 'motion' ? 'Search motion designs' : 'Search flyers'} className="min-w-0 flex-1 bg-transparent text-sm outline-none" /></label>
       </div>
 
       {marketError && <div className="mt-4 flex items-start gap-2 rounded-lg border border-amber-500/20 bg-amber-500/[0.06] px-4 py-3 text-xs leading-5 text-amber-200"><AlertTriangle className="mt-0.5 h-4 w-4 shrink-0" />{marketError}</div>}
@@ -458,6 +497,11 @@ export function TemplatesView({ onUseTemplate }: { onUseTemplate: (source: strin
             <article key={item.key} className="group flex flex-col overflow-hidden rounded-lg border border-white/[0.08] bg-surface">
               <div className="relative aspect-[4/5] overflow-hidden bg-[#0a0a0c]">
                 <img src={item.source} alt={`${item.name} template`} className="h-full w-full object-cover transition-transform duration-300 group-hover:scale-[1.02]" />
+                {item.section === 'motion' && (
+                  <span aria-hidden="true" className="pointer-events-none absolute inset-0 flex items-center justify-center">
+                    <span className="flex h-12 w-12 items-center justify-center rounded-full bg-black/60 text-white ring-1 ring-white/20 backdrop-blur"><Play className="ml-0.5 h-5 w-5" /></span>
+                  </span>
+                )}
                 {item.kind === 'spyda' ? (
                   <span className="absolute left-2 top-2 inline-flex items-center gap-1 rounded bg-black/70 px-2 py-1 text-[9px] font-semibold uppercase text-white"><Sparkles className="h-3 w-3 text-primary" /> Spyda pick</span>
                 ) : item.isOwner ? (
@@ -478,8 +522,10 @@ export function TemplatesView({ onUseTemplate }: { onUseTemplate: (source: strin
                 <p className="truncate text-sm font-semibold">{item.name}</p>
                 <p className="mt-1 text-[10px] uppercase text-muted-foreground">{item.category}</p>
                 <button type="button" disabled={applying !== null} onClick={() => handleUse(item)} className="mt-3 inline-flex h-9 w-full items-center justify-center gap-1.5 rounded-lg bg-primary text-xs font-semibold text-primary-foreground disabled:opacity-50">
-                  {isApplying ? <Loader2 className="h-4 w-4 animate-spin" /> : <LayoutTemplate className="h-4 w-4" />}
-                  {paid ? <>Use · {item.price.toLocaleString()}<SpydaCreditMark className="h-3.5 w-3.5" /></> : 'Use template'}
+                  {isApplying ? <Loader2 className="h-4 w-4 animate-spin" /> : item.section === 'motion' ? <Download className="h-4 w-4" /> : <LayoutTemplate className="h-4 w-4" />}
+                  {item.section === 'motion'
+                    ? paid ? <>Get · {item.price.toLocaleString()}<SpydaCreditMark className="h-3.5 w-3.5" /></> : 'Download'
+                    : paid ? <>Use · {item.price.toLocaleString()}<SpydaCreditMark className="h-3.5 w-3.5" /></> : 'Use template'}
                 </button>
               </div>
             </article>
@@ -488,11 +534,12 @@ export function TemplatesView({ onUseTemplate }: { onUseTemplate: (source: strin
       </div>
 
       {!loadingMarket && !visible.length && (
-        <div className="mt-6"><EmptyLibrary icon={LayoutTemplate} title="No matching templates" copy="Try another category or search term, or list your own template for the community." /></div>
+        <div className="mt-6"><EmptyLibrary icon={section === 'motion' ? Clapperboard : LayoutTemplate} title={section === 'motion' ? 'No motion designs yet' : 'No matching flyers'} copy={section === 'motion' ? 'Be the first: list a motion design you made and set its price in Spyda credits.' : 'Try another category or search term, or list your own flyer for the community.'} /></div>
       )}
 
       {showList && (
         <ListTemplateDialog
+          initialKind={section}
           categories={dbCategories.length ? dbCategories : builtIns.map(item => item.category)}
           userId={user?.id}
           onClose={() => setShowList(false)}
@@ -503,7 +550,8 @@ export function TemplatesView({ onUseTemplate }: { onUseTemplate: (source: strin
   )
 }
 
-function ListTemplateDialog({ categories, userId, onClose, onListed }: {
+function ListTemplateDialog({ initialKind, categories, userId, onClose, onListed }: {
+  initialKind: MarketplaceKind
   categories: string[]
   userId?: string
   onClose: () => void
@@ -516,7 +564,10 @@ function ListTemplateDialog({ categories, userId, onClose, onListed }: {
   const [customCategory, setCustomCategory] = useState('')
   const [price, setPrice] = useState('25')
   const [description, setDescription] = useState('')
+  const [kind, setKind] = useState<MarketplaceKind>(initialKind)
   const [file, setFile] = useState<File | null>(null)
+  const [motionFile, setMotionFile] = useState<File | null>(null)
+  const motionRef = useRef<HTMLInputElement>(null)
   const [preview, setPreview] = useState('')
   const [balance, setBalance] = useState<number | null>(null)
   const [submitting, setSubmitting] = useState(false)
@@ -569,11 +620,27 @@ function ListTemplateDialog({ categories, userId, onClose, onListed }: {
     if (fileRef.current) fileRef.current.value = '' // Allow re-selecting the same file
   }
 
+  const pickMotion = (selected?: File) => {
+    if (!selected) return
+    if (!(selected.type.startsWith('video/') || /\.(mp4|webm|mov|html?)$/i.test(selected.name))) {
+      setError('Upload the motion design as a video (MP4, WebM, MOV) or the HTML Spyda exports.')
+      return
+    }
+    if (selected.size > MOTION_FILE_LIMIT) {
+      setError('Please choose a motion file smaller than 100 MB.')
+      return
+    }
+    setError('')
+    setMotionFile(selected)
+    if (motionRef.current) motionRef.current.value = ''
+  }
+
   const submit = async () => {
-    if (!userId) return setError('Sign in to list a template.')
-    if (!name.trim()) return setError('Give your template a name.')
+    if (!userId) return setError('Sign in to list a design.')
+    if (!name.trim()) return setError('Give your design a name.')
     if (!chosenCategory) return setError('Choose or enter a category.')
-    if (!file) return setError('Upload a preview image for your template.')
+    if (!file) return setError(kind === 'motion' ? 'Upload a cover image buyers see before they get it.' : 'Upload a preview image for your flyer.')
+    if (kind === 'motion' && !motionFile) return setError('Upload the motion design file.')
     if (lowBalance) return setError(`You need ${TEMPLATE_LISTING_FEE} Spyda credits to list a template.`)
     setSubmitting(true)
     setError('')
@@ -585,8 +652,17 @@ function ListTemplateDialog({ categories, userId, onClose, onListed }: {
         throw new Error(`Upload failed: ${e.message || 'Network error'}`)
       }
       
+      let motionUpload: { path: string; type: string } | undefined
+      if (kind === 'motion' && motionFile) {
+        try {
+          motionUpload = await uploadTemplateFile(userId, motionFile)
+        } catch (e: any) {
+          throw new Error(`Motion file upload failed: ${e.message || 'Network error'}`)
+        }
+      }
+
       try {
-        const listedTemplate = await listTemplate({ name: name.trim(), category: chosenCategory, price: priceValue, imageUrl: uploadResult.url, imagePath: uploadResult.path, description: description.trim() })
+        const listedTemplate = await listTemplate({ name: name.trim(), category: chosenCategory, price: priceValue, imageUrl: uploadResult.url, imagePath: uploadResult.path, description: description.trim(), kind, filePath: motionUpload?.path, fileType: motionUpload?.type })
         onListed(listedTemplate)
       } catch (e: any) {
         throw new Error(`Database error: ${e.message || 'Unknown RPC error'}`)
@@ -604,24 +680,45 @@ function ListTemplateDialog({ categories, userId, onClose, onListed }: {
         <div className="flex items-start justify-between gap-4">
           <div>
             <div className="mb-1 flex items-center gap-2 text-[10px] font-semibold uppercase text-primary"><Store className="h-3.5 w-3.5" /> Template marketplace</div>
-            <h3 className="font-heading text-lg font-semibold">List your template</h3>
+            <h3 className="font-heading text-lg font-semibold">{kind === 'motion' ? 'List your motion design' : 'List your flyer'}</h3>
             <p className="mt-1 flex flex-wrap items-center gap-1 text-xs text-muted-foreground">Listing costs <span className="inline-flex items-center gap-1 font-semibold text-foreground"><SpydaCreditMark className="h-3 w-3" />{TEMPLATE_LISTING_FEE} credits</span>. You keep every credit buyers pay to use it.</p>
           </div>
           <button type="button" onClick={onClose} aria-label="Close" className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg border border-white/[0.08] text-muted-foreground hover:text-foreground"><X className="h-4 w-4" /></button>
         </div>
 
         <div className="mt-5 space-y-4">
+          <div role="radiogroup" aria-label="What are you listing?" className="grid grid-cols-2 gap-2">
+            {([['flyer', 'Flyer', LayoutTemplate], ['motion', 'Motion design', Clapperboard]] as const).map(([value, label, Icon]) => (
+              <button key={value} type="button" role="radio" aria-checked={kind === value} onClick={() => { setKind(value); setError('') }} className={`flex h-11 items-center justify-center gap-2 rounded-lg border text-xs font-semibold ${kind === value ? 'border-primary/50 bg-primary/10 text-primary' : 'border-white/[0.08] text-muted-foreground hover:text-foreground'}`}>
+                <Icon className="h-4 w-4" /> {label}
+              </button>
+            ))}
+          </div>
+
+          {kind === 'motion' && (
+            <div>
+              <label className="text-xs font-semibold text-muted-foreground">Motion file</label>
+              <input ref={motionRef} type="file" accept="video/mp4,video/webm,video/quicktime,.html,text/html" className="hidden" onChange={event => pickMotion(event.target.files?.[0])} />
+              <button type="button" onClick={() => motionRef.current?.click()} className="mt-2 flex h-14 w-full items-center gap-3 rounded-lg border border-dashed border-white/[0.14] bg-surface px-4 text-left text-xs text-muted-foreground hover:border-primary/40">
+                <Clapperboard className="h-5 w-5 shrink-0 text-primary" />
+                {motionFile
+                  ? <span className="min-w-0 flex-1 truncate text-foreground">{motionFile.name} <span className="text-muted-foreground">· {(motionFile.size / 1024 / 1024).toFixed(1)} MB</span></span>
+                  : <span>Upload the video (MP4, WebM, MOV) or the HTML Spyda exports. It stays private until someone gets it.</span>}
+              </button>
+            </div>
+          )}
+
           <div>
-            <label className="text-xs font-semibold text-muted-foreground">Preview image</label>
+            <label className="text-xs font-semibold text-muted-foreground">{kind === 'motion' ? 'Cover image' : 'Preview image'}</label>
             <input ref={fileRef} type="file" accept="image/*" className="hidden" onChange={event => pickImage(event.target.files?.[0])} />
             <button type="button" onClick={() => fileRef.current?.click()} className="mt-2 flex aspect-[4/3] w-full items-center justify-center overflow-hidden rounded-lg border border-dashed border-white/[0.14] bg-surface text-muted-foreground hover:border-primary/40">
-              {preview ? <img src={preview} alt="Template preview" className="h-full w-full object-contain" /> : <span className="flex flex-col items-center gap-2 text-xs"><ImagePlus className="h-6 w-6 text-primary" /> Upload template image</span>}
+              {preview ? <img src={preview} alt="Template preview" className="h-full w-full object-contain" /> : <span className="flex flex-col items-center gap-2 text-xs"><ImagePlus className="h-6 w-6 text-primary" /> {kind === 'motion' ? 'Upload a cover frame (a GIF works too)' : 'Upload flyer image'}</span>}
             </button>
           </div>
 
           <div>
-            <label className="text-xs font-semibold text-muted-foreground" htmlFor="tpl-name">Template name</label>
-            <input id="tpl-name" value={name} onChange={event => setName(event.target.value)} placeholder="e.g. Weekend sale flyer" className="mt-2 h-10 w-full rounded-lg border border-white/[0.08] bg-background px-3 text-sm outline-none focus:border-primary/50" />
+            <label className="text-xs font-semibold text-muted-foreground" htmlFor="tpl-name">Name</label>
+            <input id="tpl-name" value={name} onChange={event => setName(event.target.value)} placeholder={kind === 'motion' ? 'e.g. Product reveal, 9:16' : 'e.g. Weekend sale flyer'} className="mt-2 h-10 w-full rounded-lg border border-white/[0.08] bg-background px-3 text-sm outline-none focus:border-primary/50" />
           </div>
 
           <div>

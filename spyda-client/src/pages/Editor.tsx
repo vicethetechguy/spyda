@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { Link, useNavigate, useParams } from 'react-router-dom'
 import {
-  ArrowLeft, Clock, Copy, Download, Eye, Image as ImageIcon, Layers, Loader2, Move, Palette, Plus, Redo2, Sparkles,
+  ArrowLeft, Clock, Copy, Download, Eye, Image as ImageIcon, Layers, Loader2, LogOut, Move, Palette, Plus, Redo2, Sparkles,
   Trash2, Type, Undo2, Wand2, type LucideIcon,
 } from '../components/ui/icons'
 import type Konva from 'konva'
@@ -243,6 +243,12 @@ export default function Editor() {
     })
     setSaved(true)
   }, [project?.breakdown, projectId])
+
+  /** Leave canvas mode: save what is on the canvas now (not after the autosave delay), then back to Spyda AI. */
+  const exitCanvas = useCallback(() => {
+    if (design && edited.current) persist(design)
+    navigate('/workspace')
+  }, [design, navigate, persist])
 
   // Debounced autosave, but only once the user has actually changed something.
   useEffect(() => {
@@ -972,7 +978,7 @@ export default function Editor() {
         <div className="flex h-11 shrink-0 items-center gap-2 border-b border-white/[0.06] px-2.5">
           <button
             type="button"
-            onClick={() => navigate('/workspace')}
+            onClick={exitCanvas}
             aria-label="Close canvas mode and go back to Spyda AI"
             title="Back to Spyda AI"
             className="flex h-7 w-7 shrink-0 items-center justify-center rounded-md transition-colors hover:bg-white/[0.08]"
@@ -1045,7 +1051,7 @@ export default function Editor() {
           {/* On phones the file header sits below the canvas, so the way back is up here. */}
           <button
             type="button"
-            onClick={() => navigate('/workspace')}
+            onClick={exitCanvas}
             aria-label="Back to Spyda AI"
             className="flex h-7 w-7 shrink-0 items-center justify-center rounded-md bg-black/40 text-muted-foreground lg:hidden"
           >
@@ -1162,9 +1168,18 @@ export default function Editor() {
           </button>
           <button
             type="button"
+            onClick={exitCanvas}
+            title="Save and leave canvas mode"
+            className="ml-auto inline-flex h-7 items-center gap-1.5 rounded-md border border-white/[0.1] px-2.5 text-[11px] font-semibold text-foreground/90 transition-colors hover:bg-white/[0.08]"
+          >
+            <LogOut className="h-3 w-3" aria-hidden />
+            Done
+          </button>
+          <button
+            type="button"
             onClick={() => handleExport(delivery)}
             disabled={exporting || !design}
-            className="ml-auto inline-flex h-7 items-center gap-1.5 rounded-md bg-primary px-3 text-[11px] font-semibold text-primary-foreground transition-transform active:scale-[0.98] disabled:opacity-50"
+            className="inline-flex h-7 items-center gap-1.5 rounded-md bg-primary px-3 text-[11px] font-semibold text-primary-foreground transition-transform active:scale-[0.98] disabled:opacity-50"
           >
             {exporting ? <Loader2 className="h-3 w-3 animate-spin" aria-hidden /> : <Download className="h-3 w-3" aria-hidden />}
             Export

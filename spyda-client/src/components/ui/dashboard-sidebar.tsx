@@ -301,7 +301,7 @@ function SidebarRail({ currentId, onSelect, taskBadge, className }: {
   return (
     <nav aria-label="Workspace" className={`flex h-full w-[76px] flex-col items-center border-r border-white/[0.06] bg-[#08090a] py-4 ${className}`}>
       <img src="/assets/spyda-logo.png" alt="Spyda" className="mb-5 h-9 w-9 object-contain" />
-      <div className="flex min-h-0 flex-1 flex-col items-center gap-2.5 overflow-y-auto px-2 [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
+      <div className="flex min-h-0 flex-1 flex-col items-center gap-2.5 overflow-y-auto px-2 py-1.5 [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
         {items.map(item => (
           <RailItem
             key={item.id}

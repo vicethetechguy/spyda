@@ -1,7 +1,14 @@
 import { supabase } from './supabase'
 
+export type MarketplaceKind = 'flyer' | 'motion'
+
 export type MarketplaceTemplate = {
   id: string
+  /** Missing on rows from before motion listings: those are flyers. */
+  kind?: MarketplaceKind
+  /** The deliverable in the private bucket (motion video or HTML). */
+  file_path?: string | null
+  file_type?: string | null
   owner_id: string
   name: string
   category: string
@@ -54,6 +61,31 @@ export async function uploadTemplateImage(userId: string, file: File): Promise<{
   return { url: data.publicUrl, path }
 }
 
+/** The largest motion file a lister can upload (the bucket enforces it too). */
+export const MOTION_FILE_LIMIT = 100 * 1024 * 1024
+
+/** Uploads a motion deliverable to the private bucket, under the lister's folder. */
+export async function uploadTemplateFile(userId: string, file: File): Promise<{ path: string; type: string }> {
+  const rawExt = file.name.split('.').pop()?.toLowerCase().replace(/[^a-z0-9]/g, '') || 'mp4'
+  const ext = rawExt.length > 5 ? 'mp4' : rawExt
+  const type = file.type || (ext === 'html' ? 'text/html' : ext === 'webm' ? 'video/webm' : 'video/mp4')
+  const path = `${userId}/${Date.now()}-${Math.random().toString(36).slice(2, 8)}.${ext}`
+  const { error } = await supabase.storage
+    .from('template-files')
+    .upload(path, file, { cacheControl: '3600', upsert: false, contentType: type })
+  if (error) throw error
+  return { path, type }
+}
+
+/** A short-lived link to an unlocked deliverable. Storage refuses it unless the reader owns or bought it. */
+export async function templateFileUrl(template: MarketplaceTemplate): Promise<string> {
+  if (!template.file_path) throw new Error('This listing has no file to download.')
+  const name = `${template.name.replace(/[^a-z0-9]+/gi, '-').replace(/^-|-$/g, '') || 'spyda-motion'}.${template.file_path.split('.').pop()}`
+  const { data, error } = await supabase.storage.from('template-files').createSignedUrl(template.file_path, 60 * 10, { download: name })
+  if (error || !data?.signedUrl) throw new Error(error?.message || 'The file could not be opened.')
+  return data.signedUrl
+}
+
 export async function listTemplate(input: {
   name: string
   category: string
@@ -61,6 +93,9 @@ export async function listTemplate(input: {
   imageUrl: string
   imagePath: string
   description?: string
+  kind?: MarketplaceKind
+  filePath?: string
+  fileType?: string
 }): Promise<MarketplaceTemplate> {
   const { data, error } = await supabase.rpc('list_marketplace_template', {
     p_name: input.name,
@@ -69,6 +104,8 @@ export async function listTemplate(input: {
     p_image_url: input.imageUrl,
     p_image_path: input.imagePath,
     p_description: input.description ?? null,
+    // Flyers keep the original call shape, so they still list before the motion migration lands.
+    ...(input.kind === 'motion' ? { p_kind: 'motion', p_file_path: input.filePath ?? null, p_file_type: input.fileType ?? null } : {}),
   })
   if (error) throw new Error(error.message)
   const template = (Array.isArray(data) ? data[0] : data) as MarketplaceTemplate | null
@@ -88,5 +125,8 @@ export async function deleteTemplate(template: MarketplaceTemplate): Promise<voi
   if (error) throw error
   if (template.image_path) {
     await supabase.storage.from('template-images').remove([template.image_path]).catch(() => undefined)
+  }
+  if (template.file_path) {
+    await supabase.storage.from('template-files').remove([template.file_path]).catch(() => undefined)
   }
 }
