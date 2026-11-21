@@ -21,7 +21,7 @@ import {
   Type,
   Upload,
   X,
-} from 'lucide-react'
+} from '../ui/icons'
 import type { LegacyBreakdown as BreakdownResult } from '../../core/design-document'
 import type { AtomBox } from '../../lib/design'
 import { useAuth } from '../../lib/AuthContext'

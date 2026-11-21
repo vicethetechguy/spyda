@@ -11,7 +11,7 @@ import {
   Lock,
   Mail,
   ShieldCheck,
-} from 'lucide-react'
+} from '../components/ui/icons'
 import { supabase } from '../lib/supabase'
 import { useAuth } from '../lib/AuthContext'
 

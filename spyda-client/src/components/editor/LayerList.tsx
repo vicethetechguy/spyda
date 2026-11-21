@@ -2,7 +2,7 @@ import {
   ArrowDown, ArrowUp, BadgeCheck, Copy, Eye, EyeOff, Image as ImageIcon, Lock,
   MousePointerClick, QrCode, Shapes, Sparkles, Square, Trash2, Type,
   type LucideIcon,
-} from 'lucide-react'
+} from '../ui/icons'
 import type { DesignObject } from '../../core/design-document'
 
 /**

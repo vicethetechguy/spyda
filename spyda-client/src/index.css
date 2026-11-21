@@ -724,7 +724,7 @@
   height: 46%;
   object-fit: contain;
   transform: translate(-50%, -50%);
-  filter: drop-shadow(0 2px 0 rgba(0, 0, 0, 0.55)) drop-shadow(0 -1px 0 rgba(255, 255, 255, 0.35)) saturate(1.1);
+  filter: drop-shadow(0 2px 0 rgba(0, 0, 0, 0.55)) drop-shadow(0 -1px 0 rgba(255, 255, 255, 0.35)) saturate(1.1) brightness(1.25);
 }
 .spyda-coin__ticker {
   position: absolute;
@@ -816,4 +816,13 @@
   .spyda-coin, .spyda-coin-float, .spyda-coin__shine, .spyda-coin-shadow, .spyda-coin-glow,
   .spyda-orbit--outer, .spyda-orbit--inner, .spyda-chip { animation: none; }
   .spyda-coin { transform: rotateX(10deg) rotateY(-20deg); }
+}
+
+/* Phosphor duotone draws its tinted body at 20%; on Spyda's near-black
+   surfaces that reads as a line icon, so the body is lifted a little. */
+.spyda-icon path[opacity="0.2"],
+.spyda-icon circle[opacity="0.2"],
+.spyda-icon rect[opacity="0.2"],
+.spyda-icon polygon[opacity="0.2"] {
+  opacity: 0.32;
 }

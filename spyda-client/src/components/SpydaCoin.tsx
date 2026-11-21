@@ -1,4 +1,5 @@
-import { Gift, Network } from 'lucide-react'
+import { Gift, Network } from './ui/icons'
+import BrandMark from './brand/BrandMark'
 
 /**
  * The SPYDA token as a minted coin: a metallic mint rim with a reeded edge,
@@ -35,7 +36,7 @@ function CoinFace({ side, transform }: { side: 'front' | 'back'; transform: stri
         {side === 'front' ? (
           <>
             <CoinLettering id="spyda-coin-front-text" text="SPYDA TOKEN · CREATE · ACCRUE · LAUNCH TOGETHER ·" />
-            <img src="/assets/spyda-credit.png" alt="" className="spyda-coin__mark" />
+            <div className="spyda-coin__mark"><BrandMark className="h-full w-full" /></div>
             <span className="spyda-coin__ticker">SPYDA</span>
           </>
         ) : (

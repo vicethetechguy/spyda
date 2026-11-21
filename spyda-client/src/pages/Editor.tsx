@@ -3,7 +3,7 @@ import { Link, useNavigate, useParams } from 'react-router-dom'
 import {
   ArrowLeft, Check, Clock, Copy, Eye, Image as ImageIcon, Layers, Loader2, Move, Palette, Redo2, Sparkles,
   Trash2, Type, Undo2, Wand2, X, type LucideIcon,
-} from 'lucide-react'
+} from '../components/ui/icons'
 import {
   adaptBreakdownToDesignDocument,
   designDocumentToLegacyBreakdown,

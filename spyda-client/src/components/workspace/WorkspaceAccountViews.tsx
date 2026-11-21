@@ -15,7 +15,7 @@ import {
   ShieldCheck,
   Smartphone,
   X,
-} from 'lucide-react'
+} from '../ui/icons'
 import { useAuth } from '../../lib/AuthContext'
 import { supabase } from '../../lib/supabase'
 
@@ -166,7 +166,7 @@ export function SubscriptionView({ onBack, onOpenWallet, onOpenSettings }: { onB
 
       {message && <div className="mt-5 flex items-center justify-between gap-3 rounded-lg border border-primary/20 bg-primary/[0.06] p-4 text-sm text-primary"><span>{message}</span><button type="button" onClick={() => setMessage('')} aria-label="Dismiss"><X className="h-4 w-4" /></button></div>}
 
-      <div className="mt-7 flex snap-x snap-mandatory gap-4 overflow-x-auto px-[8vw] pb-3 sm:px-0 lg:grid lg:grid-cols-2 lg:overflow-visible lg:pb-0 xl:grid-cols-4">
+      <div className="mt-5 flex snap-x snap-mandatory gap-4 overflow-x-auto px-[8vw] pb-3 pt-2 sm:px-0 lg:grid lg:pt-0 lg:grid-cols-2 lg:overflow-visible lg:pb-0 xl:grid-cols-4">
         {PAYMENT_OPTIONS.map(option => {
           const plan = PLANS.find(candidate => candidate.id === option.id)
           return (

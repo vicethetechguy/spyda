@@ -14,7 +14,7 @@ import {
   Repeat2,
   ShieldCheck,
   X,
-} from 'lucide-react'
+} from '../ui/icons'
 import {
   WELCOME_REWARD_CREDITS,
   WELCOME_TASKS,
