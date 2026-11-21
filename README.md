@@ -59,6 +59,8 @@ VITE_SUPABASE_ANON_KEY=
 SUPABASE_SERVICE_ROLE_KEY=
 OPENAI_API_KEY=
 GROQ_API_KEY=
+# Optional: the Groq model the chat uses (default qwen/qwen3.8-27b). OpenAI is the fallback.
+GROQ_CHAT_MODEL=
 # Motion design runs on Claude Opus 5.5 (api/motion.ts).
 ANTHROPIC_API_KEY=
 # Optional: Spyda's general motion prompt; replaces the default in api/_motion-template.ts.

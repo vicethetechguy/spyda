@@ -32,6 +32,16 @@ export type ChatReply = {
 };
 
 export const chatModel = () => process.env.OPENAI_CHAT_MODEL || process.env.OPENAI_ANALYSIS_MODEL || "gpt-4o";
+/** Groq's live vision model: reads flyers and calls the edit tool. */
+export const groqChatModel = () => process.env.GROQ_CHAT_MODEL || "qwen/qwen3.8-27b";
+
+export type ChatProvider = "groq" | "openai";
+export type ChatKeys = { groq?: string; openai?: string };
+
+const PROVIDERS: Record<ChatProvider, { url: string; model: () => string; label: string }> = {
+  groq: { url: "https://api.groq.com/openai/v1/chat/completions", model: groqChatModel, label: "Groq" },
+  openai: { url: "https://api.openai.com/v1/chat/completions", model: chatModel, label: "OpenAI" },
+};
 
 /** Images are the expensive part of a request; only the latest few travel. */
 export const MAX_IMAGES_PER_REQUEST = 3;
@@ -154,19 +164,23 @@ export function readChatCompletion(payload: any): ChatReply {
       edit = null;
     }
   }
-  const reply = typeof message.content === "string" ? message.content.trim() : "";
+  // Reasoning models can leave their thinking in the text; it is not for the person.
+  const reply = typeof message.content === "string"
+    ? message.content.replace(/<think>[\s\S]*?(<\/think>|$)/gi, "").trim()
+    : "";
   return {
     reply: reply || (edit ? `Here is the change I would make: ${edit.summary}.` : "I could not read a reply from the model. Try again."),
     edit,
   };
 }
 
-export async function requestChatReply(turns: ChatTurn[], openaiKey: string): Promise<ChatReply> {
-  const response = await fetch("https://api.openai.com/v1/chat/completions", {
+async function requestFrom(provider: ChatProvider, key: string, turns: ChatTurn[]): Promise<ChatReply> {
+  const target = PROVIDERS[provider];
+  const response = await fetch(target.url, {
     method: "POST",
-    headers: { Authorization: `Bearer ${openaiKey}`, "Content-Type": "application/json" },
+    headers: { Authorization: `Bearer ${key}`, "Content-Type": "application/json" },
     body: JSON.stringify({
-      model: chatModel(),
+      model: target.model(),
       temperature: 0.5,
       messages: buildChatMessages(turns),
       tools: [EDIT_TOOL],
@@ -176,9 +190,35 @@ export async function requestChatReply(turns: ChatTurn[], openaiKey: string): Pr
   });
   if (!response.ok) {
     const err = await response.json().catch(() => ({}));
-    throw new Error(err.error?.message || "The design assistant is unavailable right now.");
+    throw new Error(`${target.label}: ${err.error?.message || "the design assistant is unavailable right now."}`);
   }
   return readChatCompletion(await response.json());
+}
+
+/** The order to try providers in: the selected one first, the other as a fallback when it has a key. */
+export function chatProviderOrder(preferred: string, keys: ChatKeys): ChatProvider[] {
+  const first: ChatProvider = preferred === "openai" ? "openai" : "groq";
+  const second: ChatProvider = first === "groq" ? "openai" : "groq";
+  return [first, second].filter(provider => Boolean(keys[provider]));
+}
+
+/**
+ * Replies with the selected provider (Groq by default), falling back to the
+ * other one if it fails and has a key, so one exhausted account does not stop
+ * the chat.
+ */
+export async function requestChatReply(turns: ChatTurn[], keys: ChatKeys, preferred = "groq"): Promise<ChatReply> {
+  const order = chatProviderOrder(preferred, keys);
+  if (!order.length) throw new Error("No chat model is configured. Add GROQ_API_KEY or OPENAI_API_KEY.");
+  const errors: string[] = [];
+  for (const provider of order) {
+    try {
+      return await requestFrom(provider, keys[provider]!, turns);
+    } catch (error: any) {
+      errors.push(String(error?.message || error));
+    }
+  }
+  throw new Error(errors.join(" "));
 }
 
 /** The prompt the image model gets for a confirmed edit. */

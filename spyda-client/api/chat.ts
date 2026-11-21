@@ -31,9 +31,11 @@ export default async function handler(req: any, res: any) {
     const user = await requireUser(req);
 
     const openaiKey = String(req.headers?.['x-spyda-openai-key'] || '').trim() || process.env.OPENAI_API_KEY || '';
-    if (!openaiKey) return res.status(500).json({ ok: false, error: 'OPENAI_API_KEY is not configured.' });
+    const groqKey = String(req.headers?.['x-spyda-groq-key'] || '').trim() || process.env.GROQ_API_KEY || '';
 
     if (body.action === 'edit') {
+      // Groq has no image model, so generating a version always needs OpenAI.
+      if (!openaiKey) return res.status(500).json({ ok: false, error: 'Generating a new version needs OPENAI_API_KEY.' });
       const instruction = String(body.instruction || '').trim();
       const image = String(body.image || '');
       if (!instruction) return res.status(400).json({ ok: false, error: 'Say what should change.' });
@@ -63,7 +65,7 @@ export default async function handler(req: any, res: any) {
     }
 
     const turns = readTurns(body.messages);
-    const result = await requestChatReply(turns, openaiKey);
+    const result = await requestChatReply(turns, { groq: groqKey, openai: openaiKey }, readModelMode(req, body.modelMode));
     return res.status(200).json({ ok: true, ...result });
   } catch (error: any) {
     return sendError(res, error, 'Spyda could not answer.');

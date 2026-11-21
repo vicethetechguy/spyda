@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it, vi } from 'vitest'
-import { MAX_IMAGES_PER_REQUEST, buildChatMessages, buildEditPrompt, readChatCompletion, readTurns, requestChatReply } from '../../api/_chat.js'
+import { MAX_IMAGES_PER_REQUEST, buildChatMessages, buildEditPrompt, chatProviderOrder, readChatCompletion, readTurns, requestChatReply } from '../../api/_chat.js'
 
 const image = (n: number) => `data:image/jpeg;base64,${'A'.repeat(4)}${n}`
 
@@ -64,12 +64,42 @@ describe('workspace chat', () => {
     }))
     vi.stubGlobal('fetch', request)
 
-    const result = await requestChatReply([{ role: 'user', text: 'Hello' }], 'sk-user-key')
+    const result = await requestChatReply([{ role: 'user', text: 'Hello' }], { openai: 'sk-user-key' }, 'openai')
     expect(result.reply).toBe('Looks great.')
     const init = request.mock.calls[0]?.[1]
     expect((init?.headers as Record<string, string> | undefined)?.Authorization).toBe('Bearer sk-user-key')
     const body = JSON.parse(String(init?.body))
     expect(body.tools[0].function.name).toBe('propose_flyer_edit')
+  })
+
+  it('asks Groq first by default and falls back to OpenAI when Groq fails', async () => {
+    const request = vi.fn(async (url: string, _init?: RequestInit) => url.includes('groq.com')
+      ? { ok: false, json: async () => ({ error: { message: 'rate limited' } }) }
+      : { ok: true, json: async () => ({ choices: [{ message: { content: 'From OpenAI.' } }] }) })
+    vi.stubGlobal('fetch', request)
+
+    const result = await requestChatReply([{ role: 'user', text: 'Hi' }], { groq: 'gsk-1', openai: 'sk-1' })
+    expect(request.mock.calls.map(call => call[0])).toEqual([
+      'https://api.groq.com/openai/v1/chat/completions',
+      'https://api.openai.com/v1/chat/completions',
+    ])
+    expect(JSON.parse(String(request.mock.calls[0]?.[1]?.body)).model).toBe('qwen/qwen3.8-27b')
+    expect(result.reply).toBe('From OpenAI.')
+  })
+
+  it('reports both failures when no provider answers', async () => {
+    vi.stubGlobal('fetch', vi.fn(async (url: string) => ({ ok: false, json: async () => ({ error: { message: url.includes('groq') ? 'groq down' : 'no credits' } }) })))
+    await expect(requestChatReply([{ role: 'user', text: 'Hi' }], { groq: 'g', openai: 'o' })).rejects.toThrow(/Groq: groq down.*OpenAI: no credits/)
+    await expect(requestChatReply([{ role: 'user', text: 'Hi' }], {})).rejects.toThrow(/GROQ_API_KEY/)
+  })
+
+  it('only tries providers that have a key', () => {
+    expect(chatProviderOrder('groq', { groq: 'g' })).toEqual(['groq'])
+    expect(chatProviderOrder('openai', { groq: 'g', openai: 'o' })).toEqual(['openai', 'groq'])
+  })
+
+  it('hides reasoning the model left in its reply', () => {
+    expect(readChatCompletion({ choices: [{ message: { content: '<think>plan it</think>Here is the change.' } }] }).reply).toBe('Here is the change.')
   })
 
   it('tells the image model to keep everything else', () => {
