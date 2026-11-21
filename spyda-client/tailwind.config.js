@@ -7,6 +7,10 @@ export default {
   ],
   theme: {
     extend: {
+      screens: {
+        // Laptop windows with little height (Auth fits without scrolling).
+        short: { raw: '(min-width: 1024px) and (max-height: 820px)' },
+      },
       fontFamily: {
         sans: ["Montserrat", "system-ui", "sans-serif"],
         heading: ["Space Grotesk", "Montserrat", "sans-serif"],

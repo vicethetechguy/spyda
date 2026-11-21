@@ -93,15 +93,21 @@ function ProtectedRoute({ children }: { children: React.ReactNode }) {
 
 function App() {
   const [showSplash, setShowSplash] = useState(shouldShowSplash)
+  const [splashLeaving, setSplashLeaving] = useState(false)
 
   useEffect(() => {
     if (!showSplash) return
-    const splashTimer = window.setTimeout(() => setShowSplash(false), 1500)
-    return () => window.clearTimeout(splashTimer)
+    // Fade for the last 260ms instead of cutting to the app.
+    const leaveTimer = window.setTimeout(() => setSplashLeaving(true), 1500)
+    const splashTimer = window.setTimeout(() => setShowSplash(false), 1760)
+    return () => {
+      window.clearTimeout(leaveTimer)
+      window.clearTimeout(splashTimer)
+    }
   }, [showSplash])
 
   if (showSplash) {
-    return <SpydaSplash />
+    return <SpydaSplash leaving={splashLeaving} />
   }
 
   return (
