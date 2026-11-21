@@ -1,37 +1,40 @@
+import BrandMark from './brand/BrandMark'
+
 type SpydaSplashProps = {
   message?: string
+  /** Fades the splash out; App sets it just before unmounting. */
+  leaving?: boolean
 }
 
-/* The splash only lives for 1.5s — shorter than the liquid-metal mask solve —
-   so the mark is plain here and the wordmark carries the motion instead. */
-
-export default function SpydaSplash({ message = 'Preparing your design web' }: SpydaSplashProps) {
+/**
+ * The opening screen: the Spyda mark in liquid chrome inside a glass orb.
+ *
+ * The CSS chrome (`.spyda-chrome`) animates from the first frame, so the
+ * splash never shows a flat logo. The WebGL liquid-metal shader then paints
+ * over the same silhouette when its mask is solved, with no fallback image of
+ * its own, so the two blend instead of swapping.
+ */
+export default function SpydaSplash({ message = 'Preparing your design web', leaving = false }: SpydaSplashProps) {
   return (
-    <div className="spyda-splash" role="status" aria-live="polite">
-      <div className="spyda-splash__grid" />
-      <div className="spyda-splash__beam spyda-splash__beam--one" />
-      <div className="spyda-splash__beam spyda-splash__beam--two" />
+    <div className={`spyda-splash ${leaving ? 'spyda-splash--leaving' : ''}`} role="status" aria-live="polite">
+      <div className="spyda-splash__aurora spyda-splash__aurora--green" aria-hidden="true" />
+      <div className="spyda-splash__aurora spyda-splash__aurora--blue" aria-hidden="true" />
+      <div className="spyda-splash__grain" aria-hidden="true" />
 
-      <div className="spyda-splash__core">
-        <div className="spyda-splash__web" aria-hidden="true">
-          <span />
-          <span />
-          <span />
-          <span />
+      <div className="spyda-splash__stage">
+        <div className="spyda-splash__orb" aria-hidden="true">
+          <div className="spyda-splash__halo" />
+          <div className="spyda-splash__ring" />
+          <div className="spyda-splash__glass" />
+          <div className="spyda-splash__mark">
+            <span className="spyda-chrome" />
+            <BrandMark animated fallback="none" tint="#c4ffd3" className="absolute inset-0 h-full w-full" />
+          </div>
         </div>
 
-        <div className="spyda-splash__logo-wrap">
-          <img src="/assets/spyda-logo-drive.webp" alt="Spyda" className="spyda-splash__logo" />
-        </div>
-
-        <div className="spyda-splash__copy">
-          <p>Spyda</p>
-          <span>{message}</span>
-        </div>
-
-        <div className="spyda-splash__progress" aria-hidden="true">
-          <i />
-        </div>
+        <p className="spyda-splash__word">Spyda</p>
+        <span className="spyda-splash__message">{message}</span>
+        <div className="spyda-splash__track" aria-hidden="true"><i /></div>
       </div>
     </div>
   )

@@ -178,36 +178,6 @@
   100% { transform: translateX(-50%); }
 }
 
-@keyframes spyda-splash-enter {
-  from { opacity: 0; transform: scale(0.98); }
-  to { opacity: 1; transform: scale(1); }
-}
-
-@keyframes spyda-web-spin {
-  to { transform: rotate(360deg); }
-}
-
-@keyframes spyda-web-pulse {
-  0%, 100% { opacity: 0.32; transform: rotate(var(--ray-angle)) scaleX(0.74); }
-  50% { opacity: 0.92; transform: rotate(var(--ray-angle)) scaleX(1); }
-}
-
-@keyframes spyda-logo-rise {
-  0% { opacity: 0; transform: translateY(14px) scale(0.92); filter: blur(8px); }
-  100% { opacity: 1; transform: translateY(0) scale(1); filter: blur(0); }
-}
-
-@keyframes spyda-beam-scan {
-  0% { transform: translateX(-120%) skewX(-18deg); opacity: 0; }
-  18%, 72% { opacity: 0.45; }
-  100% { transform: translateX(120%) skewX(-18deg); opacity: 0; }
-}
-
-@keyframes spyda-progress {
-  0% { transform: translateX(-100%); }
-  100% { transform: translateX(220%); }
-}
-
 .animate-float {
   animation: float 6s ease-in-out infinite;
 }
@@ -326,6 +296,12 @@
   }
 }
 
+/* Splash.
+   The mark is the hero: a glass orb with a turning conic halo, the logo in
+   liquid chrome. The chrome is CSS (a banded metal gradient clipped to the
+   logo), so it moves from the first frame; the WebGL liquid-metal shader
+   paints over the same silhouette once its mask is ready. The wordmark
+   catches the same light sweep, and the whole screen fades out on leave. */
 .spyda-splash {
   position: fixed;
   inset: 0;
@@ -333,163 +309,199 @@
   display: grid;
   place-items: center;
   overflow: hidden;
-  background:
-    linear-gradient(135deg, rgba(5, 6, 6, 0.98), rgba(9, 13, 12, 0.96) 48%, rgba(3, 6, 5, 0.99)),
-    #050606;
+  background: #040505;
   color: hsl(var(--foreground));
-  animation: spyda-splash-enter 500ms ease both;
+  animation: spyda-splash-in 420ms ease-out both;
+  transition: opacity 260ms ease, filter 260ms ease;
 }
 
-.spyda-splash__grid {
+.spyda-splash--leaving {
+  opacity: 0;
+  filter: blur(6px);
+}
+
+.spyda-splash__aurora {
+  position: absolute;
+  width: 70vmax;
+  height: 70vmax;
+  border-radius: 999px;
+  filter: blur(80px);
+  opacity: 0.55;
+  pointer-events: none;
+}
+
+.spyda-splash__aurora--green {
+  left: -18vmax;
+  top: -22vmax;
+  background: radial-gradient(circle, rgba(18, 134, 111, 0.85), transparent 62%);
+  animation: spyda-aurora-a 7s ease-in-out infinite alternate;
+}
+
+.spyda-splash__aurora--blue {
+  right: -22vmax;
+  bottom: -26vmax;
+  background: radial-gradient(circle, rgba(12, 91, 134, 0.9), transparent 62%);
+  animation: spyda-aurora-b 8s ease-in-out infinite alternate;
+}
+
+.spyda-splash__grain {
   position: absolute;
   inset: 0;
-  opacity: 0.26;
-  background-image:
-    linear-gradient(rgba(157, 250, 176, 0.1) 1px, transparent 1px),
-    linear-gradient(90deg, rgba(157, 250, 176, 0.08) 1px, transparent 1px);
-  background-size: 44px 44px;
-  mask-image: radial-gradient(circle at center, black 0 54%, transparent 76%);
+  opacity: 0.08;
+  background-image: radial-gradient(circle, rgba(255, 255, 255, 0.8) 0 0.5px, transparent 0.8px);
+  background-size: 3px 3px;
+  mask-image: radial-gradient(circle at center, black, transparent 70%);
+  pointer-events: none;
 }
 
-.spyda-splash__beam {
-  position: absolute;
-  top: 0;
-  bottom: 0;
-  width: 32%;
-  background: linear-gradient(90deg, transparent, rgba(157, 250, 176, 0.12), transparent);
-  animation: spyda-beam-scan 2.4s ease-in-out infinite;
-}
-
-.spyda-splash__beam--one {
-  left: 10%;
-}
-
-.spyda-splash__beam--two {
-  right: 4%;
-  animation-delay: 700ms;
-  background: linear-gradient(90deg, transparent, rgba(139, 211, 255, 0.1), transparent);
-}
-
-.spyda-splash__core {
+.spyda-splash__stage {
   position: relative;
-  width: min(82vw, 360px);
-  min-height: 360px;
-  display: grid;
-  place-items: center;
-  padding: 28px;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 28px;
+  padding: 24px;
 }
 
-.spyda-splash__web {
-  position: absolute;
-  inset: 8%;
-  border: 1px solid rgba(157, 250, 176, 0.16);
-  border-radius: 999px;
-  animation: spyda-web-spin 11s linear infinite;
-}
-
-.spyda-splash__web::before,
-.spyda-splash__web::after {
-  content: "";
-  position: absolute;
-  inset: 17%;
-  border: 1px solid rgba(139, 211, 255, 0.14);
-  border-radius: inherit;
-}
-
-.spyda-splash__web::after {
-  inset: 34%;
-  border-color: rgba(247, 251, 255, 0.18);
-}
-
-.spyda-splash__web span {
-  position: absolute;
-  left: 50%;
-  top: 50%;
-  width: 50%;
-  height: 1px;
-  transform-origin: left;
-  background: linear-gradient(90deg, rgba(157, 250, 176, 0.05), rgba(157, 250, 176, 0.68), rgba(255, 255, 255, 0.05));
-  animation: spyda-web-pulse 1.9s ease-in-out infinite;
-}
-
-.spyda-splash__web span:nth-child(1) { --ray-angle: 0deg; }
-.spyda-splash__web span:nth-child(2) { --ray-angle: 45deg; animation-delay: 120ms; }
-.spyda-splash__web span:nth-child(3) { --ray-angle: 90deg; animation-delay: 240ms; }
-.spyda-splash__web span:nth-child(4) { --ray-angle: 135deg; animation-delay: 360ms; }
-
-.spyda-splash__logo-wrap {
+.spyda-splash__orb {
   position: relative;
-  z-index: 2;
-  width: clamp(94px, 28vw, 132px);
+  width: clamp(132px, 34vw, 168px);
   aspect-ratio: 1;
-  display: grid;
-  place-items: center;
-  border: 1px solid rgba(255, 255, 255, 0.1);
-  border-radius: 28px;
+  animation: spyda-orb-in 900ms cubic-bezier(0.16, 1, 0.3, 1) both;
+}
+
+.spyda-splash__halo {
+  position: absolute;
+  inset: -14px;
+  border-radius: 999px;
+  background: conic-gradient(from 0deg, #9dfab0, #8bd3ff, #0c5b86, #12866f, #ffab84, #9dfab0);
+  filter: blur(22px);
+  opacity: 0.7;
+  animation: spyda-spin 9s linear infinite, spyda-halo-breathe 2.8s ease-in-out infinite;
+}
+
+.spyda-splash__ring {
+  position: absolute;
+  inset: 0;
+  border-radius: 999px;
+  padding: 1.5px;
+  background: conic-gradient(from 140deg, #9dfab0, #0c5b86, #8bd3ff, #12866f, #9dfab0);
+  animation: spyda-spin 14s linear infinite reverse;
+}
+
+.spyda-splash__glass {
+  position: absolute;
+  inset: 1.5px;
+  border-radius: 999px;
   background:
-    linear-gradient(145deg, rgba(255, 255, 255, 0.1), rgba(255, 255, 255, 0.03)),
-    rgba(7, 10, 9, 0.82);
-  box-shadow:
-    0 24px 70px rgba(0, 0, 0, 0.42),
-    inset 0 1px 0 rgba(255, 255, 255, 0.12);
-  animation: spyda-logo-rise 720ms ease 120ms both;
+    radial-gradient(circle at 32% 26%, rgba(255, 255, 255, 0.24), transparent 34%),
+    radial-gradient(circle at 70% 80%, rgba(139, 211, 255, 0.3), transparent 46%),
+    radial-gradient(circle at 50% 50%, #0e2a24, #050606 72%);
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.18), inset 0 -18px 40px rgba(0, 0, 0, 0.55);
 }
 
-/* No CSS filter on the webgl variant: a filter on an ancestor of a canvas
-   re-runs every frame. The plain logo needs its glow, so it keeps one. */
-.spyda-splash__logo {
-  width: 66%;
-  height: 66%;
-  object-fit: contain;
-  filter: drop-shadow(0 0 22px rgba(157, 250, 176, 0.28));
-}
-
-.spyda-splash__copy {
+.spyda-splash__mark {
   position: absolute;
-  z-index: 2;
-  bottom: 20px;
-  width: 100%;
-  text-align: center;
+  inset: 22%;
+  animation: spyda-mark-float 3.6s ease-in-out infinite;
 }
 
-.spyda-splash__copy p {
-  font-family: 'Space Grotesk', sans-serif;
-  font-size: clamp(2rem, 12vw, 3.5rem);
-  font-weight: 700;
-  line-height: 0.95;
-  letter-spacing: 0;
+/* Liquid chrome without WebGL: metal bands sliding through the logo shape. */
+.spyda-chrome {
+  position: absolute;
+  inset: 0;
+  -webkit-mask: url('/assets/spyda-logo.png') center / contain no-repeat;
+  mask: url('/assets/spyda-logo.png') center / contain no-repeat;
+  background:
+    linear-gradient(115deg,
+      #0a2a1f 0%, #3fae6e 10%, #e9fff0 16%, #9dfab0 22%, #12503c 32%,
+      #0a1f1a 40%, #5ec7ff 50%, #f2fbff 55%, #2a7e66 64%, #0a2a1f 72%,
+      #3fae6e 82%, #e9fff0 88%, #9dfab0 94%, #0a2a1f 100%);
+  background-size: 260% 260%;
+  animation: spyda-chrome-flow 3.2s linear infinite;
+}
+
+.spyda-splash__word {
+  position: relative;
   margin: 0;
+  font-family: 'Space Grotesk', sans-serif;
+  font-size: clamp(2.2rem, 11vw, 3.4rem);
+  font-weight: 700;
+  line-height: 1;
+  letter-spacing: -0.03em;
   color: transparent;
-  background: linear-gradient(135deg, #f7fbff, #9dfab0 48%, #8bd3ff);
-  background-clip: text;
+  background:
+    linear-gradient(100deg, transparent 38%, rgba(255, 255, 255, 0.95) 50%, transparent 62%) 0 0 / 240% 100% no-repeat,
+    linear-gradient(135deg, #f7fbff, #9dfab0 52%, #8bd3ff);
   -webkit-background-clip: text;
+  background-clip: text;
+  animation: spyda-word-in 700ms ease 180ms both, spyda-word-sheen 2.4s ease-in-out 600ms infinite;
 }
 
-.spyda-splash__copy span {
-  display: block;
-  margin-top: 10px;
-  font-size: 0.82rem;
-  color: rgba(247, 251, 255, 0.68);
+.spyda-splash__message {
+  margin-top: -14px;
+  font-size: 0.8rem;
+  letter-spacing: 0.02em;
+  color: rgba(247, 251, 255, 0.62);
+  animation: spyda-word-in 700ms ease 320ms both;
 }
 
-.spyda-splash__progress {
-  position: absolute;
-  z-index: 2;
-  bottom: 0;
-  width: min(58vw, 220px);
-  height: 3px;
+.spyda-splash__track {
+  position: relative;
+  width: min(52vw, 180px);
+  height: 2px;
   overflow: hidden;
   border-radius: 999px;
-  background: rgba(255, 255, 255, 0.08);
+  background: rgba(255, 255, 255, 0.07);
+  animation: spyda-word-in 700ms ease 420ms both;
 }
 
-.spyda-splash__progress i {
-  display: block;
-  width: 42%;
-  height: 100%;
+.spyda-splash__track i {
+  position: absolute;
+  inset: 0;
+  width: 40%;
   border-radius: inherit;
-  background: linear-gradient(90deg, #9dfab0, #8bd3ff);
-  animation: spyda-progress 1.15s ease-in-out infinite;
+  background: linear-gradient(90deg, transparent, #9dfab0, #8bd3ff, transparent);
+  box-shadow: 0 0 12px rgba(157, 250, 176, 0.6);
+  animation: spyda-track 1.3s cubic-bezier(0.65, 0, 0.35, 1) infinite;
+}
+
+@keyframes spyda-splash-in { from { opacity: 0; } to { opacity: 1; } }
+@keyframes spyda-spin { to { transform: rotate(360deg); } }
+@keyframes spyda-halo-breathe { 0%, 100% { opacity: 0.5; } 50% { opacity: 0.85; } }
+@keyframes spyda-orb-in {
+  from { opacity: 0; transform: scale(0.86); filter: blur(10px); }
+  to { opacity: 1; transform: scale(1); filter: blur(0); }
+}
+@keyframes spyda-mark-float {
+  0%, 100% { transform: translateY(0) rotate(0deg); }
+  50% { transform: translateY(-4px) rotate(-1.5deg); }
+}
+@keyframes spyda-chrome-flow {
+  from { background-position: 0% 50%; }
+  to { background-position: 100% 50%; }
+}
+@keyframes spyda-word-in {
+  from { opacity: 0; transform: translateY(8px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+@keyframes spyda-word-sheen {
+  0% { background-position: 130% 0, 0 0; }
+  60%, 100% { background-position: -130% 0, 0 0; }
+}
+@keyframes spyda-track {
+  from { transform: translateX(-110%); }
+  to { transform: translateX(260%); }
+}
+@keyframes spyda-aurora-a { to { transform: translate(8vmax, 6vmax) scale(1.08); } }
+@keyframes spyda-aurora-b { to { transform: translate(-6vmax, -8vmax) scale(1.1); } }
+
+@media (prefers-reduced-motion: reduce) {
+  .spyda-splash,
+  .spyda-splash *,
+  .spyda-chrome {
+    animation: none !important;
+  }
 }
 
 /* Grid Pattern Overlay */

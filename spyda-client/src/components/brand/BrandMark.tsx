@@ -33,6 +33,11 @@ type BrandMarkProps = {
    * holds a WebGL context, so keep this to a handful of marks per screen.
    */
   animated?: boolean
+  /**
+   * What shows until the shader paints. 'none' leaves it transparent, for a
+   * caller that draws its own animated stand-in underneath (the splash).
+   */
+  fallback?: 'image' | 'none'
 }
 
 /**
@@ -40,7 +45,7 @@ type BrandMarkProps = {
  * when the tab is hidden or the mark leaves the viewport, so a mounted mark is
  * cheap; the cost worth deferring is the initial mask solve.
  */
-export default function BrandMark({ size, tint = '#9dfab0', label, className = '', animated = false }: BrandMarkProps) {
+export default function BrandMark({ size, tint = '#9dfab0', label, className = '', animated = false, fallback = 'image' }: BrandMarkProps) {
   const hostRef = useRef<HTMLDivElement>(null)
   const reducedMotion = usePrefersReducedMotion()
   const [eligible, setEligible] = useState(false)
@@ -62,13 +67,13 @@ export default function BrandMark({ size, tint = '#9dfab0', label, className = '
       {/* Doubles as the fallback: no WebGL, shader chunk still loading, or mask
           still solving. The canvas paints over it, and where the mask is
           transparent the canvas is too, so the two never muddy each other. */}
-      <img
+      {fallback === 'image' && <img
         src={LOGO_SRC}
         alt={label ?? ''}
         aria-hidden={label ? undefined : true}
         draggable={false}
         className="h-full w-full object-contain drop-shadow-[0_0_20px_rgba(157,250,176,0.25)]"
-      />
+      />}
 
       {showShader && (
         <Suspense fallback={null}>
