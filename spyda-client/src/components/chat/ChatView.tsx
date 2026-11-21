@@ -324,7 +324,7 @@ function Composer({
               }`}
             >
               {speech.listening ? <span className="absolute inset-0 animate-ping rounded-full border border-primary/40" /> : null}
-              {speech.listening ? <Square className="h-3.5 w-3.5 fill-current" /> : <Mic className="h-4 w-4" />}
+              {speech.listening ? <Square className="h-3.5 w-3.5 [&_path]:fill-current" /> : <Mic className="h-4 w-4" />}
             </button>
           ) : null}
           <button

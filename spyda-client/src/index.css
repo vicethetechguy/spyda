@@ -830,11 +830,11 @@
   .spyda-coin { transform: rotateX(10deg) rotateY(-20deg); }
 }
 
-/* Phosphor duotone draws its tinted body at 20%; on Spyda's near-black
-   surfaces that reads as a line icon, so the body is lifted a little. */
-.spyda-icon path[opacity="0.2"],
-.spyda-icon circle[opacity="0.2"],
-.spyda-icon rect[opacity="0.2"],
-.spyda-icon polygon[opacity="0.2"] {
-  opacity: 0.32;
+/* Solar line-duotone icons. Icons never shrink inside flex rows, and a heavy
+   lucide stroke (strokeWidth 2.2+) draws the same glyph with a thicker line. */
+.spyda-icon {
+  flex-shrink: 0;
+}
+.spyda-icon--bold [stroke-width="1.5"] {
+  stroke-width: 2;
 }
