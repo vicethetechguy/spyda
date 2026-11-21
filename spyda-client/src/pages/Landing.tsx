@@ -48,6 +48,7 @@ import {
 import BrandMark from '../components/brand/BrandMark'
 import HeroField from '../components/HeroField'
 import SpydaCoin from '../components/SpydaCoin'
+import SpydaMotionReel from '../components/SpydaMotionReel'
 
 /* ── Hero mockup: a faithful miniature of the real Spyda workspace ── */
 
@@ -291,22 +292,13 @@ function Eyebrow({ children }: { children: React.ReactNode }) {
 /* ── Motion preview: a story-format frame whose parts move like a Spyda motion ── */
 
 function MotionPreview() {
-  // A 4:5 post on phones, so the preview stays well inside one screen; the
-  // taller 9:16 story frame from tablets up.
+  // A 4:5 frame on phones so it stays inside one screen; the 9:16 story frame
+  // from tablets up. The reel inside is a live Spyda motion piece.
   return (
-    <div aria-hidden="true" className="relative mx-auto w-[min(78vw,300px)] sm:w-full sm:max-w-[300px] lg:max-w-[340px]">
-      <div className="absolute -inset-6 rounded-[48px] bg-[radial-gradient(closest-side,rgba(18,134,111,0.45),transparent)] blur-2xl" />
-      <div className="relative aspect-[4/5] overflow-hidden rounded-[26px] border border-white/15 bg-[#0b1412] shadow-[0_30px_80px_rgba(0,0,0,0.55)] sm:aspect-[9/16] sm:rounded-[34px]">
-        <img src="/assets/spyda-sample-07.jpeg" alt="" className="motion-preview-photo absolute inset-0 h-full w-full object-cover object-top" loading="lazy" />
-        <div className="absolute inset-0 bg-gradient-to-t from-black/75 via-transparent to-transparent" />
-        <div className="motion-preview-sweep absolute inset-y-0 -left-1/2 w-1/2 bg-[linear-gradient(100deg,transparent,rgba(255,255,255,0.28),transparent)]" />
-        <div className="absolute inset-x-3 bottom-3 sm:inset-x-4 sm:bottom-4">
-          <div className="mb-2 flex items-center justify-between gap-2">
-            <span className="motion-preview-chip inline-flex items-center gap-1.5 rounded-full bg-primary px-2.5 py-1 font-heading text-[9px] font-semibold uppercase tracking-[0.14em] text-primary-foreground sm:text-[10px]"><Clapperboard className="h-3 w-3" /> Claude Opus 5.5</span>
-            <span className="inline-flex items-center gap-1 rounded-full bg-black/60 px-2 py-1 text-[9px] font-semibold text-white backdrop-blur sm:text-[10px]">0:08</span>
-          </div>
-          <div className="h-1 overflow-hidden rounded-full bg-white/20"><div className="motion-preview-progress h-full bg-primary" /></div>
-        </div>
+    <div className="relative mx-auto w-[min(80vw,320px)] sm:w-full sm:max-w-[320px] lg:max-w-[360px]">
+      <div aria-hidden="true" className="absolute -inset-6 rounded-[48px] bg-[radial-gradient(closest-side,rgba(18,134,111,0.4),transparent)] blur-2xl" />
+      <div className="relative aspect-[4/5] overflow-hidden rounded-[26px] border border-white/10 bg-[#030404] shadow-[0_30px_80px_rgba(0,0,0,0.55)] sm:aspect-[9/16] sm:rounded-[32px]">
+        <SpydaMotionReel />
       </div>
     </div>
   )
