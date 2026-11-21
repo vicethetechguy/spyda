@@ -2,7 +2,9 @@ import { useEffect, useState } from 'react'
 import { Link } from 'react-router-dom'
 import {
   ArrowRight,
+  ArrowUp,
   ArrowUpRight,
+  Bell,
   Blocks,
   BookOpen,
   Bot,
@@ -14,19 +16,19 @@ import {
   Download,
   FolderKanban,
   Gift,
-  GraduationCap,
+  History,
   Image as ImageIcon,
   Layers3,
-  LayoutDashboard,
   Library,
   MessageSquareText,
   Mic,
   Network,
   Palette,
   PanelLeftClose,
+  Paperclip,
   Play,
+  Plus,
   RefreshCw,
-  ScanSearch,
   Settings,
   ShieldCheck,
   SlidersHorizontal,
@@ -50,189 +52,122 @@ import HeroField from '../components/HeroField'
 import SpydaCoin from '../components/SpydaCoin'
 import SpydaMotionReel from '../components/SpydaMotionReel'
 
-/* ── Hero mockup: a faithful miniature of the real Spyda workspace ── */
+/* ── Hero mockup: a faithful miniature of the real Spyda workspace (chat-first, icon rail) ── */
 
-function MockNavItem({ icon: Icon, label, active }: { icon: React.ElementType; label: string; active?: boolean }) {
+function MockRailIcon({ icon: Icon, active, badge }: { icon: React.ElementType; active?: boolean; badge?: string }) {
   return (
-    <div className={`flex items-center gap-2 rounded-[5px] px-2 py-[5px] text-[10px] ${active ? 'border-l-2 border-primary bg-primary/5 font-semibold text-primary' : 'text-muted-foreground'}`}>
-      <Icon className={`h-3 w-3 shrink-0 ${active ? 'text-primary' : 'text-muted-foreground/70'}`} strokeWidth={1.5} />
-      <span className="truncate">{label}</span>
-    </div>
+    <span className={`relative flex h-7 w-7 shrink-0 items-center justify-center rounded-full ${active ? 'bg-[#0b1412] ring-2 ring-primary shadow-[0_6px_16px_rgba(157,250,176,0.22)]' : 'border border-white/[0.07] bg-white/[0.03] text-muted-foreground'}`}>
+      <Icon className="h-3 w-3" strokeWidth={1.7} />
+      {badge ? <span className="absolute -right-0.5 -top-0.5 flex h-2.5 min-w-2.5 items-center justify-center rounded-full bg-primary px-0.5 text-[6px] font-bold text-primary-foreground ring-1 ring-[#08090a]">{badge}</span> : null}
+    </span>
   )
 }
 
-function MockNavHeading({ children }: { children: React.ReactNode }) {
-  return <span className="px-2 pb-0.5 pt-2.5 text-[8px] font-semibold uppercase tracking-wider text-muted-foreground/50">{children}</span>
-}
-
-function MockAtomCard({ icon: Icon, name, type, mode, detail }: {
-  icon: React.ElementType
-  name: string
-  type: string
-  mode: 'same' | 'customize'
-  detail?: string
-}) {
-  return (
-    <div className={`rounded-lg border p-2.5 ${mode === 'customize' ? 'border-primary/25 bg-primary/[0.04]' : 'border-white/[0.06] bg-surface'}`}>
-      <div className="flex items-center justify-between gap-2">
-        <div className="flex min-w-0 items-center gap-2">
-          <span className="flex h-5 w-5 shrink-0 items-center justify-center rounded-md border border-white/[0.08] bg-surface-raised"><Icon className="h-2.5 w-2.5 text-primary" strokeWidth={1.7} /></span>
-          <span className="truncate text-[10px] font-semibold text-foreground">{name}</span>
-          <span className="shrink-0 rounded-sm bg-white/[0.05] px-1 py-0.5 text-[7px] font-bold uppercase tracking-wide text-muted-foreground">{type}</span>
-        </div>
-        <div className="flex shrink-0 overflow-hidden rounded-md border border-white/[0.08] text-[8px] font-semibold">
-          <span className={`px-1.5 py-0.5 ${mode === 'same' ? 'bg-white/[0.08] text-foreground' : 'text-muted-foreground/60'}`}>Same</span>
-          <span className={`px-1.5 py-0.5 ${mode === 'customize' ? 'bg-primary text-primary-foreground' : 'text-muted-foreground/60'}`}>Customize</span>
-        </div>
-      </div>
-      {detail && (
-        <p className="mt-1.5 flex items-center gap-1 truncate rounded-md border border-white/[0.06] bg-black/30 px-2 py-1 text-[9px] text-foreground/80">
-          {mode === 'customize' && <Check className="h-2.5 w-2.5 shrink-0 text-primary" strokeWidth={2.6} />}{detail}
-        </p>
-      )}
-    </div>
-  )
+function MockSpydaAiIcon() {
+  return <img src="/assets/spyda-logo.png" alt="" className="h-3.5 w-3.5 object-contain" />
 }
 
 function WorkspaceMockup() {
   return (
     <div className="relative mx-auto mt-4 overflow-hidden rounded-[26px] border border-white/[0.09] bg-[#08090a] shadow-[0_28px_90px_rgba(0,0,0,0.45)]">
-      <div className="flex h-9 items-center justify-between border-b border-white/[0.07] px-3 text-[10px] text-muted-foreground">
-        <div className="flex items-center gap-2"><span className="h-1.5 w-1.5 rounded-full bg-primary" /> Spyda design workspace</div>
-        <span>Reference to child design</span>
-      </div>
-
-      <div className="flex h-[400px] select-none sm:h-[460px]" aria-hidden="true">
-        {/* Sidebar */}
-        <div className="hidden w-44 shrink-0 flex-col border-r border-white/[0.06] bg-[#060608]/90 p-2.5 md:flex">
-          <div className="mb-2 flex items-center gap-2 rounded-lg px-1.5 py-1.5">
-            <div className="flex h-6 w-6 items-center justify-center rounded-[5px] bg-gradient-to-br from-[#22c55e] to-[#16a34a] font-heading text-[10px] font-bold text-white">S</div>
-            <div className="min-w-0">
-              <p className="truncate text-[10px] font-medium leading-none text-foreground">My Workspace</p>
-              <p className="mt-0.5 text-[8px] leading-none text-muted-foreground">Design workspace</p>
-            </div>
-            <ChevronDown className="ml-auto h-2.5 w-2.5 shrink-0 text-muted-foreground/50" />
+      <div className="flex h-[440px] select-none sm:h-[500px]" aria-hidden="true">
+        {/* Icon rail */}
+        <div className="hidden w-12 shrink-0 flex-col items-center border-r border-white/[0.06] bg-[#08090a] py-3 sm:flex">
+          <img src="/assets/spyda-logo.png" alt="" className="mb-3 h-6 w-6 object-contain" />
+          <div className="flex flex-1 flex-col items-center gap-2 py-1">
+            <MockRailIcon icon={MockSpydaAiIcon} active />
+            <MockRailIcon icon={ImageIcon} />
+            <MockRailIcon icon={Clock} />
+            <MockRailIcon icon={Gift} badge="2" />
+            <MockRailIcon icon={FolderKanban} />
+            <MockRailIcon icon={Blocks} />
+            <MockRailIcon icon={Palette} />
+            <MockRailIcon icon={BookOpen} />
           </div>
-          <div className="flex flex-col gap-0.5">
-            <MockNavItem icon={LayoutDashboard} label="Canvas" active />
-            <MockNavItem icon={ImageIcon} label="Gallery" />
-            <MockNavItem icon={Clock} label="History" />
-            <MockNavHeading>Workspace</MockNavHeading>
-            <MockNavItem icon={FolderKanban} label="Projects" />
-            <MockNavItem icon={Blocks} label="Templates" />
-            <MockNavItem icon={Palette} label="Brand Assets" />
-            <MockNavHeading>Documentation</MockNavHeading>
-            <MockNavItem icon={BookOpen} label="Whitepaper" />
-            <MockNavItem icon={GraduationCap} label="Guides" />
-          </div>
-          <div className="mt-auto flex flex-col gap-0.5 border-t border-white/[0.06] pt-2">
-            <MockNavHeading>Account</MockNavHeading>
-            <MockNavItem icon={Wallet} label="Wallet" />
-            <MockNavItem icon={Settings} label="Settings" />
+          <div className="flex flex-col items-center gap-2 border-t border-white/[0.06] pt-2">
+            <MockRailIcon icon={Wallet} />
+            <MockRailIcon icon={Settings} />
           </div>
         </div>
 
         {/* Main */}
-        <div className="flex min-w-0 flex-1 flex-col">
+        <div className="relative flex min-w-0 flex-1 flex-col">
           {/* Top bar */}
-          <div className="flex h-9 shrink-0 items-center justify-between border-b border-white/[0.06] bg-[#060608]/80 px-3">
+          <div className="flex h-10 shrink-0 items-center justify-between border-b border-white/[0.06] px-3">
             <div className="flex items-center gap-2 text-[10px]">
               <PanelLeftClose className="h-3 w-3 text-muted-foreground" strokeWidth={1.5} />
               <span className="hidden text-muted-foreground sm:inline">My Workspace</span>
               <span className="hidden text-muted-foreground/30 sm:inline">/</span>
-              <span className="font-semibold text-foreground">Canvas</span>
-              <ShieldCheck className="h-3 w-3 text-primary" strokeWidth={1.5} />
+              <span className="font-semibold text-foreground">Spyda AI</span>
             </div>
-            <div className="flex items-center gap-2">
-              <span className="inline-flex h-5 items-center gap-1.5 rounded-md border border-white/[0.08] bg-surface-raised px-2 text-[9px] font-medium text-muted-foreground">
+            <div className="flex items-center gap-1.5">
+              <span className="hidden h-5 w-5 items-center justify-center rounded-full border border-white/[0.08] text-muted-foreground sm:flex"><History className="h-2.5 w-2.5" /></span>
+              <span className="hidden h-5 w-5 items-center justify-center rounded-full border border-white/[0.08] text-muted-foreground sm:flex"><Plus className="h-2.5 w-2.5" /></span>
+              <span className="inline-flex h-5 items-center gap-1 rounded-full bg-primary px-2 text-[8px] font-bold text-primary-foreground"><Layers3 className="h-2.5 w-2.5" /> Canvas mode</span>
+              <span className="hidden h-5 items-center gap-1 rounded-full border border-white/[0.08] px-2 text-[8px] font-medium text-muted-foreground md:inline-flex">
                 <Bot className="h-2.5 w-2.5 text-primary" /> Groq + GPT-Image 2 <ChevronDown className="h-2 w-2" />
               </span>
+              <Bell className="hidden h-3 w-3 text-muted-foreground sm:block" />
               <span className="flex h-5 w-5 items-center justify-center rounded-full bg-gradient-to-br from-[#22c55e] to-[#16a34a] text-[8px] font-bold text-primary-foreground">S</span>
             </div>
           </div>
 
-          <div className="flex min-h-0 flex-1">
-            {/* Source + Child Source */}
-            <div className="flex min-h-0 w-full flex-col border-r border-white/[0.06] p-3 sm:w-[46%]">
-              <div className="mb-1.5 flex items-center justify-between">
-                <div className="flex items-center gap-1.5">
-                  <span className="text-[8px] font-bold uppercase tracking-[0.12em] text-primary">Source</span>
-                  <span className="text-[8px] text-muted-foreground/50">launch-flyer.jpeg</span>
-                </div>
-                <span className="text-[8px] text-muted-foreground">Change</span>
-              </div>
-              <div className="relative min-h-0 flex-1 overflow-hidden rounded-lg border border-white/[0.06]">
-                <img src="/assets/spyda-sample-04.jpeg" alt="" className="h-full w-full object-cover object-top" loading="lazy" />
-                {/* Layout grid overlay */}
-                <div className="absolute inset-0 opacity-40 [background-image:linear-gradient(rgba(255,255,255,.14)_1px,transparent_1px),linear-gradient(90deg,rgba(255,255,255,.14)_1px,transparent_1px)] [background-size:12.5%_12.5%]" />
-                {/* Detected atom boxes */}
-                <div className="absolute left-[8%] top-[7%] flex h-[16%] w-[84%] items-start rounded-sm border border-dashed border-primary/70 bg-primary/[0.06]"><span className="rounded-br-sm bg-primary px-1 py-px text-[7px] font-bold text-primary-foreground">Headline</span></div>
-                <div className="absolute left-[22%] top-[34%] flex h-[34%] w-[56%] items-start rounded-sm border border-dashed border-[#8bd3ff]/70 bg-[#8bd3ff]/[0.06]"><span className="rounded-br-sm bg-[#8bd3ff] px-1 py-px text-[7px] font-bold text-[#06202e]">Product photo</span></div>
-                <div className="absolute bottom-[6%] left-[26%] flex h-[10%] w-[48%] items-start rounded-sm border border-dashed border-[#ffab84]/70 bg-[#ffab84]/[0.08]"><span className="rounded-br-sm bg-[#ffab84] px-1 py-px text-[7px] font-bold text-[#3a1503]">Call to action</span></div>
-                <span className="absolute bottom-1.5 left-1.5 rounded border border-white/10 bg-black/70 px-1.5 py-0.5 text-[7px] font-semibold uppercase tracking-[0.1em] text-white/75 backdrop-blur-sm">8 x 8 layout grid</span>
-              </div>
-
-              <div className="mb-1.5 mt-2.5 flex items-center justify-between">
-                <span className="text-[8px] font-bold uppercase tracking-[0.12em] text-primary">Child Source</span>
-                <div className="flex items-center gap-1.5">
-                  <span className="rounded-full border border-white/[0.08] bg-surface-raised px-1.5 py-0.5 text-[7px] font-bold text-muted-foreground">3/3 changes ready</span>
-                  <span className="inline-flex items-center gap-1 rounded-md bg-primary px-1.5 py-0.5 text-[7px] font-bold text-primary-foreground"><Download className="h-2 w-2" /> Download</span>
-                </div>
-              </div>
-              <div className="relative h-[88px] shrink-0 overflow-hidden rounded-lg border border-primary/25 sm:h-[104px]">
-                <img src="/assets/spyda-sample-04.jpeg" alt="" className="h-full w-full object-cover object-center" loading="lazy" />
-                <div className="absolute inset-0 bg-gradient-to-t from-black/50 to-transparent" />
-                <span className="absolute bottom-1.5 left-1.5 inline-flex items-center gap-1 rounded border border-primary/30 bg-black/75 px-1.5 py-0.5 text-[7px] font-bold text-primary backdrop-blur-sm"><ShieldCheck className="h-2 w-2" /> QA 98/100 · Round 2</span>
+          {/* Conversation */}
+          <div className="min-h-0 flex-1 space-y-3 overflow-hidden px-3 pt-3 sm:px-6">
+            <div className="flex justify-end">
+              <div className="flex max-w-[78%] flex-col items-end gap-1.5">
+                <img src="/assets/spyda-sample-04.jpeg" alt="" className="h-20 w-auto rounded-[12px] border border-white/10 object-cover sm:h-24" loading="lazy" />
+                <p className="rounded-[14px] rounded-br-sm bg-surface-raised px-3 py-1.5 text-[10px] leading-4 text-foreground">Make it mine: “Grand Opening, this Saturday”, and use our logo.</p>
               </div>
             </div>
 
-            {/* Design Atoms panel */}
-            <div className="hidden min-h-0 min-w-0 flex-1 flex-col sm:flex">
-              <div className="flex shrink-0 items-center justify-between border-b border-white/[0.06] px-3 py-2">
-                <div>
-                  <p className="text-[11px] font-semibold text-foreground">Design Atoms</p>
-                  <p className="text-[8px] text-muted-foreground">6 components detected • Edit replacements below</p>
+            <div className="flex gap-2">
+              <span className="mt-0.5 flex h-5 w-5 shrink-0 items-center justify-center rounded-full border border-primary/30 bg-[#0b1412]"><img src="/assets/spyda-logo.png" alt="" className="h-3 w-3 object-contain" /></span>
+              <div className="min-w-0 max-w-[86%]">
+                <p className="text-[10px] leading-4 text-foreground/85">Here is your version: same layout and lighting, with your headline and logo. Open it in canvas mode to fine-tune any layer, or animate it.</p>
+                <div className="mt-2 flex items-start gap-2">
+                  <div className="relative w-28 overflow-hidden rounded-[12px] border border-primary/25 sm:w-32">
+                    <img src="/assets/spyda-sample-04.jpeg" alt="" className="aspect-[4/5] w-full object-cover object-center" loading="lazy" />
+                    <span className="absolute left-1.5 top-1.5 rounded-full bg-black/70 px-1.5 py-0.5 text-[7px] font-bold text-primary backdrop-blur-sm">Your version</span>
+                  </div>
+                  <div className="flex flex-col gap-1.5 pt-0.5">
+                    <span className="inline-flex h-5 items-center gap-1 rounded-full bg-primary px-2 text-[8px] font-bold text-primary-foreground"><Download className="h-2.5 w-2.5" /> Download</span>
+                    <span className="inline-flex h-5 items-center gap-1 rounded-full border border-white/[0.1] px-2 text-[8px] font-semibold text-foreground/85"><Layers3 className="h-2.5 w-2.5 text-primary" /> Open in canvas</span>
+                    <span className="inline-flex h-5 items-center gap-1 rounded-full border border-white/[0.1] px-2 text-[8px] font-semibold text-foreground/85"><Clapperboard className="h-2.5 w-2.5 text-primary" /> Animate</span>
+                  </div>
                 </div>
-                <span className="inline-flex items-center gap-1 rounded-md bg-primary px-2 py-1 text-[9px] font-bold text-primary-foreground"><Zap className="h-2.5 w-2.5" /> Apply 3/3</span>
               </div>
-              <div className="relative min-h-0 flex-1 space-y-2 overflow-hidden p-2.5">
-                <div className="rounded-lg border border-white/[0.06] bg-surface p-2.5">
-                  <div className="flex items-center justify-between gap-2">
-                    <div>
-                      <p className="text-[9px] font-bold uppercase tracking-[0.1em] text-primary">Edit round — up to 3 focused changes</p>
-                      <p className="mt-0.5 text-[8px] text-muted-foreground">2 atom changes + 1 Essential prompt. 0 slots left.</p>
-                    </div>
-                    <span className="shrink-0 rounded-full bg-primary/15 px-2 py-0.5 text-[9px] font-bold text-primary">3/3</span>
+            </div>
+          </div>
+
+          {/* Composer, as in the app */}
+          <div className="shrink-0 px-3 pb-3 pt-2 sm:px-6">
+            <div className="rounded-[18px] border border-primary/20 bg-[linear-gradient(180deg,rgba(18,134,111,0.34),rgba(12,91,134,0.22))] p-0.5">
+              <div className="flex items-center justify-between gap-2 px-2.5 py-1.5 text-[8px] text-foreground/80">
+                <span className="flex min-w-0 items-center gap-1 truncate"><img src="/assets/spyda-logo.png" alt="" className="h-2.5 w-2.5 object-contain" /> Every 1,000 credits you use earns 1 SPYDA</span>
+                <span className="inline-flex shrink-0 items-center gap-1 rounded-full bg-black/40 px-1.5 py-0.5 font-bold text-primary"><Coins className="h-2 w-2" /> 3,530 credits</span>
+              </div>
+              <div className="rounded-[15px] border border-white/[0.06] bg-[#08090a] px-2.5 pb-2 pt-2">
+                <p className="text-[10px] text-muted-foreground/70">Import a flyer and tell Spyda what to change…</p>
+                <div className="mt-2.5 flex items-center justify-between">
+                  <div className="flex items-center gap-1.5">
+                    <span className="inline-flex h-5 items-center gap-1 rounded-full border border-white/[0.08] px-2 text-[8px] text-foreground/80"><Paperclip className="h-2.5 w-2.5" /> Import file</span>
+                    <span className="flex h-5 overflow-hidden rounded-full border border-white/[0.08]">
+                      <span className="flex w-6 items-center justify-center bg-primary text-primary-foreground"><ImageIcon className="h-2.5 w-2.5" /></span>
+                      <span className="flex w-6 items-center justify-center text-muted-foreground"><Clapperboard className="h-2.5 w-2.5" /></span>
+                    </span>
+                  </div>
+                  <div className="flex items-center gap-1.5">
+                    <span className="flex h-5 w-5 items-center justify-center rounded-full bg-white/[0.05] text-muted-foreground"><Mic className="h-2.5 w-2.5" /></span>
+                    <span className="flex h-5 w-5 items-center justify-center rounded-full bg-white/[0.08] text-foreground/80"><ArrowUp className="h-2.5 w-2.5" /></span>
                   </div>
                 </div>
-                <MockAtomCard icon={Type} name="Headline" type="text" mode="customize" detail="Grand Opening — This Saturday" />
-                <MockAtomCard icon={ImageIcon} name="Product Photo" type="image" mode="customize" detail="Replacement placed at exact size" />
-                <MockAtomCard icon={Target} name="Brand Logo" type="logo" mode="same" />
-                <div className="rounded-lg border border-primary/20 bg-primary/[0.03] p-2.5">
-                  <div className="flex items-center justify-between">
-                    <span className="text-[9px] font-bold uppercase tracking-[0.1em] text-primary">Brand Constants</span>
-                    <span className="relative h-3.5 w-6 rounded-full border border-primary/70 bg-primary"><span className="absolute right-0.5 top-[2px] h-2 w-2 rounded-full bg-white" /></span>
-                  </div>
-                  <div className="mt-2 flex items-center gap-2">
-                    {['#0F172A', '#22C55E', '#F8FAFC'].map(hex => (
-                      <span key={hex} className="flex items-center gap-1 rounded-md border border-white/[0.07] bg-surface-raised px-1.5 py-0.5">
-                        <span className="h-2 w-2 rounded-full border border-white/20" style={{ backgroundColor: hex }} />
-                        <span className="text-[7px] font-medium text-muted-foreground">{hex}</span>
-                      </span>
-                    ))}
-                  </div>
-                  <p className="mt-1.5 text-[8px] text-muted-foreground">Space Grotesk / Montserrat · Applied to every reconstruction</p>
-                </div>
-                <div className="pointer-events-none absolute inset-x-0 bottom-0 h-10 bg-gradient-to-t from-[#08090a] to-transparent" />
               </div>
             </div>
           </div>
         </div>
       </div>
 
-      <div className="absolute bottom-3 left-3 flex items-center gap-2 rounded-lg border border-white/[0.1] bg-black/75 px-3 py-2 text-[10px] text-white backdrop-blur-md">
-        <ScanSearch className="h-3.5 w-3.5 text-primary" /> Source, atoms, and child version in one view
-      </div>
     </div>
   )
 }
