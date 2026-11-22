@@ -19,7 +19,7 @@ import {
 import { SecurityPanel, SubscriptionView } from '../components/workspace/WorkspaceAccountViews'
 import { WhitepaperView } from '../components/workspace/WorkspaceDocumentationViews'
 import { GuidesView } from '../components/workspace/WorkspaceGuidesView'
-import { TasksView, WelcomeRewardPrompt } from '../components/workspace/WorkspaceTasksView'
+import { TasksView } from '../components/workspace/WorkspaceTasksView'
 import { WalletNotificationCenter } from '../components/workspace/WalletNotificationCenter'
 import {
   PanelLeftClose,
@@ -178,47 +178,23 @@ export default function Workspace() {
   const [profilePic, setProfilePic] = useState<string | null>(null)
   const [walletRefreshKey, setWalletRefreshKey] = useState(0)
   const [welcomeClaim, setWelcomeClaim] = useState<WelcomeRewardClaim | null>(null)
-  const [showWelcomeReward, setShowWelcomeReward] = useState(false)
   const [communityTaskBadge, setCommunityTaskBadge] = useState(0)
   const { user, signOut } = useAuth()
 
   const handleWelcomeClaimChange = useCallback((claim: WelcomeRewardClaim | null) => {
     setWelcomeClaim(claim)
-    if (claim?.status === 'pending' || claim?.status === 'approved') {
-      setShowWelcomeReward(false)
-    }
   }, [])
 
+  // The welcome reward lives on the Tasks page; the claim only drives the rail badge.
+  // (No popup on load: it flashed open and shut while the claim check ran.)
   useEffect(() => {
     let active = true
-    let timer: number | undefined
-    setShowWelcomeReward(false)
-
-    if (!user || isAdminEmail(user.email)) {
-      return () => { active = false }
-    }
-
+    if (!user || isAdminEmail(user.email)) return () => { active = false }
     setWelcomeClaim(null)
-    timer = window.setTimeout(() => {
-      if (active) setShowWelcomeReward(true)
-    }, 650)
-
     getWelcomeRewardClaim().then(claim => {
-      if (!active) return
-      setWelcomeClaim(claim)
-      const alreadySubmitted = claim?.status === 'pending' || claim?.status === 'approved'
-      if (alreadySubmitted) {
-        if (timer) window.clearTimeout(timer)
-        setShowWelcomeReward(false)
-      }
-    }).catch(() => {
-      // Keep the campaign visible even if the claim check is temporarily unavailable.
-    })
-
-    return () => {
-      active = false
-      if (timer) window.clearTimeout(timer)
-    }
+      if (active) setWelcomeClaim(claim)
+    }).catch(() => undefined)
+    return () => { active = false }
   }, [user])
 
   useEffect(() => {
@@ -432,17 +408,6 @@ export default function Workspace() {
           {activeId === 'settings' && <SettingsView profilePic={profilePic} setProfilePic={setProfilePic} onManageSubscription={() => setActiveId('subscription')} />}
         </div>
       </div>
-      {showWelcomeReward && welcomeClaim?.status !== 'pending' && welcomeClaim?.status !== 'approved' && (
-        <WelcomeRewardPrompt
-          onOpenTasks={() => {
-            setShowWelcomeReward(false)
-            setActiveId('tasks')
-          }}
-          onDismiss={() => {
-            setShowWelcomeReward(false)
-          }}
-        />
-      )}
     </div>
   )
 }

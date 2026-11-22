@@ -273,9 +273,9 @@ function RailItem({ item, active, onSelect }: { item: NavItemData; active: boole
       className={`relative flex h-10 w-10 items-center justify-center rounded-full transition-all duration-200 ${
         active && item.icon === SpydaAiIcon
           ? // The chrome mark disappears on solid green, so its active state is a lit ring.
-            'bg-[#0b1412] ring-2 ring-primary shadow-[0_8px_22px_rgba(157,250,176,0.25)]'
+            'bg-[#0b1412] ring-2 ring-primary shadow-[0_2px_8px_rgba(157,250,176,0.12)]'
           : active
-          ? 'bg-primary text-primary-foreground shadow-[0_8px_22px_rgba(157,250,176,0.25)]'
+          ? 'bg-primary text-primary-foreground shadow-[0_2px_8px_rgba(157,250,176,0.12)]'
           : 'border border-white/[0.07] bg-white/[0.03] text-muted-foreground hover:-translate-y-0.5 hover:border-primary/30 hover:text-foreground'
       }`}
     >
