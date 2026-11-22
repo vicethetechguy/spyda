@@ -10,15 +10,18 @@ import {
   designDocumentToLegacyBreakdown,
   type DesignDocument,
   type DesignObject,
+  type PercentBox,
 } from '../core/design-document'
-import { CUTOUT_KINDS, extractLayers } from '../core/layer-extraction'
+import { CUTOUT_KINDS } from '../core/layer-extraction'
 import type { DesignEditIntent } from '../core/constraint-engine'
 import { putAsset } from '../lib/asset-store'
 import { makeLayer, pathFromPoints, type NewLayerKind } from '../lib/editor-objects'
 import { describeCanvas, translateOperations } from '../lib/canvas-assist'
 import { prepareImage, requestCanvasAssist } from '../lib/chat'
 import { spydaRequestHeaders } from '../lib/spyda-api'
-import { createMatteCutoutProducer, loadSourceImage, produceFullFrameBackground } from '../lib/cutout'
+import { loadSourceImage } from '../lib/cutout'
+import { runMagicLayers } from '../lib/magic-layers'
+import { loadDrawable, pictureAt4K, UHD_LONG_EDGE } from '../lib/image-4k'
 import { prepareForEditing } from '../lib/editor-document'
 import { collectFontRequests, preloadFonts, type FontReport } from '../lib/fonts'
 import {
@@ -35,8 +38,7 @@ import {
   undo,
   type IntentHistory,
 } from '../lib/intent-history'
-import { patchProject, readProject, saveProject, type StoredProject } from '../lib/project-store'
-import { segmentFlyer } from '../lib/segmentation'
+import { patchProject, readProject, type StoredProject } from '../lib/project-store'
 import LayerCanvas from '../components/editor/LayerCanvas'
 import PropertiesPanel from '../components/editor/PropertiesPanel'
 import LayerList from '../components/editor/LayerList'
@@ -181,6 +183,8 @@ export default function Editor() {
   const stageRef = useRef<Konva.Stage | null>(null)
   const [penPoints, setPenPoints] = useState<[number, number][] | null>(null)
   const [pictureBusy, setPictureBusy] = useState<'background' | 'magic' | null>(null)
+  const [magic, setMagic] = useState<{ frame: PercentBox; label: string; progress: number } | null>(null)
+  const autoMagic = useRef(false)
   const imageInputRef = useRef<HTMLInputElement | null>(null)
   // View: zoom is a multiple of "fit"; displayScale is screen pixels per design pixel.
   const [zoom, setZoom] = useState(1)
@@ -302,7 +306,14 @@ export default function Editor() {
     setHistory(current => {
       if (!current) return current
       const key = streamKey(intent)
-      const result = commitIntent(current, intent, key ? { coalesceKey: key } : {})
+      let result: ReturnType<typeof commitIntent>
+      try {
+        result = commitIntent(current, intent, key ? { coalesceKey: key } : {})
+      } catch (error) {
+        // A change the document cannot hold is refused, never a crash.
+        reportRejection(error instanceof Error && !/ZodError|\[/.test(error.message) ? error.message : 'That change would put the layer outside the canvas.')
+        return current
+      }
       if (!result.recorded) {
         reportRejection(result.violations[0]?.message)
         return current
@@ -316,7 +327,13 @@ export default function Editor() {
   const applyStep = useCallback((intents: DesignEditIntent[], label: string, coalesceKey?: string) => {
     setHistory(current => {
       if (!current) return current
-      const result = commitStep(current, intents, { label, coalesceKey })
+      let result: ReturnType<typeof commitStep>
+      try {
+        result = commitStep(current, intents, { label, coalesceKey })
+      } catch (error) {
+        reportRejection(error instanceof Error && !/ZodError|\[/.test(error.message) ? error.message : 'That change would put the layer outside the canvas.')
+        return current
+      }
       if (!result.recorded) {
         reportRejection(result.violations[0]?.message)
         return current
@@ -327,43 +344,64 @@ export default function Editor() {
     })
   }, [reportRejection])
 
+  /**
+   * Magic Layers over the whole flyer: live text in matched fonts, the subject
+   * and marks as cut-outs, and a filled-in background, all at 4K. Replaces the
+   * analyser's rough boxes so the canvas looks exactly like the flyer.
+   */
   const handleExtract = useCallback(async () => {
-    const source = project?.referencePreview
-    if (!design || !source) return
-
+    if (!design || !flatFlyer || magic) return
+    const frame = { x: 0, y: 0, width: 100, height: 100 }
+    setSelectedId(null)
     setExtracting({ done: 0, total: 0 })
-    setNotice({ tone: 'info', text: 'Loading the cut-out model. The first run downloads it once.' })
+    setMagic({ frame, label: 'Reading the flyer', progress: 0.02 })
+    setNotice({ tone: 'info', text: 'Magic Layers is splitting this flyer. The first run downloads the cut-out model once.' })
     try {
-      const matte = await segmentFlyer(source)
-      const image = await loadSourceImage(source)
-      const result = await extractLayers({
+      const result = await runMagicLayers({
+        source: flatFlyer,
         document: design,
-        produceCutout: createMatteCutoutProducer(image, matte),
-        produceBackground: () => produceFullFrameBackground(image),
+        analysed: design.objects.filter(object => !object.status.removed),
+        frame,
+        wholeFlyer: true,
         saveAsset: blob => putAsset(blob),
-        onProgress: (done, total) => setExtracting({ done, total }),
+        onProgress: (label, progress) => setMagic({ frame, label, progress }),
       })
-
-      setHistory(current => (current ? adoptDocument(current, result.document) : createHistory(result.document)))
-      setSelectedId(null)
-      edited.current = false
-      persist(result.document)
+      const ids = result.objects.map(object => object.id)
+      const sectionId = design.sections[0]?.id
+      const next: DesignDocument = {
+        ...design,
+        objects: result.objects.map(object => ({ ...object, sectionId: sectionId ?? object.sectionId })),
+        sections: design.sections.map((section, index) => ({ ...section, objectIds: index === 0 ? ids : [] })),
+      }
+      setHistory(current => (current ? adoptDocument(current, next) : createHistory(next)))
+      persist(next)
+      if (projectId) patchProject(projectId, { magicLayers: 'done' })
+      const texts = result.objects.filter(object => object.kind === 'text').length
+      const pictures = result.objects.length - texts
       setNotice(result.warnings.length
-        ? { tone: 'warn', text: result.warnings.join(' ') }
-        : { tone: 'info', text: 'Every layer now has its own pixels.' })
+        ? { tone: 'warn', text: `Split into ${texts} text and ${pictures} picture layers. ${result.warnings.join(' ')}` }
+        : { tone: 'info', text: `Split into ${texts} text and ${pictures} picture layers. Click any of them to edit it.` })
     } catch (error) {
-      setNotice({
-        tone: 'error',
-        text: error instanceof Error ? error.message : 'Layer extraction failed.',
-      })
+      if (projectId) patchProject(projectId, { magicLayers: 'failed' })
+      setNotice({ tone: 'error', text: error instanceof Error ? error.message : 'Magic Layers could not split this flyer.' })
     } finally {
+      setMagic(null)
       setExtracting(null)
     }
-  }, [design, persist, project?.referencePreview])
+  }, [design, flatFlyer, magic, persist, projectId])
+
+  // A flyer sent here from Spyda AI is split as soon as it opens, like Canva's Magic Layers.
+  useEffect(() => {
+    if (autoMagic.current || !project || project.magicLayers !== 'pending' || !design || !flatFlyer) return
+    autoMagic.current = true
+    void handleExtract()
+  }, [design, flatFlyer, handleExtract, project])
 
   const handleReplaceImage = useCallback(async (objectId: string, file: File) => {
     try {
-      const id = await putAsset(file)
+      setNotice({ tone: 'info', text: 'Rendering the picture at 4K…' })
+      const id = await putAsset((await pictureAt4K(file)).blob)
+      setNotice(null)
       applyIntent({ objectId, property: 'assetRef', value: `asset:${id}` })
     } catch (error) {
       setNotice({
@@ -413,14 +451,12 @@ export default function Editor() {
   const handleImageFile = useCallback(async (file: File) => {
     if (!design) return
     try {
-      const id = await putAsset(file)
-      const url = URL.createObjectURL(file)
-      const size = await new Promise<{ width: number; height: number }>((resolve, reject) => {
-        const image = new Image()
-        image.onload = () => resolve({ width: image.naturalWidth, height: image.naturalHeight })
-        image.onerror = () => reject(new Error('That picture could not be opened.'))
-        image.src = url
-      }).finally(() => URL.revokeObjectURL(url))
+      // Every picture placed on the canvas is rendered at 4K, so it stays sharp at any zoom or export size.
+      setNotice({ tone: 'info', text: 'Rendering the picture at 4K…' })
+      const rendered = await pictureAt4K(file)
+      const id = await putAsset(rendered.blob)
+      const size = { width: rendered.width, height: rendered.height }
+      setNotice(null)
       // Half the canvas width, at the picture's own proportions, centred.
       const canvasRatio = (design.canvas.width || 1) / (design.canvas.height || 1)
       const width = 50
@@ -516,7 +552,7 @@ export default function Editor() {
       const source = await pictureBlob(object)
       const { removeBackground } = await import('@imgly/background-removal')
       const cutout = await removeBackground(source, { model: 'isnet_quint8' })
-      const id = await putAsset(cutout)
+      const id = await putAsset((await pictureAt4K(cutout)).blob)
       applyStep([{ objectId: object.id, property: 'assetRef', value: `asset:${id}` }], 'Remove background')
       setNotice({ tone: 'info', text: 'Background removed. Undo brings it back.' })
     } catch (error) {
@@ -526,34 +562,78 @@ export default function Editor() {
     }
   }, [applyStep, pictureBlob])
 
-  /** Magic layers: analyse a picture into its own layered design and open it. */
+  /** What the analyser reads in a picture (its text and marks), in percent of that picture. */
+  const analysePicture = useCallback(async (blob: Blob, name: string): Promise<DesignObject[]> => {
+    const prepared = await prepareImage(new File([blob], `${name}.png`, { type: blob.type || 'image/png' }), 2048)
+    const response = await fetch('/api/analyze', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', ...(await spydaRequestHeaders({ openai: '', groq: '' }, 'groq')) },
+      body: JSON.stringify({
+        base64Image: prepared.dataUrl,
+        aiProvider: 'groq',
+        sourceMetadata: { designId: `magic-${Date.now().toString(36)}`, width: prepared.width, height: prepared.height, fileName: prepared.name, mimeType: 'image/jpeg' },
+      }),
+    })
+    const data = await response.json().catch(() => null)
+    if (!response.ok || !data?.ok || !data.breakdown) throw new Error(data?.error || 'The text in this picture could not be read.')
+    return adaptBreakdownToDesignDocument(data.breakdown, {
+      id: 'magic-analysis',
+      provider: 'spyda-editor',
+      sourceAsset: { fileName: name, mimeType: null },
+    }).objects
+  }, [])
+
+  /**
+   * Magic Layers on one picture, in place: the picture is replaced by its own
+   * layers (filled background, subject, marks, live text) exactly where it was.
+   * One undo puts the picture back.
+   */
   const handleMagicLayers = useCallback(async (object: DesignObject) => {
+    if (object.kind === 'background') { void handleExtract(); return }
+    const frame = object.transform.bounds
+    if (!design || !frame || magic) return
     setPictureBusy('magic')
-    setNotice({ tone: 'info', text: 'Finding the text, pictures and shapes in this picture…' })
+    setSelectedId(null)
+    setMagic({ frame, label: 'Reading the picture', progress: 0.02 })
+    const warnings: string[] = []
     try {
       const blob = await pictureBlob(object)
-      const prepared = await prepareImage(new File([blob], `${object.name}.png`, { type: blob.type || 'image/png' }))
-      const id = `spyda-${typeof crypto !== 'undefined' && 'randomUUID' in crypto ? crypto.randomUUID() : Date.now().toString(36)}`
-      const response = await fetch('/api/analyze', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json', ...(await spydaRequestHeaders({ openai: '', groq: '' }, 'groq')) },
-        body: JSON.stringify({
-          base64Image: prepared.dataUrl,
-          aiProvider: 'groq',
-          sourceMetadata: { designId: id, width: prepared.width, height: prepared.height, fileName: prepared.name, mimeType: 'image/jpeg' },
-        }),
+      let analysed: DesignObject[] = []
+      try {
+        setMagic({ frame, label: 'Finding text and logos', progress: 0.06 })
+        analysed = await analysePicture(blob, object.name)
+      } catch {
+        warnings.push('The text could not be read, so it stays part of the picture.')
+      }
+      const drawable = await loadDrawable(blob)
+      const result = await runMagicLayers({
+        source: drawable,
+        document: design,
+        analysed,
+        frame,
+        wholeFlyer: false,
+        saveAsset: putBlob => putAsset(putBlob),
+        onProgress: (label, progress) => setMagic({ frame, label, progress: 0.1 + progress * 0.9 }),
       })
-      const data = await response.json().catch(() => null)
-      if (!response.ok || !data?.ok || !data.breakdown) throw new Error(data?.error || 'Spyda could not find layers in this picture.')
-      const now = new Date().toISOString()
-      saveProject({ id, name: `${object.name} layers`, createdAt: now, updatedAt: now, referencePreview: prepared.dataUrl, generatedImage: null, breakdown: data.breakdown })
-      // A full load: the editor reads its project once, when it starts.
-      window.location.assign(`/editor/${encodeURIComponent(id)}`)
+      if ('close' in drawable) drawable.close()
+      applyStep([
+        { objectId: object.id, property: 'removed', value: true },
+        ...result.objects.map(layer => ({ objectId: layer.id, property: 'create' as const, value: layer })),
+      ], 'Magic layers')
+      const texts = result.objects.filter(layer => layer.kind === 'text').length
+      const all = [...warnings, ...result.warnings]
+      // After the step lands: committing an edit clears the notice line.
+      window.setTimeout(() => setNotice({
+        tone: all.length ? 'warn' : 'info',
+        text: `Split into ${result.objects.length} layers${texts ? `, ${texts} of them live text` : ''}. Undo puts the picture back.${all.length ? ` ${all.join(' ')}` : ''}`,
+      }), 0)
     } catch (error) {
       setNotice({ tone: 'error', text: error instanceof Error ? error.message : 'Magic layers could not split this picture.' })
+    } finally {
+      setMagic(null)
       setPictureBusy(null)
     }
-  }, [pictureBlob])
+  }, [analysePicture, applyStep, design, handleExtract, magic, pictureBlob])
 
   /** Spyda AI: the canvas as layers out, validated operations back in, one undo step. */
   const runAssist = useCallback(async (instruction: string) => {
@@ -643,7 +723,12 @@ export default function Editor() {
         applyStep([{
           objectId: selected.id,
           property: 'bounds',
-          value: { ...bounds, x: Math.round((bounds.x + delta[0]) * 10) / 10, y: Math.round((bounds.y + delta[1]) * 10) / 10 },
+          value: {
+            ...bounds,
+            // Clamp after rounding, so a nudge that reaches the edge never rounds past it.
+            x: Math.min(Math.max(0, Math.round((bounds.x + delta[0]) * 10) / 10), Math.max(0, 100 - bounds.width)),
+            y: Math.min(Math.max(0, Math.round((bounds.y + delta[1]) * 10) / 10), Math.max(0, 100 - bounds.height)),
+          },
           explicitGeometryChange: true,
         }], 'Nudge layer', `move:${selected.id}`)
       }
@@ -905,7 +990,7 @@ export default function Editor() {
         {project.referencePreview ? (
           <div className="rounded-md bg-white/[0.03] p-2">
             {sectionLabel('Cut-outs')}
-            <p className="text-[10px] leading-4 text-muted-foreground">Separate this flyer's pictures from their background so each one moves on its own.</p>
+            <p className="text-[10px] leading-4 text-muted-foreground">Split the flyer into live text, its subject, its logos and a filled-in background, so each part moves and edits on its own.</p>
             <button
               type="button"
               onClick={handleExtract}
@@ -913,7 +998,7 @@ export default function Editor() {
               className="mt-2 inline-flex h-7 items-center gap-1.5 rounded-md bg-primary px-2.5 text-[11px] font-semibold text-primary-foreground disabled:opacity-50"
             >
               {extracting ? <Loader2 className="h-3 w-3 animate-spin" /> : <Wand2 className="h-3 w-3" />}
-              {extracting ? 'Cutting out…' : extracted ? 'Refresh cut-outs' : 'Make it editable'}
+              {extracting ? 'Splitting…' : extracted ? 'Run Magic Layers again' : 'Magic Layers'}
             </button>
             {!cutoutTargets.length ? <p className="mt-1.5 text-[10px] text-muted-foreground">No pictures to cut out on this flyer.</p> : null}
           </div>
@@ -977,7 +1062,7 @@ export default function Editor() {
         <div>
           {sectionLabel('Size')}
           <div className="grid grid-cols-2 gap-1.5">
-            {[1, 2].map(scale => (
+            {[1, 2, UHD_LONG_EDGE / Math.max(1, design?.canvas.width || 0, design?.canvas.height || 0)].map((scale, index) => (
               <button
                 key={scale}
                 type="button"
@@ -985,7 +1070,7 @@ export default function Editor() {
                 aria-pressed={delivery.scale === scale}
                 className={`h-8 rounded-md text-[11px] font-semibold ${delivery.scale === scale ? 'bg-white text-[#0b1210]' : 'bg-white/[0.05] text-muted-foreground hover:text-foreground'}`}
               >
-                {scale}× · {(design?.canvas.width || 0) * scale} × {(design?.canvas.height || 0) * scale}
+                {index === 2 ? '4K' : `${scale}×`} · {Math.round((design?.canvas.width || 0) * scale)} × {Math.round((design?.canvas.height || 0) * scale)}
               </button>
             ))}
           </div>
@@ -1076,7 +1161,7 @@ export default function Editor() {
         { separator: true },
         { label: 'Remove background', onSelect: () => selectedObject && handleRemoveBackground(selectedObject), disabled: !selectedPicture || Boolean(pictureBusy) },
         { label: 'Magic layers', onSelect: () => selectedObject && handleMagicLayers(selectedObject), disabled: !selectedPicture || Boolean(pictureBusy) },
-        { label: 'Make flyer editable', onSelect: handleExtract, disabled: !project.referencePreview || Boolean(extracting) || !design },
+        { label: 'Magic Layers for the whole flyer', onSelect: handleExtract, disabled: !project.referencePreview || Boolean(extracting) || !design },
       ],
     },
     {
@@ -1339,6 +1424,7 @@ export default function Editor() {
                 onZoomChange={setZoom}
                 onDisplayScale={setDisplayScale}
                 artboardLabel={`Artboard · ${size}`}
+                scanning={magic}
                 className="absolute inset-x-0 bottom-14 top-0 lg:bottom-0"
               />
             ) : project.referencePreview ? (
@@ -1349,7 +1435,7 @@ export default function Editor() {
                 </p>
               </div>
             ) : null}
-            {extracting ? (
+            {extracting && !magic ? (
               <p className="absolute bottom-16 left-3 rounded-full bg-black/75 px-2.5 py-1 text-[10px] text-white backdrop-blur lg:bottom-3" role="status">
                 {extracting.total ? `Cutting out layer ${extracting.done} of ${extracting.total}…` : 'Reading the flyer once to build its mask…'}
               </p>

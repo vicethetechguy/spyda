@@ -52,6 +52,8 @@ export type LayerCanvasProps = {
   onDisplayScale?: (scale: number) => void
   /** The name shown above the artboard, like a design app's artboard title. */
   artboardLabel?: string
+  /** Magic Layers at work: a scanning shimmer over this part of the canvas. */
+  scanning?: { frame: PercentBox; label: string; progress: number } | null
 }
 
 /** Room around the artboard: the padding on each side and the label above it. */
@@ -161,6 +163,7 @@ export default function LayerCanvas({
   onZoomChange,
   onDisplayScale,
   artboardLabel,
+  scanning = null,
 }: LayerCanvasProps) {
   const containerRef = useRef<HTMLDivElement | null>(null)
   const transformerRef = useRef<Konva.Transformer | null>(null)
@@ -319,7 +322,7 @@ export default function LayerCanvas({
       {artboardLabel ? (
         <p className="truncate text-[10px] font-medium text-muted-foreground" style={{ height: LABEL_HEIGHT, maxWidth: display.width }}>{artboardLabel}</p>
       ) : null}
-      <div className="shadow-[0_0_0_1px_rgba(255,255,255,0.07),0_24px_70px_rgba(0,0,0,0.55)]" style={{ width: display.width, height: display.height }}>
+      <div className="relative shadow-[0_0_0_1px_rgba(255,255,255,0.07),0_24px_70px_rgba(0,0,0,0.55)]" style={{ width: display.width, height: display.height }}>
       <Stage
         ref={node => { if (stageRef) stageRef.current = node }}
         width={display.width}
@@ -421,7 +424,7 @@ export default function LayerCanvas({
                     verticalAlign="middle"
                     fontFamily={fontFamily}
                     fontSize={resolvedFontSize(object, { width: widthPx, height: heightPx }, display.scale, fontFamily, bold)}
-                    fontStyle={bold ? 'bold' : 'normal'}
+                    fontStyle={/^\d{3}$/.test(object.style.fontWeight || '') ? object.style.fontWeight! : bold ? 'bold' : 'normal'}
                     fill={object.style.fill || '#ffffff'}
                     lineHeight={object.style.lineHeight || 1.2}
                     letterSpacing={object.style.letterSpacing ?? 0}
@@ -534,6 +537,27 @@ export default function LayerCanvas({
           />
         </Layer>
       </Stage>
+      {scanning ? (
+        <div
+          role="status"
+          aria-live="polite"
+          className="magic-scan pointer-events-none absolute overflow-hidden"
+          style={{
+            left: `${scanning.frame.x}%`,
+            top: `${scanning.frame.y}%`,
+            width: `${scanning.frame.width}%`,
+            height: `${scanning.frame.height}%`,
+          }}
+        >
+          <span className="magic-scan__sweep" />
+          <span className="absolute inset-x-3 bottom-3 flex items-center gap-2 rounded-full bg-black/70 px-3 py-1.5 text-[11px] text-white backdrop-blur">
+            <span className="h-1 min-w-0 flex-1 overflow-hidden rounded-full bg-white/15">
+              <span className="block h-full rounded-full bg-[#9dfab0] transition-[width] duration-300" style={{ width: `${Math.round(scanning.progress * 100)}%` }} />
+            </span>
+            <span className="shrink-0">{scanning.label}</span>
+          </span>
+        </div>
+      ) : null}
       </div>
       </div>
       </div>

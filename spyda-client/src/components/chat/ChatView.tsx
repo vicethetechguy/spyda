@@ -818,6 +818,8 @@ export default function ChatView({ modelProvider, headerSlot, seed, onOpenWallet
         referencePreview: image,
         generatedImage: null,
         breakdown: data.breakdown,
+        // The editor runs Magic Layers on arrival: live text, subject, logos, filled background.
+        magicLayers: 'pending',
       })
       setConversation(current => ({ ...current, projectId, projectSource: image }))
       await saveConversation({ ...conversation, projectId, projectSource: image })
