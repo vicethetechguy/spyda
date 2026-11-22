@@ -2,8 +2,9 @@ import { Image as ImageIcon, MousePointerClick, Sparkles, Square, Type, type Luc
 import type { NewLayerKind } from '../../lib/editor-objects'
 
 /**
- * The floating tool pill over the canvas, Figma-style: select, then the four
- * things you can draw, then Spyda AI. Each tool names its shortcut.
+ * The canvas tools: select, the things you can draw, then Spyda AI. A tool
+ * column down the left edge on desktop, a floating pill on phones. Each tool
+ * names its shortcut.
  */
 
 function CircleGlyph({ className = '' }: { className?: string }) {
@@ -47,34 +48,61 @@ type CanvasToolbarProps = {
   penActive: boolean
   onAssist: () => void
   assistActive: boolean
+  /** A floating pill (phones), or the tool column down the left edge (desktop). */
+  orientation?: 'horizontal' | 'vertical'
 }
 
-export default function CanvasToolbar({ onSelectTool, onAdd, onPen, penActive, onAssist, assistActive }: CanvasToolbarProps) {
+export default function CanvasToolbar({ onSelectTool, onAdd, onPen, penActive, onAssist, assistActive, orientation = 'horizontal' }: CanvasToolbarProps) {
+  const vertical = orientation === 'vertical'
+  const isActive = (id: Tool['id']) => (id === 'pen' ? penActive : id === 'select' ? !penActive : false)
   return (
-    <div role="toolbar" aria-label="Canvas tools" className="flex items-center gap-0.5 rounded-full border border-white/[0.1] bg-[#121316]/95 p-0.5 shadow-[0_10px_30px_rgba(0,0,0,0.5)] backdrop-blur">
-      {TOOLS.map(tool => (
-        <button
-          key={tool.id}
-          type="button"
-          onClick={() => (tool.id === 'select' ? onSelectTool() : tool.id === 'pen' ? onPen() : onAdd(tool.id))}
-          aria-pressed={tool.id === 'pen' ? penActive : undefined}
-          title={`${tool.label} (${tool.key})`}
-          aria-label={`${tool.label}, shortcut ${tool.key}`}
-          className={`group relative flex h-8 w-8 items-center justify-center rounded-full transition-colors hover:bg-white/[0.08] hover:text-foreground ${tool.id === 'pen' && penActive ? 'bg-primary text-primary-foreground hover:bg-primary hover:text-primary-foreground' : 'text-muted-foreground'}`}
-        >
-          <tool.icon className="h-3.5 w-3.5" />
-        </button>
+    <div
+      role="toolbar"
+      aria-label="Canvas tools"
+      aria-orientation={orientation}
+      className={vertical
+        ? 'flex flex-col items-center gap-1'
+        : 'flex items-center gap-0.5 rounded-full border border-white/[0.1] bg-[#121316]/95 p-0.5 shadow-[0_10px_30px_rgba(0,0,0,0.5)] backdrop-blur'}
+    >
+      {TOOLS.map((tool, index) => (
+        <span key={tool.id} className="contents">
+          {vertical && (index === 1 || index === 6) ? <span aria-hidden="true" className="my-0.5 h-px w-6 bg-white/10" /> : null}
+          <button
+            type="button"
+            onClick={() => (tool.id === 'select' ? onSelectTool() : tool.id === 'pen' ? onPen() : onAdd(tool.id))}
+            aria-pressed={tool.id === 'pen' || tool.id === 'select' ? isActive(tool.id) : undefined}
+            title={`${tool.label} (${tool.key})`}
+            aria-label={`${tool.label}, shortcut ${tool.key}`}
+            className={`group relative flex items-center justify-center transition-colors hover:bg-white/[0.08] hover:text-foreground ${
+              vertical ? 'h-8 w-8 rounded-md' : 'h-8 w-8 rounded-full'
+            } ${isActive(tool.id)
+              ? tool.id === 'pen'
+                ? 'bg-primary text-primary-foreground hover:bg-primary hover:text-primary-foreground'
+                : vertical ? 'bg-white/[0.1] text-foreground ring-1 ring-white/15' : 'text-foreground'
+              : 'text-muted-foreground'}`}
+          >
+            <tool.icon className="h-3.5 w-3.5" />
+            {vertical ? (
+              <span className="pointer-events-none absolute left-full top-1/2 z-50 ml-2 hidden -translate-y-1/2 whitespace-nowrap rounded-md border border-white/10 bg-[#1b1c1f] px-2 py-1 text-[11px] text-foreground shadow-lg group-hover:block">
+                {tool.label} <span className="ml-1 font-mono text-[10px] text-muted-foreground">{tool.key}</span>
+              </span>
+            ) : null}
+          </button>
+        </span>
       ))}
-      <span className="mx-0.5 h-4 w-px bg-white/10" />
+      <span className={vertical ? 'my-0.5 h-px w-6 bg-white/10' : 'mx-0.5 h-4 w-px bg-white/10'} />
       <button
         type="button"
         onClick={onAssist}
         aria-pressed={assistActive}
-        className={`inline-flex h-8 items-center gap-1.5 whitespace-nowrap rounded-full px-3 text-[11px] font-semibold transition-colors ${
-          assistActive ? 'bg-primary text-primary-foreground' : 'text-primary hover:bg-primary/10'
-        }`}
+        title="Spyda AI"
+        aria-label="Spyda AI"
+        className={vertical
+          ? `flex h-8 w-8 items-center justify-center rounded-md transition-colors ${assistActive ? 'bg-primary text-primary-foreground' : 'text-primary hover:bg-primary/10'}`
+          : `inline-flex h-8 items-center gap-1.5 whitespace-nowrap rounded-full px-3 text-[11px] font-semibold transition-colors ${assistActive ? 'bg-primary text-primary-foreground' : 'text-primary hover:bg-primary/10'}`}
       >
-        <Sparkles className="h-3.5 w-3.5" /> <span><span className="hidden min-[420px]:inline">Spyda </span>AI</span>
+        <Sparkles className="h-3.5 w-3.5" />
+        {vertical ? null : <span><span className="hidden min-[420px]:inline">Spyda </span>AI</span>}
       </button>
     </div>
   )

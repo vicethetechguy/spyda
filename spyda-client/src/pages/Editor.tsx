@@ -1,8 +1,8 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { Link, useNavigate, useParams } from 'react-router-dom'
 import {
-  ArrowLeft, Clock, Copy, Download, Eye, Image as ImageIcon, Layers, Loader2, LogOut, Move, Palette, Plus, Redo2, Sparkles,
-  Trash2, Type, Undo2, Wand2, type LucideIcon,
+  ArrowLeft, ChevronDown, Clock, Copy, Download, Eye, Image as ImageIcon, Layers, Loader2, LogOut, Maximize2, Move, Palette, Plus,
+  Redo2, Sparkles, Trash2, Type, Undo2, Wand2, X, type LucideIcon,
 } from '../components/ui/icons'
 import type Konva from 'konva'
 import {
@@ -43,6 +43,7 @@ import LayerList from '../components/editor/LayerList'
 import { useAssetImages } from '../components/editor/useAssetImages'
 import AssistPanel, { type AssistEntry } from '../components/editor/AssistPanel'
 import CanvasToolbar from '../components/editor/CanvasToolbar'
+import EditorMenuBar, { type EditorMenu } from '../components/editor/EditorMenuBar'
 
 /**
  * The layer editor.
@@ -181,6 +182,13 @@ export default function Editor() {
   const [penPoints, setPenPoints] = useState<[number, number][] | null>(null)
   const [pictureBusy, setPictureBusy] = useState<'background' | 'magic' | null>(null)
   const imageInputRef = useRef<HTMLInputElement | null>(null)
+  // View: zoom is a multiple of "fit"; displayScale is screen pixels per design pixel.
+  const [zoom, setZoom] = useState(1)
+  const [displayScale, setDisplayScale] = useState(1)
+  const [dock, setDock] = useState({ layers: true, navigator: true })
+  const [lowerTab, setLowerTab] = useState<'navigator' | 'history'>('navigator')
+  const [thumbnail, setThumbnail] = useState('')
+  const [showShortcuts, setShowShortcuts] = useState(false)
   const navigate = useNavigate()
   const edited = useRef(false)
 
@@ -249,6 +257,35 @@ export default function Editor() {
     if (design && edited.current) persist(design)
     navigate('/workspace')
   }, [design, navigate, persist])
+
+  /** Leave for another route, saving first, like closing a document. */
+  const leaveTo = useCallback((path: string) => {
+    if (design && edited.current) persist(design)
+    navigate(path)
+  }, [design, navigate, persist])
+
+  const zoomBy = useCallback((factor: number) => setZoom(current => Math.min(8, Math.max(0.25, current * factor))), [])
+  /** 100%: one design pixel per screen pixel. */
+  const zoomActual = useCallback(() => setZoom(current => Math.min(8, Math.max(0.25, current / Math.max(0.01, displayScale)))), [displayScale])
+
+  // The navigator's miniature: the stage without selection handles, redrawn after edits settle.
+  useEffect(() => {
+    if (!design || !dock.navigator) return
+    const timer = window.setTimeout(() => {
+      const stage = stageRef.current
+      if (!stage || !stage.width()) return
+      const handles = stage.find('Transformer')
+      handles.forEach(node => node.visible(false))
+      try {
+        setThumbnail(stage.toDataURL({ pixelRatio: Math.min(1, 220 / stage.width()) }))
+      } catch {
+        // A cross-origin picture taints the stage; the navigator then shows the frame only.
+      } finally {
+        handles.forEach(node => node.visible(true))
+      }
+    }, 450)
+    return () => window.clearTimeout(timer)
+  }, [design, dock.navigator, images, flatFlyer])
 
   // Debounced autosave, but only once the user has actually changed something.
   useEffect(() => {
@@ -569,7 +606,14 @@ export default function Editor() {
         handleDuplicate(selectedId)
         return
       }
+      if (event.metaKey || event.ctrlKey) {
+        if (event.key === '=' || event.key === '+') { event.preventDefault(); zoomBy(1.25); return }
+        if (event.key === '-') { event.preventDefault(); zoomBy(0.8); return }
+        if (event.key === '0') { event.preventDefault(); setZoom(1); return }
+        if (event.key === '1') { event.preventDefault(); zoomActual(); return }
+      }
       if (event.metaKey || event.ctrlKey || event.altKey) return
+      if (event.key === '?') { setShowShortcuts(value => !value); return }
       const pageIndex = event.shiftKey ? Number(event.code.replace('Digit', '')) - 1 : -1
       if (pageIndex >= 0 && pageIndex < PAGE_ORDER.length) {
         event.preventDefault()
@@ -607,7 +651,7 @@ export default function Editor() {
 
     window.addEventListener('keydown', onKeyDown)
     return () => window.removeEventListener('keydown', onKeyDown)
-  }, [addLayer, applyIntent, applyStep, design?.objects, finishPen, handleDuplicate, penPoints, selectedId])
+  }, [addLayer, applyIntent, applyStep, design?.objects, finishPen, handleDuplicate, penPoints, selectedId, zoomActual, zoomBy])
 
   const selectLayer = (objectId: string | null) => {
     setSelectedId(objectId)
@@ -971,228 +1015,487 @@ export default function Editor() {
 
   const pageTitle = pages.find(item => item.id === page)?.label
 
+  const movable = Boolean(selectedObject?.transform.bounds && !selectedObject.protection.locked && !selectedObject.constraints.lockPosition && selectedObject.kind !== 'background')
+  const selectedPicture = Boolean(selectedObject && ['image', 'logo', 'icon'].includes(selectedObject.kind))
+  const alignSelected = (where: 'left' | 'center' | 'right' | 'top' | 'middle' | 'bottom') => {
+    const bounds = selectedObject?.transform.bounds
+    if (!selectedObject || !bounds || !movable) return
+    const next = {
+      left: { x: 0 }, center: { x: (100 - bounds.width) / 2 }, right: { x: 100 - bounds.width },
+      top: { y: 0 }, middle: { y: (100 - bounds.height) / 2 }, bottom: { y: 100 - bounds.height },
+    }[where]
+    applyStep([{ objectId: selectedObject.id, property: 'bounds', value: { ...bounds, ...next }, explicitGeometryChange: true }], `Align ${where}`)
+  }
+  const flipSelected = (axis: 'flipX' | 'flipY') => {
+    if (!selectedObject || selectedObject.protection.locked) return
+    applyIntent({ objectId: selectedObject.id, property: axis, value: !selectedObject.transform[axis] })
+  }
+  const exportAs = (format: Delivery['format']) => {
+    const next = { ...delivery, format }
+    setDelivery(next)
+    handleExport(next)
+  }
+  const choosePen = () => { setSelectedId(null); setPenPoints(current => (current ? null : [])) }
+  const zoomPercent = Math.round(displayScale * 100)
+  const noSelection = !selectedObject
+
+  const menus: EditorMenu[] = [
+    {
+      label: 'File',
+      items: [
+        { label: 'New canvas…', onSelect: () => leaveTo('/editor/new') },
+        { label: 'Place image…', shortcut: 'I', onSelect: () => imageInputRef.current?.click() },
+        { separator: true },
+        { label: 'Export PNG', onSelect: () => exportAs('png'), disabled: !design || exporting },
+        { label: 'Export JPEG', onSelect: () => exportAs('jpeg'), disabled: !design || exporting },
+        { label: 'Export settings…', onSelect: () => setPage('deliver') },
+        { separator: true },
+        { label: 'Save and close', onSelect: exitCanvas },
+      ],
+    },
+    {
+      label: 'Edit',
+      items: [
+        { label: history && canUndo(history) ? `Undo ${nextUndoLabel(history) ?? ''}`.trim() : 'Undo', shortcut: 'Ctrl+Z', onSelect: () => setHistory(current => (current ? undo(current) : current)), disabled: !history || !canUndo(history) },
+        { label: history && canRedo(history) ? `Redo ${nextRedoLabel(history) ?? ''}`.trim() : 'Redo', shortcut: 'Ctrl+Shift+Z', onSelect: () => setHistory(current => (current ? redo(current) : current)), disabled: !history || !canRedo(history) },
+        { separator: true },
+        { label: 'Duplicate', shortcut: 'Ctrl+D', onSelect: () => selectedObject && handleDuplicate(selectedObject.id), disabled: noSelection },
+        { label: 'Delete', shortcut: 'Del', onSelect: () => selectedObject && applyIntent({ objectId: selectedObject.id, property: 'removed', value: true }), disabled: noSelection },
+        { label: 'Deselect', shortcut: 'Esc', onSelect: () => setSelectedId(null), disabled: noSelection },
+      ],
+    },
+    {
+      label: 'Layer',
+      items: [
+        { label: 'Bring forward', onSelect: () => selectedObject && handleReorder(selectedObject.id, 'up'), disabled: noSelection },
+        { label: 'Send backward', onSelect: () => selectedObject && handleReorder(selectedObject.id, 'down'), disabled: noSelection },
+        { separator: true },
+        { label: 'Flip horizontal', onSelect: () => flipSelected('flipX'), disabled: noSelection, checked: selectedObject ? Boolean(selectedObject.transform.flipX) : undefined },
+        { label: 'Flip vertical', onSelect: () => flipSelected('flipY'), disabled: noSelection, checked: selectedObject ? Boolean(selectedObject.transform.flipY) : undefined },
+        { label: 'Hide / show', onSelect: () => selectedObject && handleToggleVisibility(selectedObject), disabled: noSelection },
+        { separator: true },
+        { label: 'Remove background', onSelect: () => selectedObject && handleRemoveBackground(selectedObject), disabled: !selectedPicture || Boolean(pictureBusy) },
+        { label: 'Magic layers', onSelect: () => selectedObject && handleMagicLayers(selectedObject), disabled: !selectedPicture || Boolean(pictureBusy) },
+        { label: 'Make flyer editable', onSelect: handleExtract, disabled: !project.referencePreview || Boolean(extracting) || !design },
+      ],
+    },
+    {
+      label: 'Vector',
+      items: [
+        { label: 'Rectangle', shortcut: 'R', onSelect: () => addLayer('rect') },
+        { label: 'Ellipse', shortcut: 'O', onSelect: () => addLayer('circle') },
+        { label: 'Line', shortcut: 'L', onSelect: () => addLayer('line') },
+        { label: 'Pen', shortcut: 'P', onSelect: choosePen, checked: penPoints !== null },
+      ],
+    },
+    {
+      label: 'Text',
+      items: [
+        { label: 'Add text', shortcut: 'T', onSelect: () => addLayer('text') },
+        { label: 'Edit selected text', onSelect: () => selectedObject && editText(selectedObject.id), disabled: !selectedObject || !matchesFilter(selectedObject, 'text') },
+        { label: 'Typography', onSelect: () => setPage('text') },
+      ],
+    },
+    {
+      label: 'Arrange',
+      items: (['left', 'center', 'right', 'top', 'middle', 'bottom'] as const).map(where => ({
+        label: `Align ${where} to frame`,
+        onSelect: () => alignSelected(where),
+        disabled: !movable,
+      })),
+    },
+    {
+      label: 'View',
+      items: [
+        { label: 'Zoom in', shortcut: 'Ctrl++', onSelect: () => zoomBy(1.25) },
+        { label: 'Zoom out', shortcut: 'Ctrl+-', onSelect: () => zoomBy(0.8) },
+        { label: 'Fit artboard', shortcut: 'Ctrl+0', onSelect: () => setZoom(1) },
+        { label: 'Actual pixels (100%)', shortcut: 'Ctrl+1', onSelect: zoomActual },
+        { separator: true },
+        { label: 'Layers panel', onSelect: () => setDock(current => ({ ...current, layers: !current.layers })), checked: dock.layers },
+        { label: 'Navigator panel', onSelect: () => setDock(current => ({ ...current, navigator: !current.navigator })), checked: dock.navigator },
+      ],
+    },
+    {
+      label: 'Help',
+      items: [
+        { label: 'Keyboard shortcuts', shortcut: '?', onSelect: () => setShowShortcuts(true) },
+        { label: 'Ask Spyda AI', onSelect: () => setPage('ai') },
+      ],
+    },
+  ]
+
+  const statusHint = penPoints
+    ? <><b>Click</b> to add points. <b>Click the first point</b> to close. <b>Enter</b> finishes an open path, <b>Esc</b> cancels.</>
+    : selectedObject
+      ? selectedObject.protection.locked
+        ? <>This layer is protected. <b>Esc</b> to deselect.</>
+        : <><b>Drag</b> to move. <b>Drag a handle</b> to resize, <b>Shift</b> keeps proportions. <b>Arrows</b> nudge, <b>Shift+arrows</b> nudge further.{matchesFilter(selectedObject, 'text') ? <> <b>Double-click</b> to edit text.</> : null}</>
+      : <><b>Click</b> a layer to select it. <b>Ctrl + scroll</b> to zoom. <b>V T R O L P I</b> pick tools, <b>?</b> shows every shortcut.</>
+
+  const panelHeader = (label: string, open: boolean, onToggle: () => void, extra?: React.ReactNode) => (
+    <div className="flex h-8 shrink-0 items-center gap-2 border-b border-white/[0.06] bg-[#141518] px-2">
+      <span className="h-3.5 w-1 rounded-full bg-white/10" aria-hidden />
+      <span className="text-[11px] font-semibold">{label}</span>
+      {extra}
+      <button type="button" onClick={onToggle} aria-label={`${open ? 'Collapse' : 'Expand'} ${label}`} aria-expanded={open} className="ml-auto flex h-5 w-5 items-center justify-center rounded border border-white/[0.1] text-muted-foreground hover:text-foreground">
+        <ChevronDown className={`h-3 w-3 transition-transform ${open ? '' : '-rotate-90'}`} />
+      </button>
+    </div>
+  )
+
+  const historyList = steps.length ? (
+    <ol className="space-y-0.5">
+      <li>
+        <button
+          type="button"
+          onClick={() => setHistory(current => (current ? jumpTo(current, 0) : current))}
+          className={`flex w-full items-center gap-2 rounded-md px-2 py-1 text-left text-[11px] transition-colors hover:bg-white/[0.05] ${cursor === 0 ? 'text-primary' : 'text-muted-foreground'}`}
+        >
+          <Clock className="h-3 w-3" /> Original
+        </button>
+      </li>
+      {steps.map((step, index) => {
+        const Icon = stepIcon(step.intents)
+        return (
+          <li key={index}>
+            <button
+              type="button"
+              onClick={() => setHistory(current => (current ? jumpTo(current, index + 1) : current))}
+              className={`flex w-full items-center gap-2 rounded-md px-2 py-1 text-left text-[11px] transition-colors hover:bg-white/[0.05] ${
+                index === cursor - 1 ? 'bg-primary/15 text-primary' : index < cursor ? 'text-foreground/90' : 'text-muted-foreground/50 line-through'
+              }`}
+            >
+              <Icon className="h-3 w-3 shrink-0" /> <span className="truncate">{step.label}</span>
+            </button>
+          </li>
+        )
+      })}
+    </ol>
+  ) : <p className="px-1 text-[11px] text-muted-foreground">Every edit lands here. Click one to go back to it.</p>
+
+  const iconButton = 'flex h-7 w-7 items-center justify-center rounded-md text-muted-foreground transition-colors hover:bg-white/[0.08] hover:text-foreground disabled:opacity-30'
+
   return (
-    <main className="figma-editor flex min-h-[100dvh] flex-col bg-[#0b0c0e] text-foreground lg:h-[100dvh] lg:flex-row lg:overflow-hidden">
-      {/* Left: file, pages, layers */}
-      <aside className="order-2 flex w-full shrink-0 flex-col border-t border-white/[0.06] bg-[#111214] lg:order-1 lg:h-full lg:w-[240px] lg:border-r lg:border-t-0">
-        <div className="flex h-11 shrink-0 items-center gap-2 border-b border-white/[0.06] px-2.5">
-          <button
-            type="button"
-            onClick={exitCanvas}
-            aria-label="Close canvas mode and go back to Spyda AI"
-            title="Back to Spyda AI"
-            className="flex h-7 w-7 shrink-0 items-center justify-center rounded-md transition-colors hover:bg-white/[0.08]"
-          >
-            <img src="/assets/spyda-logo.png" alt="" className="h-5 w-5 object-contain" />
+    <main className="figma-editor flex min-h-[100dvh] flex-col bg-[#0b0c0e] text-foreground lg:h-[100dvh] lg:overflow-hidden">
+      {/* Menu bar */}
+      <header className="flex h-9 shrink-0 items-center gap-1 border-b border-white/[0.06] bg-[#111214] px-1.5">
+        <button
+          type="button"
+          onClick={exitCanvas}
+          aria-label="Close canvas mode and go back to Spyda AI"
+          title="Back to Spyda AI"
+          className="flex h-7 w-7 shrink-0 items-center justify-center rounded-md transition-colors hover:bg-white/[0.08]"
+        >
+          <img src="/assets/spyda-logo.png" alt="" className="h-5 w-5 object-contain" />
+        </button>
+        <div className="hidden lg:block"><EditorMenuBar menus={menus} /></div>
+        <div className="min-w-0 flex-1 px-2 lg:hidden">
+          <h1 className="truncate text-[12px] font-semibold">{project.name}</h1>
+        </div>
+        <div className="ml-auto flex shrink-0 items-center gap-1.5">
+          <button type="button" onClick={exitCanvas} title="Save and leave canvas mode" className="inline-flex h-7 items-center gap-1.5 rounded-md border border-white/[0.1] px-2.5 text-[11px] font-semibold text-foreground/90 transition-colors hover:bg-white/[0.08]">
+            <LogOut className="h-3 w-3" aria-hidden /> Done
           </button>
-          <div className="min-w-0">
-            <h1 className="truncate text-[12px] font-semibold">{project.name}</h1>
-            <p className="text-[10px] text-muted-foreground">{size}{saved ? ' · Saved' : ''}</p>
+          <div className="flex h-7 overflow-hidden rounded-md bg-primary text-primary-foreground">
+            <button type="button" onClick={() => handleExport(delivery)} disabled={exporting || !design} className="inline-flex items-center gap-1.5 pl-3 pr-2 text-[11px] font-semibold disabled:opacity-50">
+              {exporting ? <Loader2 className="h-3 w-3 animate-spin" aria-hidden /> : <Download className="h-3 w-3" aria-hidden />}
+              Export {delivery.format.toUpperCase()}
+            </button>
+            <button type="button" onClick={() => setPage('deliver')} aria-label="Export settings" title="Export settings" className="flex w-6 items-center justify-center border-l border-black/15 hover:bg-black/10">
+              <ChevronDown className="h-3 w-3" />
+            </button>
           </div>
         </div>
+      </header>
 
-        <div className="shrink-0 border-b border-white/[0.06] px-2 py-2">
-          <p className="mb-1 px-1.5 text-[10px] font-semibold text-muted-foreground">Pages</p>
-          <div role="tablist" aria-label="Canvas pages" className="flex gap-0.5 overflow-x-auto [scrollbar-width:none] lg:flex-col [&::-webkit-scrollbar]:hidden">
-            {pages.map((item, index) => (
-              <button
-                key={item.id}
-                type="button"
-                role="tab"
-                aria-selected={page === item.id}
-                onClick={() => setPage(item.id)}
-                title={`${item.label} (Shift+${index + 1})`}
-                className={`flex h-7 shrink-0 items-center gap-2 whitespace-nowrap rounded-md px-2 text-[11px] transition-colors ${
-                  page === item.id ? 'bg-white/[0.08] font-semibold text-foreground' : 'text-muted-foreground hover:bg-white/[0.04] hover:text-foreground'
-                }`}
-              >
-                <item.icon className={`h-3.5 w-3.5 ${page === item.id ? 'text-primary' : ''}`} />
-                {item.label}
-              </button>
-            ))}
-          </div>
+      {/* Context bar: studio pages, the selection, undo and zoom */}
+      <div className="flex h-10 shrink-0 items-center gap-2 overflow-x-auto border-b border-white/[0.06] bg-[#0f1012] px-2 [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
+        <div role="tablist" aria-label="Canvas pages" className="flex shrink-0 items-center gap-0.5 rounded-lg bg-black/30 p-0.5">
+          {pages.map((item, index) => (
+            <button
+              key={item.id}
+              type="button"
+              role="tab"
+              aria-selected={page === item.id}
+              onClick={() => setPage(item.id)}
+              title={`${item.label} (Shift+${index + 1})`}
+              className={`flex h-7 items-center gap-1.5 whitespace-nowrap rounded-md px-2.5 text-[11px] transition-colors ${
+                page === item.id
+                  ? item.id === 'ai' ? 'bg-primary font-semibold text-primary-foreground' : 'bg-white/[0.1] font-semibold text-foreground'
+                  : 'text-muted-foreground hover:text-foreground'
+              }`}
+            >
+              <item.icon className={`h-3.5 w-3.5 ${page === item.id && item.id !== 'ai' ? 'text-primary' : ''}`} />
+              {item.label}
+            </button>
+          ))}
         </div>
-
-        <div className="flex min-h-0 flex-1 flex-col px-2 py-2">
-          <div className="mb-1 flex items-center justify-between px-1.5">
-            <p className="text-[10px] font-semibold text-muted-foreground">Layers</p>
-            {missingAssets.length ? <span className="text-[10px] text-amber-300">{missingAssets.length} loading</span> : null}
-          </div>
-          <div className="mb-1.5 flex flex-wrap gap-1 px-0.5">
-            {FILTERS.map(item => (
-              <button
-                key={item.id}
-                type="button"
-                onClick={() => setFilter(item.id)}
-                aria-pressed={filter === item.id}
-                className={`h-5 rounded px-1.5 text-[9px] font-medium transition-colors ${filter === item.id ? 'bg-white/[0.12] text-foreground' : 'text-muted-foreground hover:text-foreground'}`}
-              >
-                {item.label}
-              </button>
-            ))}
-          </div>
-          <div className="editor-dense max-h-[40vh] min-h-0 flex-1 overflow-y-auto lg:max-h-none">
-            <LayerList
-              objects={filtered}
-              selectedId={selectedId}
-              onSelect={selectLayer}
-              onReorder={handleReorder}
-              onToggleVisibility={handleToggleVisibility}
-              onDuplicate={handleDuplicate}
-              onRemove={objectId => applyIntent({ objectId, property: 'removed', value: true })}
-            />
-          </div>
-        </div>
-      </aside>
-
-      {/* Centre: the canvas, with the tools floating at the bottom like Figma */}
-      <section className="editor-stage relative order-1 min-h-[70vh] flex-1 overflow-hidden lg:order-2 lg:min-h-0">
-        <div className="absolute left-2 top-2 z-10 flex min-w-0 items-center gap-2 lg:left-3 lg:top-2.5">
-          {/* On phones the file header sits below the canvas, so the way back is up here. */}
-          <button
-            type="button"
-            onClick={exitCanvas}
-            aria-label="Back to Spyda AI"
-            className="flex h-7 w-7 shrink-0 items-center justify-center rounded-md bg-black/40 text-muted-foreground lg:hidden"
-          >
-            <ArrowLeft className="h-3.5 w-3.5" />
+        <span className="hidden h-5 w-px shrink-0 bg-white/10 md:block" />
+        <p className="hidden min-w-0 shrink truncate text-[11px] md:block">
+          {selectedObject ? (
+            <>
+              <span className="font-semibold">{selectedObject.name}</span>
+              {selectedObject.transform.bounds && design?.canvas.width && design.canvas.height ? (
+                <span className="ml-2 font-mono text-[10px] text-muted-foreground">
+                  X {Math.round((selectedObject.transform.bounds.x / 100) * design.canvas.width)} · Y {Math.round((selectedObject.transform.bounds.y / 100) * design.canvas.height)} · {Math.round((selectedObject.transform.bounds.width / 100) * design.canvas.width)} × {Math.round((selectedObject.transform.bounds.height / 100) * design.canvas.height)}
+                  {selectedObject.transform.rotation ? ` · ${Math.round(selectedObject.transform.rotation)}°` : ''}
+                </span>
+              ) : null}
+            </>
+          ) : <span className="text-muted-foreground">No selection</span>}
+        </p>
+        <div className="ml-auto flex shrink-0 items-center gap-0.5">
+          <button type="button" onClick={() => setHistory(current => (current ? undo(current) : current))} disabled={!history || !canUndo(history)} title={(history && nextUndoLabel(history)) || 'Nothing to undo'} aria-label="Undo" className={iconButton}>
+            <Undo2 className="h-3.5 w-3.5" aria-hidden />
           </button>
-          <p className="pointer-events-none truncate text-[10px] text-muted-foreground">
-            <span className="text-foreground/80">{project.name}</span> · {size}
-          </p>
+          <button type="button" onClick={() => setHistory(current => (current ? redo(current) : current))} disabled={!history || !canRedo(history)} title={(history && nextRedoLabel(history)) || 'Nothing to redo'} aria-label="Redo" className={iconButton}>
+            <Redo2 className="h-3.5 w-3.5" aria-hidden />
+          </button>
+          <span className="mx-1 h-5 w-px bg-white/10" />
+          <button type="button" onClick={() => zoomBy(0.8)} aria-label="Zoom out" title="Zoom out (Ctrl -)" className={iconButton}><span className="text-[14px] leading-none">−</span></button>
+          <button type="button" onClick={zoomActual} title="Actual pixels (Ctrl 1)" className="h-7 min-w-[46px] rounded-md bg-black/30 px-1.5 font-mono text-[10px] text-foreground/90 hover:bg-white/[0.08]">{zoomPercent}%</button>
+          <button type="button" onClick={() => zoomBy(1.25)} aria-label="Zoom in" title="Zoom in (Ctrl +)" className={iconButton}><Plus className="h-3.5 w-3.5" /></button>
+          <button type="button" onClick={() => setZoom(1)} aria-label="Fit artboard" title="Fit artboard (Ctrl 0)" className={iconButton}><Maximize2 className="h-3.5 w-3.5" /></button>
         </div>
-        {notice ? (
-          <div
-            role="status"
-            className={[
-              'absolute inset-x-3 top-8 z-20 mx-auto flex max-w-xl items-center gap-2 rounded-lg border px-3 py-1.5 text-[11px] shadow-lg',
-              notice.tone === 'error'
-                ? 'border-destructive/30 bg-[#2a1214] text-red-200'
-                : notice.tone === 'warn'
-                  ? 'border-amber-400/25 bg-[#2a2210] text-amber-200'
-                  : 'border-white/[0.08] bg-[#17181b] text-muted-foreground',
-            ].join(' ')}
-          >
-            <Sparkles className="h-3 w-3 shrink-0" aria-hidden />
-            <span className="flex-1 truncate">{notice.text}</span>
-            <button type="button" onClick={() => setNotice(null)} className="shrink-0 underline">Dismiss</button>
-          </div>
-        ) : null}
-        {missingFonts.size ? (
-          <p className="absolute right-3 top-2.5 z-10 max-w-[50%] truncate text-[10px] text-amber-200">
-            {[...missingFonts].join(', ')} not loaded · showing Montserrat
-          </p>
-        ) : null}
-        <input
-          ref={imageInputRef}
-          type="file"
-          accept="image/png,image/jpeg,image/webp"
-          className="hidden"
-          onChange={event => {
-            const file = event.target.files?.[0]
-            if (file) handleImageFile(file)
-            event.target.value = ''
-          }}
-        />
-        {design ? (
-          <LayerCanvas
-            document={design}
-            images={images}
-            fallbackImage={flatFlyer}
-            selectedId={selectedId}
-            onSelect={selectLayer}
-            onEditText={editText}
-            penActive={penPoints !== null}
-            penPoints={penPoints ?? []}
-            onPenPoint={addPenPoint}
-            onGeometryChange={(objectId, bounds, rotation) => applyStep([
-              { objectId, property: 'bounds', value: bounds, explicitGeometryChange: true },
-              { objectId, property: 'rotation', value: rotation, explicitGeometryChange: true },
-            ], 'Move layer', `move:${objectId}`)}
-            missingFonts={missingFonts}
-            stageRef={stageRef}
-            className="absolute inset-x-4 bottom-16 top-8 flex items-center justify-center"
-          />
-        ) : project.referencePreview ? (
-          <div className="absolute inset-0 flex flex-col items-center justify-center gap-3 p-6 text-center">
-            <img src={project.referencePreview} alt="Reference flyer" className="max-h-[60vh] w-auto rounded-lg border border-white/10" />
-            <p className="max-w-xs text-[11px] leading-relaxed text-muted-foreground">
-              This flyer is still a flat picture. Open it from Spyda AI again so its parts become layers.
-            </p>
-          </div>
-        ) : null}
-        {extracting ? (
-          <p className="absolute bottom-16 left-3 rounded-full bg-black/75 px-2.5 py-1 text-[10px] text-white backdrop-blur" role="status">
-            {extracting.total ? `Cutting out layer ${extracting.done} of ${extracting.total}…` : 'Reading the flyer once to build its mask…'}
-          </p>
-        ) : null}
-        {penPoints ? (
-          <p className="absolute inset-x-0 bottom-14 z-10 mx-auto w-fit rounded-full bg-black/75 px-3 py-1 text-[10px] text-white backdrop-blur" role="status">
-            Click to add points · click the first point to close · Enter to finish · Esc to cancel
-          </p>
-        ) : null}
-        <div className="absolute inset-x-0 bottom-3 z-10 flex justify-center px-2">
+      </div>
+
+      <div className="flex min-h-0 flex-1 flex-col lg:flex-row">
+        {/* Tool column */}
+        <nav aria-label="Tools" className="hidden w-11 shrink-0 flex-col items-center border-r border-white/[0.06] bg-[#111214] py-2 lg:flex">
           <CanvasToolbar
+            orientation="vertical"
             onSelectTool={() => { setSelectedId(null); setPenPoints(null) }}
             onAdd={kind => addLayer(kind)}
-            onPen={() => { setSelectedId(null); setPenPoints(current => (current ? null : [])) }}
+            onPen={choosePen}
             penActive={penPoints !== null}
             onAssist={() => setPage('ai')}
             assistActive={page === 'ai'}
           />
-        </div>
-      </section>
+        </nav>
 
-      {/* Right: actions, then the current page's panel */}
-      <aside className="order-3 flex min-h-[340px] w-full shrink-0 flex-col border-t border-white/[0.06] bg-[#111214] lg:h-full lg:min-h-0 lg:w-[264px] lg:border-l lg:border-t-0">
-        <div className="flex h-11 shrink-0 items-center gap-1 border-b border-white/[0.06] px-2.5">
-          <button
-            type="button"
-            onClick={() => setHistory(current => (current ? undo(current) : current))}
-            disabled={!history || !canUndo(history)}
-            title={(history && nextUndoLabel(history)) || 'Nothing to undo'}
-            aria-label="Undo"
-            className="flex h-7 w-7 items-center justify-center rounded-md text-muted-foreground transition-colors hover:bg-white/[0.08] hover:text-foreground disabled:opacity-30"
-          >
-            <Undo2 className="h-3.5 w-3.5" aria-hidden />
-          </button>
-          <button
-            type="button"
-            onClick={() => setHistory(current => (current ? redo(current) : current))}
-            disabled={!history || !canRedo(history)}
-            title={(history && nextRedoLabel(history)) || 'Nothing to redo'}
-            aria-label="Redo"
-            className="flex h-7 w-7 items-center justify-center rounded-md text-muted-foreground transition-colors hover:bg-white/[0.08] hover:text-foreground disabled:opacity-30"
-          >
-            <Redo2 className="h-3.5 w-3.5" aria-hidden />
-          </button>
-          <button
-            type="button"
-            onClick={exitCanvas}
-            title="Save and leave canvas mode"
-            className="ml-auto inline-flex h-7 items-center gap-1.5 rounded-md border border-white/[0.1] px-2.5 text-[11px] font-semibold text-foreground/90 transition-colors hover:bg-white/[0.08]"
-          >
-            <LogOut className="h-3 w-3" aria-hidden />
-            Done
-          </button>
-          <button
-            type="button"
-            onClick={() => handleExport(delivery)}
-            disabled={exporting || !design}
-            className="inline-flex h-7 items-center gap-1.5 rounded-md bg-primary px-3 text-[11px] font-semibold text-primary-foreground transition-transform active:scale-[0.98] disabled:opacity-50"
-          >
-            {exporting ? <Loader2 className="h-3 w-3 animate-spin" aria-hidden /> : <Download className="h-3 w-3" aria-hidden />}
-            Export
-          </button>
+        {/* Document */}
+        <section className="flex min-h-[72vh] min-w-0 flex-1 flex-col lg:min-h-0">
+          <div className="flex h-7 shrink-0 items-end gap-1 border-b border-white/[0.06] bg-[#0d0e10] px-2">
+            <div className="flex h-6 max-w-full items-center gap-2 rounded-t-md border border-b-0 border-white/[0.08] bg-[#16171a] pl-2.5 pr-1 text-[11px]">
+              <span className="truncate text-foreground/90">{project.name}</span>
+              <span className="shrink-0 text-muted-foreground">@ {zoomPercent}%{saved ? '' : '*'}</span>
+              <button type="button" onClick={exitCanvas} aria-label="Save and close this document" title="Save and close" className="flex h-4 w-4 shrink-0 items-center justify-center rounded text-muted-foreground hover:bg-white/[0.1] hover:text-foreground">
+                <X className="h-3 w-3" />
+              </button>
+            </div>
+            {missingFonts.size ? (
+              <p className="mb-1 ml-auto max-w-[45%] truncate text-[10px] text-amber-200">{[...missingFonts].join(', ')} not loaded · showing Montserrat</p>
+            ) : null}
+          </div>
+
+          <div className="editor-stage relative min-h-0 flex-1 overflow-hidden">
+            {notice ? (
+              <div
+                role="status"
+                className={[
+                  'absolute inset-x-3 top-3 z-20 mx-auto flex max-w-xl items-center gap-2 rounded-lg border px-3 py-1.5 text-[11px] shadow-lg',
+                  notice.tone === 'error'
+                    ? 'border-destructive/30 bg-[#2a1214] text-red-200'
+                    : notice.tone === 'warn'
+                      ? 'border-amber-400/25 bg-[#2a2210] text-amber-200'
+                      : 'border-white/[0.08] bg-[#17181b] text-muted-foreground',
+                ].join(' ')}
+              >
+                <Sparkles className="h-3 w-3 shrink-0" aria-hidden />
+                <span className="flex-1 truncate">{notice.text}</span>
+                <button type="button" onClick={() => setNotice(null)} className="shrink-0 underline">Dismiss</button>
+              </div>
+            ) : null}
+            <input
+              ref={imageInputRef}
+              type="file"
+              accept="image/png,image/jpeg,image/webp"
+              className="hidden"
+              onChange={event => {
+                const file = event.target.files?.[0]
+                if (file) handleImageFile(file)
+                event.target.value = ''
+              }}
+            />
+            {design ? (
+              <LayerCanvas
+                document={design}
+                images={images}
+                fallbackImage={flatFlyer}
+                selectedId={selectedId}
+                onSelect={selectLayer}
+                onEditText={editText}
+                penActive={penPoints !== null}
+                penPoints={penPoints ?? []}
+                onPenPoint={addPenPoint}
+                onGeometryChange={(objectId, bounds, rotation) => applyStep([
+                  { objectId, property: 'bounds', value: bounds, explicitGeometryChange: true },
+                  { objectId, property: 'rotation', value: rotation, explicitGeometryChange: true },
+                ], 'Move layer', `move:${objectId}`)}
+                missingFonts={missingFonts}
+                stageRef={stageRef}
+                zoom={zoom}
+                onZoomChange={setZoom}
+                onDisplayScale={setDisplayScale}
+                artboardLabel={`Artboard · ${size}`}
+                className="absolute inset-x-0 bottom-14 top-0 lg:bottom-0"
+              />
+            ) : project.referencePreview ? (
+              <div className="absolute inset-0 flex flex-col items-center justify-center gap-3 p-6 text-center">
+                <img src={project.referencePreview} alt="Reference flyer" className="max-h-[60vh] w-auto rounded-lg border border-white/10" />
+                <p className="max-w-xs text-[11px] leading-relaxed text-muted-foreground">
+                  This flyer is still a flat picture. Open it from Spyda AI again so its parts become layers.
+                </p>
+              </div>
+            ) : null}
+            {extracting ? (
+              <p className="absolute bottom-16 left-3 rounded-full bg-black/75 px-2.5 py-1 text-[10px] text-white backdrop-blur lg:bottom-3" role="status">
+                {extracting.total ? `Cutting out layer ${extracting.done} of ${extracting.total}…` : 'Reading the flyer once to build its mask…'}
+              </p>
+            ) : null}
+            {penPoints ? (
+              <p className="absolute inset-x-0 bottom-14 z-10 mx-auto w-fit rounded-full bg-black/75 px-3 py-1 text-[10px] text-white backdrop-blur lg:hidden" role="status">
+                Tap to add points · tap the first point to close
+              </p>
+            ) : null}
+            {/* Phones keep the floating tool pill; desktop has the tool column. */}
+            <div className="absolute inset-x-0 bottom-3 z-10 flex justify-center px-2 lg:hidden">
+              <CanvasToolbar
+                onSelectTool={() => { setSelectedId(null); setPenPoints(null) }}
+                onAdd={kind => addLayer(kind)}
+                onPen={choosePen}
+                penActive={penPoints !== null}
+                onAssist={() => setPage('ai')}
+                assistActive={page === 'ai'}
+              />
+            </div>
+          </div>
+        </section>
+
+        {/* Dock: the studio page, layers, navigator and history */}
+        <aside className="flex w-full shrink-0 flex-col border-t border-white/[0.06] bg-[#111214] lg:h-full lg:w-[288px] lg:border-l lg:border-t-0">
+          <div className="flex min-h-[320px] flex-1 flex-col lg:min-h-0">
+            {panelHeader(pageTitle || 'Design', true, () => setPage('design'), page === 'design' && selectedObject ? <span className="min-w-0 truncate text-[10px] text-muted-foreground">{selectedObject.name}</span> : null)}
+            <div className={`min-h-0 flex-1 p-2.5 ${page === 'ai' ? 'flex flex-col' : 'overflow-y-auto'}`}>
+              {panels[page]}
+            </div>
+          </div>
+
+          <div className={`flex flex-col border-t border-white/[0.06] ${dock.layers ? 'lg:h-[30%] lg:min-h-[160px]' : ''}`}>
+            {panelHeader(
+              'Layers',
+              dock.layers,
+              () => setDock(current => ({ ...current, layers: !current.layers })),
+              <span className="text-[10px] text-muted-foreground">{live.length}{missingAssets.length ? <span className="ml-1.5 text-amber-300">{missingAssets.length} loading</span> : null}</span>,
+            )}
+            {dock.layers ? (
+              <div className="flex min-h-0 flex-1 flex-col px-1.5 pb-1.5 pt-1">
+                <div className="mb-1 flex flex-wrap gap-1 px-0.5">
+                  {FILTERS.map(item => (
+                    <button
+                      key={item.id}
+                      type="button"
+                      onClick={() => setFilter(item.id)}
+                      aria-pressed={filter === item.id}
+                      className={`h-5 rounded px-1.5 text-[9px] font-medium transition-colors ${filter === item.id ? 'bg-white/[0.12] text-foreground' : 'text-muted-foreground hover:text-foreground'}`}
+                    >
+                      {item.label}
+                    </button>
+                  ))}
+                </div>
+                <div className="editor-dense max-h-[40vh] min-h-0 flex-1 overflow-y-auto lg:max-h-none">
+                  <LayerList
+                    objects={filtered}
+                    selectedId={selectedId}
+                    onSelect={selectLayer}
+                    onReorder={handleReorder}
+                    onToggleVisibility={handleToggleVisibility}
+                    onDuplicate={handleDuplicate}
+                    onRemove={objectId => applyIntent({ objectId, property: 'removed', value: true })}
+                  />
+                </div>
+              </div>
+            ) : null}
+          </div>
+
+          <div className={`flex flex-col border-t border-white/[0.06] ${dock.navigator ? 'lg:h-[24%] lg:min-h-[150px]' : ''}`}>
+            {panelHeader(
+              lowerTab === 'navigator' ? 'Navigator' : 'History',
+              dock.navigator,
+              () => setDock(current => ({ ...current, navigator: !current.navigator })),
+              <span role="tablist" aria-label="Navigator or history" className="flex gap-0.5">
+                {(['navigator', 'history'] as const).map(tab => (
+                  <button key={tab} type="button" role="tab" aria-selected={lowerTab === tab} onClick={() => { setLowerTab(tab); setDock(current => ({ ...current, navigator: true })) }} className={`h-5 rounded px-1.5 text-[10px] capitalize ${lowerTab === tab ? 'bg-white/[0.1] text-foreground' : 'text-muted-foreground hover:text-foreground'}`}>
+                    {tab}
+                  </button>
+                ))}
+              </span>,
+            )}
+            {dock.navigator ? (
+              lowerTab === 'navigator' ? (
+                <div className="flex min-h-0 flex-1 flex-col gap-2 p-2.5">
+                  <div className="flex items-center gap-2">
+                    <button type="button" onClick={() => zoomBy(0.8)} aria-label="Zoom out" className="flex h-5 w-5 items-center justify-center rounded border border-white/[0.1] text-muted-foreground hover:text-foreground">−</button>
+                    <input
+                      type="range"
+                      min={-2}
+                      max={3}
+                      step={0.01}
+                      value={Math.log2(zoom)}
+                      onChange={event => setZoom(2 ** Number(event.target.value))}
+                      aria-label="Zoom"
+                      className="h-1 min-w-0 flex-1 cursor-pointer accent-[#9dfab0]"
+                    />
+                    <button type="button" onClick={() => zoomBy(1.25)} aria-label="Zoom in" className="flex h-5 w-5 items-center justify-center rounded border border-white/[0.1] text-muted-foreground hover:text-foreground">+</button>
+                    <span className="w-11 rounded bg-black/30 px-1 py-0.5 text-right font-mono text-[10px]">{zoomPercent}%</span>
+                  </div>
+                  <button type="button" onClick={() => setZoom(1)} title="Fit artboard" className="flex min-h-0 flex-1 items-center justify-center rounded-md bg-black/30 p-2">
+                    {thumbnail
+                      ? <img src={thumbnail} alt="Whole design" className={`max-h-full max-w-full object-contain ${zoom > 1.01 ? 'outline outline-1 outline-primary' : ''}`} />
+                      : <span className="text-[10px] text-muted-foreground">Preview appears after the first render</span>}
+                  </button>
+                </div>
+              ) : (
+                <div className="min-h-0 flex-1 overflow-y-auto p-1.5">{historyList}</div>
+              )
+            ) : null}
+          </div>
+        </aside>
+      </div>
+
+      {/* Status bar */}
+      <footer className="hidden h-6 shrink-0 items-center gap-3 border-t border-white/[0.06] bg-[#111214] px-3 text-[10px] text-muted-foreground sm:flex">
+        <span className="shrink-0">Artboard 1 of 1</span>
+        <span className="shrink-0">{live.length} layers</span>
+        <span className="h-3 w-px shrink-0 bg-white/10" />
+        <span className="min-w-0 flex-1 truncate [&_b]:font-semibold [&_b]:text-foreground/90">{statusHint}</span>
+        <span className="shrink-0 font-mono">{size}</span>
+        <span className={`shrink-0 ${saved ? 'text-primary' : ''}`}>{saved ? 'Saved' : 'Not saved yet'}</span>
+      </footer>
+
+      {showShortcuts ? (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 p-4" role="dialog" aria-modal="true" aria-label="Keyboard shortcuts" onClick={() => setShowShortcuts(false)}>
+          <div className="w-full max-w-md rounded-xl border border-white/[0.1] bg-[#16171a] p-4 shadow-2xl" onClick={event => event.stopPropagation()}>
+            <div className="mb-3 flex items-center justify-between">
+              <h2 className="text-[13px] font-semibold">Keyboard shortcuts</h2>
+              <button type="button" onClick={() => setShowShortcuts(false)} aria-label="Close" className={iconButton}><X className="h-3.5 w-3.5" /></button>
+            </div>
+            <dl className="grid grid-cols-[1fr_auto] gap-x-4 gap-y-1.5 text-[11px]">
+              {[
+                ['Select', 'V'], ['Text', 'T'], ['Rectangle', 'R'], ['Ellipse', 'O'], ['Line', 'L'], ['Pen', 'P'], ['Place image', 'I'],
+                ['Undo / redo', 'Ctrl+Z / Ctrl+Shift+Z'], ['Duplicate', 'Ctrl+D'], ['Delete', 'Del'], ['Nudge', 'Arrows (Shift: further)'],
+                ['Zoom in / out', 'Ctrl+ / Ctrl−, Ctrl + scroll'], ['Fit / 100%', 'Ctrl+0 / Ctrl+1'], ['Studio pages', 'Shift+1 … Shift+7'], ['Deselect', 'Esc'],
+              ].map(([label, keys]) => (
+                <div key={label} className="contents">
+                  <dt className="text-muted-foreground">{label}</dt>
+                  <dd className="text-right font-mono text-[10px] text-foreground/90">{keys}</dd>
+                </div>
+              ))}
+            </dl>
+          </div>
         </div>
-        <div className="flex h-9 shrink-0 items-center gap-3 border-b border-white/[0.06] px-3">
-          <h2 className="text-[11px] font-semibold">{pageTitle}</h2>
-          {page === 'design' && selectedObject ? <span className="truncate text-[10px] text-muted-foreground">{selectedObject.name}</span> : null}
-        </div>
-        <div className={`min-h-0 flex-1 p-2.5 ${page === 'ai' ? 'flex flex-col' : 'overflow-y-auto'}`}>
-          {panels[page]}
-        </div>
-      </aside>
+      ) : null}
     </main>
   )
 }

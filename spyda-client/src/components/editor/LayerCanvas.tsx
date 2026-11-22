@@ -44,7 +44,19 @@ export type LayerCanvasProps = {
   /** The path being drawn, in canvas percent. */
   penPoints?: [number, number][]
   onPenPoint?: (point: [number, number]) => void
+  /** View zoom: 1 fits the artboard to the viewport; above 1 the viewport scrolls. */
+  zoom?: number
+  /** Ctrl/Cmd + wheel or a pinch asks for a new zoom. */
+  onZoomChange?: (zoom: number) => void
+  /** Reports display pixels per document pixel, for the "@ 90%" readouts. */
+  onDisplayScale?: (scale: number) => void
+  /** The name shown above the artboard, like a design app's artboard title. */
+  artboardLabel?: string
 }
+
+/** Room around the artboard: the padding on each side and the label above it. */
+const FRAME_PADDING = 28
+const LABEL_HEIGHT = 18
 
 function parseAspectRatio(value: string) {
   const match = /^\s*(\d+(?:\.\d+)?)\s*[:/]\s*(\d+(?:\.\d+)?)\s*$/.exec(value || '')
@@ -145,6 +157,10 @@ export default function LayerCanvas({
   penActive = false,
   penPoints = [],
   onPenPoint,
+  zoom = 1,
+  onZoomChange,
+  onDisplayScale,
+  artboardLabel,
 }: LayerCanvasProps) {
   const containerRef = useRef<HTMLDivElement | null>(null)
   const transformerRef = useRef<Konva.Transformer | null>(null)
@@ -176,17 +192,56 @@ export default function LayerCanvas({
     // A container that has not been given a height yet still has a width, and
     // falling back to the ratio keeps the Stage mounted instead of leaving an
     // empty panel that never recovers.
-    const available = viewport.height || (viewport.width ? viewport.width / aspect : 0)
-    if (!viewport.width || !available) return { width: 0, height: 0, scale: 1 }
-    const byWidth = { width: viewport.width, height: viewport.width / aspect }
+    const roomX = Math.max(0, viewport.width - FRAME_PADDING * 2)
+    const roomY = Math.max(0, viewport.height - FRAME_PADDING * 2 - (artboardLabel ? LABEL_HEIGHT : 0))
+    const available = roomY || (roomX ? roomX / aspect : 0)
+    if (!roomX || !available) return { width: 0, height: 0, scale: 1 }
+    const byWidth = { width: roomX, height: roomX / aspect }
     const fitted = byWidth.height <= available
       ? byWidth
       : { width: available * aspect, height: available }
-    const width = Math.max(MIN_DISPLAY_SIZE, Math.floor(fitted.width))
-    const height = Math.max(MIN_DISPLAY_SIZE, Math.floor(fitted.height))
+    const width = Math.max(MIN_DISPLAY_SIZE, Math.floor(fitted.width * zoom))
+    const height = Math.max(MIN_DISPLAY_SIZE, Math.floor(fitted.height * zoom))
     const baseWidth = document.canvas.width || backgroundImage?.naturalWidth || width
     return { width, height, scale: width / baseWidth }
-  }, [aspect, backgroundImage, document.canvas.width, viewport.height, viewport.width])
+  }, [artboardLabel, aspect, backgroundImage, document.canvas.width, viewport.height, viewport.width, zoom])
+
+  useEffect(() => {
+    if (display.width) onDisplayScale?.(display.scale)
+  }, [display.scale, display.width, onDisplayScale])
+
+  // Zooming keeps the point at the middle of the view where it was, instead of jumping to a corner.
+  const centre = useRef({ x: 0.5, y: 0.5 })
+  const rememberCentre = useCallback(() => {
+    const element = containerRef.current
+    if (!element || !element.scrollWidth || !element.scrollHeight) return
+    centre.current = {
+      x: (element.scrollLeft + element.clientWidth / 2) / element.scrollWidth,
+      y: (element.scrollTop + element.clientHeight / 2) / element.scrollHeight,
+    }
+  }, [])
+  useLayoutEffect(() => {
+    const element = containerRef.current
+    if (!element) return
+    element.scrollLeft = centre.current.x * element.scrollWidth - element.clientWidth / 2
+    element.scrollTop = centre.current.y * element.scrollHeight - element.clientHeight / 2
+  }, [display.width, display.height])
+
+  // Ctrl/Cmd + wheel (and trackpad pinch, which arrives as ctrl + wheel) zooms the view.
+  const zoomRef = useRef(zoom)
+  zoomRef.current = zoom
+  useEffect(() => {
+    const element = containerRef.current
+    if (!element || !onZoomChange) return
+    const onWheel = (event: WheelEvent) => {
+      if (!event.ctrlKey && !event.metaKey) return
+      event.preventDefault()
+      const factor = Math.exp(-event.deltaY * 0.0025)
+      onZoomChange(Math.min(8, Math.max(0.25, zoomRef.current * factor)))
+    }
+    element.addEventListener('wheel', onWheel, { passive: false })
+    return () => element.removeEventListener('wheel', onWheel)
+  }, [onZoomChange, display.width])
 
   const toPercent = useCallback((pixels: number, total: number) => {
     if (!total) return 0
@@ -257,7 +312,14 @@ export default function LayerCanvas({
   }
 
   return (
-    <div ref={containerRef} className={className}>
+    <div ref={containerRef} onScroll={rememberCentre} className={`overflow-auto [scrollbar-gutter:stable] ${className ?? ''}`}>
+      {/* w-max + m-auto: centred while it fits, scrollable from every edge once zoomed past the viewport. */}
+      <div className="flex h-max min-h-full w-max min-w-full" style={{ padding: FRAME_PADDING }}>
+      <div className="m-auto">
+      {artboardLabel ? (
+        <p className="truncate text-[10px] font-medium text-muted-foreground" style={{ height: LABEL_HEIGHT, maxWidth: display.width }}>{artboardLabel}</p>
+      ) : null}
+      <div className="shadow-[0_0_0_1px_rgba(255,255,255,0.07),0_24px_70px_rgba(0,0,0,0.55)]" style={{ width: display.width, height: display.height }}>
       <Stage
         ref={node => { if (stageRef) stageRef.current = node }}
         width={display.width}
@@ -472,6 +534,9 @@ export default function LayerCanvas({
           />
         </Layer>
       </Stage>
+      </div>
+      </div>
+      </div>
     </div>
   )
 }
