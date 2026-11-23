@@ -556,10 +556,10 @@ function SpydaCreditIcon({ className = '' }: { className?: string }) {
 }
 
 const CREDIT_TIERS: CreditTier[] = [
-  { amountUSD: 1, credits: 100, label: '$1', title: 'Quick start', detail: 'Enough for one download' },
-  { amountUSD: 5, credits: 500, label: '$5', title: 'Starter', detail: 'For focused edits and quick experiments' },
-  { amountUSD: 10, credits: 1000, label: '$10', title: 'Creator', detail: 'For regular design reconstruction', recommended: true },
-  { amountUSD: 25, credits: 2800, label: '$25', title: 'Studio', detail: 'Extra credits for production work' },
+  { amountUSD: 1, credits: 1000, label: '$1', title: 'Quick start', detail: 'Enough for 10 downloads' },
+  { amountUSD: 5, credits: 5000, label: '$5', title: 'Starter', detail: 'For focused edits and quick experiments' },
+  { amountUSD: 10, credits: 10000, label: '$10', title: 'Creator', detail: 'For regular design reconstruction', recommended: true },
+  { amountUSD: 25, credits: 28000, label: '$25', title: 'Studio', detail: 'Extra credits for production work' },
 ]
 
 function WalletView({ onFund, onSend }: { onFund: () => void; onSend: () => void }) {
@@ -1122,6 +1122,8 @@ function AdminWalletSendView({ onBack }: { onBack: () => void }) {
 }
 
 const USD_TO_NGN = 1500
+/** Every $1 recharged adds 1,000 Spyda credits. */
+const CREDITS_PER_USD = 1000
 
 function FundView({ onBack }: { onBack: () => void }) {
   const { user } = useAuth()
@@ -1177,7 +1179,7 @@ function FundView({ onBack }: { onBack: () => void }) {
       <header className="mt-5 flex flex-col gap-4 border-b border-white/[0.07] pb-6 sm:flex-row sm:items-end sm:justify-between">
         <div>
           <h2 className="font-heading text-2xl font-semibold sm:text-[28px]">Fund Spyda Credits</h2>
-          <p className="mt-1.5 max-w-xl text-sm text-muted-foreground">Recharge from just $1: choose a pack or enter any amount. Every $1 adds 100 credits, and there is never a subscription.</p>
+          <p className="mt-1.5 max-w-xl text-sm text-muted-foreground">Recharge from just $1: choose a pack or enter any amount. Every $1 adds 1,000 credits, and there is never a subscription.</p>
         </div>
         <div className="inline-flex w-fit items-center gap-2 rounded-lg border border-white/[0.08] bg-surface-raised px-3 py-2 text-xs text-muted-foreground">
           <Wallet className="h-4 w-4 text-primary" /> Current balance:
@@ -1218,20 +1220,20 @@ function FundView({ onBack }: { onBack: () => void }) {
                 value={customAmount}
                 onFocus={() => {
                   const amount = Math.max(1, Number(customAmount) || 1)
-                  setSelectedTier({ amountUSD: amount, credits: Math.round(amount * 100), label: `$${amount}`, title: 'Custom', detail: 'Flexible wallet funding' })
+                  setSelectedTier({ amountUSD: amount, credits: Math.round(amount * CREDITS_PER_USD), label: `$${amount}`, title: 'Custom', detail: 'Flexible wallet funding' })
                 }}
                 onChange={event => {
                   const value = event.target.value
                   const amount = Math.max(1, Math.min(1000, Number(value) || 1))
                   setCustomAmount(value)
-                  setSelectedTier({ amountUSD: amount, credits: Math.round(amount * 100), label: `$${amount}`, title: 'Custom', detail: 'Flexible wallet funding' })
+                  setSelectedTier({ amountUSD: amount, credits: Math.round(amount * CREDITS_PER_USD), label: `$${amount}`, title: 'Custom', detail: 'Flexible wallet funding' })
                 }}
                 aria-label="Custom wallet funding amount in dollars"
                 className="min-w-0 flex-1 border-0 bg-transparent p-0 font-heading text-3xl font-semibold outline-none"
               />
             </div>
             <p className="mt-4 flex items-center gap-1.5 text-sm font-semibold text-primary"><SpydaCreditIcon className="h-4 w-4" /> {Math.round(Math.max(1, Math.min(1000, Number(customAmount) || 1)) * 100).toLocaleString()} credits</p>
-            <p className="mt-1 text-xs leading-5 text-muted-foreground">Fund any amount from $1. Every $1 adds 100 credits.</p>
+            <p className="mt-1 text-xs leading-5 text-muted-foreground">Fund any amount from $1. Every $1 adds 1,000 credits.</p>
           </label>
         </div>
 

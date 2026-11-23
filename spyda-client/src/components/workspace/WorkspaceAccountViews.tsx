@@ -20,7 +20,7 @@ import { supabase } from '../../lib/supabase'
 /** What Spyda costs: free to use, credits for downloads and AI, recharge from $1, never a subscription. */
 const PRICING = [
   { id: 'free', name: 'Spyda', price: 'Free', detail: 'Always. No subscription.', description: 'Every editor and tool is free to open and use.', features: ['Spyda AI chat and voice', 'Canvas mode and Magic Layers', 'Video editor', 'Templates and the marketplace'], texture: 'free' },
-  { id: 'wallet', name: 'Recharge', price: 'From $1', detail: '$1 = 100 Spyda credits', description: 'Top up any amount, whenever you need it.', features: ['Any amount from $1', 'Credits never expire', 'No recurring payment, ever', 'Paid securely through Paystack'], texture: 'starter' },
+  { id: 'wallet', name: 'Recharge', price: 'From $1', detail: '$1 = 1,000 Spyda credits', description: 'Top up any amount, whenever you need it.', features: ['Any amount from $1', '$1 covers 10 downloads', 'Credits never expire', 'No recurring payment, ever', 'Paid securely through Paystack'], texture: 'starter' },
   { id: 'downloads', name: 'Downloads', price: '100 credits', detail: 'per flyer or video', description: 'Pay once your finished work is ready to save.', features: ['Compressor: +50 credits', 'Up to 90% smaller, same quality', 'Charged only when the file is ready', 'Eligible spend accrues SPYDA'], texture: 'creator' },
   { id: 'byok', name: 'AI work', price: 'From 5 credits', detail: 'per generation', description: 'The cost is confirmed before anything runs.', features: ['20 credits: Groq + GPT-Image 2', '30 credits: GPT-Image 2 only', '50 credits: motion by Claude Opus 5.5', '5 credits with your own API key'], texture: 'pro' },
 ] as const

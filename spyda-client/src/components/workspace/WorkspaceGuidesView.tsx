@@ -98,10 +98,10 @@ const GUIDE_SECTIONS: GuideSection[] = [
           'Using Spyda is free: open the editors, design, edit, preview and save as much as you like.',
           'Downloading a finished flyer or video costs 100 Spyda credits; the compressor adds 50.',
           'AI work uses credits as it runs: 20 or 30 per generation, 50 per motion design, 5 with your own API key.',
-          'Recharge from just $1 (100 credits). Credits stay in your wallet until you use them.',
+          'Recharge from just $1 (1,000 credits). Credits stay in your wallet until you use them.',
           'New features will use Spyda credits too. There will never be a subscription.',
         ],
-        proTip: 'A $1 recharge is enough to download a finished flyer, so anyone can start.',
+        proTip: 'A $1 recharge (1,000 credits) covers ten downloads, so anyone can start.',
       },
       {
         id: 'workspace-overview',
@@ -404,7 +404,7 @@ const GUIDE_SECTIONS: GuideSection[] = [
       {
         id: 'spyda-credits',
         title: 'Spyda Credits and Recharging',
-        summary: 'Every $1 adds 100 credits. Recharge any amount, from $1.',
+        summary: 'Every $1 adds 1,000 credits. Recharge any amount, from $1.',
         minutes: 4,
         xp: 30,
         difficulty: 'Starter',

@@ -283,7 +283,7 @@ export function WhitepaperView() {
           <div className="grid gap-6 lg:grid-cols-[minmax(0,1fr)_340px]">
             <div className="space-y-5 text-sm leading-7 text-muted-foreground sm:text-base sm:leading-8">
               <p>Spyda has no plans, tiers or monthly fees. Every editor and tool is free to open and use: design, edit, animate and preview as much as you like. Spyda credits are spent only when you download finished work or run AI, and every future feature will follow the same rule.</p>
-              <p>Recharges start at just $1, which adds 100 credits: enough to download a finished flyer. Credits never expire and there is never a recurring payment, so anyone can use Spyda, at any budget, whenever they need it.</p>
+              <p>Recharges start at just $1, which adds 1,000 credits: enough to download ten finished flyers or videos. Credits never expire and there is never a recurring payment, so anyone can use Spyda, at any budget, whenever they need it.</p>
               <p>A download is charged only once its file is ready, and the compressor only when it actually made the file smaller. Prices are set on the server and confirmed in the app before anything is spent.</p>
             </div>
             <div className="rounded-lg border border-white/[0.1] bg-surface p-5">
@@ -291,7 +291,7 @@ export function WhitepaperView() {
               <div className="mt-4 divide-y divide-white/[0.07]">
                 {creditPrices.map(([what, cost]) => <div key={what} className="flex items-center justify-between gap-3 py-2.5"><span className="text-xs text-muted-foreground">{what}</span><span className={`shrink-0 text-xs font-semibold ${cost === 'Free' ? 'text-primary' : ''}`}>{cost}</span></div>)}
               </div>
-              <p className="mt-4 rounded-md bg-primary/[0.06] px-3 py-2 text-xs font-semibold text-primary">Recharge from $1 · $1 = 100 credits</p>
+              <p className="mt-4 rounded-md bg-primary/[0.06] px-3 py-2 text-xs font-semibold text-primary">Recharge from $1 · $1 = 1,000 credits</p>
             </div>
           </div>
         </WhitepaperChapter>
