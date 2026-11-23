@@ -37,6 +37,7 @@ const Auth = lazyRoute(() => import('./pages/Auth'))
 const Admin = lazyRoute(() => import('./pages/Admin'))
 const Editor = lazyRoute(() => import('./pages/Editor'))
 const NewCanvas = lazyRoute(() => import('./pages/NewCanvas'))
+const VideoEditor = lazyRoute(() => import('./pages/VideoEditor'))
 
 const SPLASH_SEEN_KEY = 'spyda.splashSeen'
 
@@ -138,6 +139,15 @@ function App() {
               <WorkspaceErrorBoundary>
                 <Suspense fallback={<SpydaSplash message="Opening the layer editor" />}>
                   <Editor />
+                </Suspense>
+              </WorkspaceErrorBoundary>
+            </ProtectedRoute>
+          } />
+          <Route path="/video" element={
+            <ProtectedRoute>
+              <WorkspaceErrorBoundary>
+                <Suspense fallback={<SpydaSplash message="Opening the video editor" />}>
+                  <VideoEditor />
                 </Suspense>
               </WorkspaceErrorBoundary>
             </ProtectedRoute>

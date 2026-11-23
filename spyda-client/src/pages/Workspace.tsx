@@ -52,7 +52,7 @@ import {
   Ticket,
   Layers
 } from '../components/ui/icons'
-import { Link } from 'react-router-dom'
+import { Link, useNavigate } from 'react-router-dom'
 import {
   isAdminEmail,
   lookupSpydaWallet,
@@ -164,6 +164,7 @@ function loadSavedProjects(): SavedSpydaProject[] {
 }
 
 export default function Workspace() {
+  const navigate = useNavigate()
   // Desktop opens on the icon rail; the full list is one click away.
   const [sidebarOpen, setSidebarOpen] = useState(false)
   const [activeId, setActiveId] = useState('canvas')
@@ -305,6 +306,7 @@ export default function Workspace() {
           activeId={activeId}
           taskBadge={(welcomeClaim?.status === 'pending' || welcomeClaim?.status === 'approved' ? 0 : 3) + communityTaskBadge || undefined}
           onSelect={(id) => {
+            if (id === 'video') { navigate('/video'); return }
             setActiveId(id)
             if (window.innerWidth < 1024) setSidebarOpen(false)
           }}

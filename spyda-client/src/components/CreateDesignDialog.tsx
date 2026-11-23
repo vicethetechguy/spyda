@@ -332,6 +332,7 @@ export default function CreateDesignDialog({ open, onClose, current, onContinue,
         <div className="mt-4 flex gap-3 overflow-x-auto pb-1 [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
           {onMagicLayers ? <QuickAction label="Magic Layers" icon={Layers} gradient="bg-[linear-gradient(140deg,#9dfab0,#12866f)]" onClick={() => fileRef.current?.click()} /> : null}
           <QuickAction label="Blank canvas" icon={LayoutTemplate} gradient="bg-[linear-gradient(140deg,#8bd3ff,#2a5bd7)]" onClick={() => start(byId('ig-post'))} />
+          <QuickAction label="Video editor" icon={Clapperboard} gradient="bg-[linear-gradient(140deg,#ff8a7a,#b3261e)]" onClick={() => { onClose(); navigate('/video') }} />
           <QuickAction label="Custom size" icon={Maximize2} gradient="bg-[linear-gradient(140deg,#ffd36b,#e0762b)]" onClick={() => setCategory('custom')} />
           {onChat ? <QuickAction label="Make it yours" icon={Wand2} gradient="bg-[linear-gradient(140deg,#ff9ac0,#c2185b)]" onClick={() => toChat('flyer')} /> : null}
           {onChat ? <QuickAction label="Animate it" icon={Clapperboard} gradient="bg-[linear-gradient(140deg,#c4a3ff,#5b34d6)]" onClick={() => toChat('motion')} /> : null}

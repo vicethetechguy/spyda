@@ -1723,7 +1723,15 @@ export default function Editor() {
         <div className="min-w-0 flex-1 px-2 lg:hidden">
           <h1 className="truncate text-[12px] font-semibold">{project.name}</h1>
         </div>
-        <div className="ml-auto flex shrink-0 items-center gap-1.5">
+        <div role="tablist" aria-label="Editor" className="mx-auto hidden shrink-0 items-center gap-0.5 rounded-lg bg-black/30 p-0.5 sm:flex">
+          <button type="button" role="tab" aria-selected="true" className="inline-flex h-6 items-center gap-1.5 rounded-md bg-white/[0.1] px-2.5 text-[11px] font-semibold text-foreground">
+            <Palette className="h-3 w-3 text-primary" aria-hidden /> Design
+          </button>
+          <button type="button" role="tab" aria-selected="false" onClick={() => { try { window.sessionStorage.setItem('spyda.lastCanvas', window.location.pathname) } catch { /* storage off */ } leaveTo('/video') }} title="Save this design and open the video editor" className="inline-flex h-6 items-center gap-1.5 rounded-md px-2.5 text-[11px] font-medium text-muted-foreground transition-colors hover:text-foreground">
+            <Clapperboard className="h-3 w-3" aria-hidden /> Video
+          </button>
+        </div>
+        <div className="ml-auto flex shrink-0 items-center gap-1.5 sm:ml-0">
           <button type="button" onClick={exitCanvas} title="Save and leave canvas mode" className="inline-flex h-7 items-center gap-1.5 rounded-md border border-white/[0.1] px-2.5 text-[11px] font-semibold text-foreground/90 transition-colors hover:bg-white/[0.08]">
             <LogOut className="h-3 w-3" aria-hidden /> Done
           </button>

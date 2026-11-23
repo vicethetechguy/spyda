@@ -1,6 +1,7 @@
 import React, { useState } from 'react';
 import {
   Image,
+  Clapperboard,
   Clock,
   FolderKanban,
   Blocks,
@@ -43,6 +44,7 @@ const spydaNavGroups: NavGroupData[] = [
   {
     items: [
       { id: 'canvas', title: 'Spyda AI', icon: SpydaAiIcon },
+      { id: 'video', title: 'Video editor', icon: Clapperboard },
       { id: 'gallery', title: 'Gallery', icon: Image },
       { id: 'history', title: 'History', icon: Clock },
       { id: 'tasks', title: 'Tasks', icon: Gift },
