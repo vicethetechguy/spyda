@@ -1194,6 +1194,7 @@ export default function Editor() {
   const inspector = selectedObject ? (
     <PropertiesPanel
       object={selectedObject}
+      image={selectedObject.content.assetRef ? images[selectedObject.content.assetRef] : undefined}
       canvas={{ width: design?.canvas.width || 1080, height: design?.canvas.height || 1350 }}
       onIntent={applyIntent}
       onReplaceImage={file => handleReplaceImage(selectedObject.id, file)}

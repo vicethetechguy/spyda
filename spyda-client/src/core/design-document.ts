@@ -95,6 +95,12 @@ export const ObjectEffectsSchema = z.object({
   contrast: z.number().min(-100).max(100).optional(),
   saturation: z.number().min(-2).max(10).optional(),
   grayscale: z.boolean().optional(),
+  /** Picture colour swaps: pixels near `from` move toward `to`, keeping their shading. */
+  recolor: z.array(z.object({ from: z.string(), to: z.string() }).strict()).max(12).optional(),
+  /** How far from a swap's colour a pixel may be and still change (RGB distance). */
+  recolorRange: z.number().min(5).max(200).optional(),
+  /** Maps the picture's light and dark onto two colours. */
+  duotone: z.object({ shadow: z.string(), highlight: z.string(), amount: z.number().min(0).max(1) }).strict().nullable().optional(),
   /** How the layer arrives when the design plays, in seconds. */
   enter: z.object({
     type: z.enum(ENTER_ANIMATIONS),

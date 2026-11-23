@@ -4,6 +4,7 @@ import Konva from 'konva'
 import { compositeOf, gradientProps, motionAt, needsFilters, playLength, shadowProps } from '../../lib/canvas-fx'
 import type { DesignDocument, DesignObject, PercentBox } from '../../core/design-document'
 import { resolveFamily } from '../../lib/fonts'
+import { duotoneFilter, recolorFilter } from '../../lib/image-colors'
 import { fitFontSize } from '../../lib/text-fit'
 
 /**
@@ -212,6 +213,12 @@ function FilteredGroup({ object, pixelScale: scale, children, ...rest }: { objec
     if (fx?.contrast) filters.push(Konva.Filters.Contrast)
     if (fx?.saturation) filters.push(Konva.Filters.HSL)
     if (fx?.grayscale) filters.push(Konva.Filters.Grayscale)
+    // Picture colours: swaps first, then duotone over the result.
+    if (fx?.recolor?.length) filters.push(recolorFilter as unknown as typeof Konva.Filters.Blur)
+    if (fx?.duotone && fx.duotone.amount > 0) filters.push(duotoneFilter as unknown as typeof Konva.Filters.Blur)
+    node.setAttr('spydaRecolor', fx?.recolor ?? [])
+    node.setAttr('spydaRecolorRange', fx?.recolorRange ?? 60)
+    node.setAttr('spydaDuotone', fx?.duotone ?? null)
     node.filters(filters)
     node.blurRadius(Math.round((fx?.blur ?? 0) * scale))
     node.brightness(fx?.brightness ?? 0)
@@ -219,7 +226,9 @@ function FilteredGroup({ object, pixelScale: scale, children, ...rest }: { objec
     node.saturation(fx?.saturation ?? 0)
     // Room around the drawing so a blur or a shadow is not clipped by the cache.
     const pad = Math.ceil((fx?.blur ?? 0) * scale * 2 + (fx?.shadow ? (fx.shadow.blur + Math.abs(fx.shadow.x) + Math.abs(fx.shadow.y)) * scale : 0)) + 4
-    try { node.cache({ offset: pad, pixelRatio: Math.min(2, window.devicePixelRatio || 1) }) } catch { /* an empty group has nothing to cache */ }
+    // Recoloured pictures cache at a higher resolution so exports stay sharp.
+    const colourWork = Boolean(fx?.recolor?.length || fx?.duotone)
+    try { node.cache({ offset: pad, pixelRatio: colourWork ? Math.min(3, Math.max(2, (window.devicePixelRatio || 1) * 1.5)) : Math.min(2, window.devicePixelRatio || 1) }) } catch { /* an empty group has nothing to cache */ }
     node.getLayer()?.batchDraw()
   })
   return <Group ref={ref} {...rest}>{children}</Group>

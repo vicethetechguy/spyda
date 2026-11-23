@@ -4,6 +4,7 @@ import type { DesignObject, PercentBox } from '../../core/design-document'
 import { BUNDLED_FAMILIES, loadFontPreviews, previewFamily } from '../../lib/fonts'
 import { ArrowDown, ArrowUp, Copy, ImagePlus, Layers, Loader2, Lock, Sparkles, Trash2, Wand2 } from '../ui/icons'
 import EffectsPanel from './EffectsPanel'
+import ImageColorsPanel from './ImageColorsPanel'
 import SpydaSelect from '../ui/SpydaSelect'
 
 /**
@@ -15,6 +16,8 @@ import SpydaSelect from '../ui/SpydaSelect'
 
 type PropertiesPanelProps = {
   object: DesignObject
+  /** The loaded picture behind an image layer, for its colours. */
+  image?: HTMLImageElement
   canvas: { width: number; height: number }
   onIntent: (intent: DesignEditIntent) => void
   onReplaceImage: (file: File) => void
@@ -221,7 +224,7 @@ function Glyph({ name }: { name: string }) {
 }
 
 export default function PropertiesPanel({
-  object, canvas, onIntent, onReplaceImage, onRemoveBackground, onMagicLayers, onDuplicate, onDelete, onReorder, pictureBusy, onPreview,
+  object, image, canvas, onIntent, onReplaceImage, onRemoveBackground, onMagicLayers, onDuplicate, onDelete, onReorder, pictureBusy, onPreview,
 }: PropertiesPanelProps) {
   const fileRef = useRef<HTMLInputElement | null>(null)
   const locked = object.protection.locked
@@ -468,6 +471,10 @@ export default function PropertiesPanel({
             <p className="text-[10px] leading-4 text-muted-foreground">Magic layers splits this picture, right here, into live text, its subject, its logos and a filled-in background. Undo puts it back.</p>
           </div>
         </Section>
+      ) : null}
+
+      {(isPicture || isBackground) && image ? (
+        <ImageColorsPanel image={image} fx={object.style.fx} disabled={locked} onFx={patch => onIntent({ objectId: object.id, property: 'fx', value: patch })} />
       ) : null}
 
       {!isBackground ? (

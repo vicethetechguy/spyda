@@ -64,7 +64,7 @@ export function compositeOf(fx: ObjectEffects | undefined): GlobalCompositeOpera
 
 /** Whether the layer needs pixel filters (blur and picture adjustments), which require caching. */
 export function needsFilters(fx: ObjectEffects | undefined) {
-  return Boolean(fx && ((fx.blur ?? 0) > 0 || fx.brightness || fx.contrast || fx.saturation || fx.grayscale))
+  return Boolean(fx && ((fx.blur ?? 0) > 0 || fx.brightness || fx.contrast || fx.saturation || fx.grayscale || fx.recolor?.length || (fx.duotone && fx.duotone.amount > 0)))
 }
 
 /* ── motion ──────────────────────────────────────────────────────────── */
