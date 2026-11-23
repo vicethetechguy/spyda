@@ -1,6 +1,6 @@
 import { DownloadProvider } from './components/DownloadProvider'
 import { Suspense, lazy, useEffect, useState } from 'react'
-import { BrowserRouter, Routes, Route, Navigate } from 'react-router-dom'
+import { BrowserRouter, Routes, Route, Navigate, useParams } from 'react-router-dom'
 import { AuthProvider, useAuth } from './lib/AuthContext'
 import Landing from './pages/Landing'
 import SpydaSplash from './components/SpydaSplash'
@@ -38,6 +38,12 @@ const Auth = lazyRoute(() => import('./pages/Auth'))
 const Admin = lazyRoute(() => import('./pages/Admin'))
 const Editor = lazyRoute(() => import('./pages/Editor'))
 const NewCanvas = lazyRoute(() => import('./pages/NewCanvas'))
+
+/** One editor per design: opening another design from the canvas mounts a fresh editor. */
+function KeyedEditor() {
+  const { projectId } = useParams<{ projectId: string }>()
+  return <Editor key={projectId} />
+}
 const VideoEditor = lazyRoute(() => import('./pages/VideoEditor'))
 
 const SPLASH_SEEN_KEY = 'spyda.splashSeen'
@@ -140,7 +146,7 @@ function App() {
             <ProtectedRoute>
               <WorkspaceErrorBoundary>
                 <Suspense fallback={<SpydaSplash message="Opening the layer editor" />}>
-                  <Editor />
+                  <KeyedEditor />
                 </Suspense>
               </WorkspaceErrorBoundary>
             </ProtectedRoute>

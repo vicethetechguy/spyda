@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { Link, useNavigate, useParams } from 'react-router-dom'
 import { useDownload } from '../components/DownloadProvider'
+import CreateDesignDialog from '../components/CreateDesignDialog'
 import {
   ArrowLeft, ChevronDown, Clapperboard, Clock, Copy, Download, Eye, Image as ImageIcon, Layers, Loader2, LogOut, Maximize2, Move, Palette, Play, Plus,
   Redo2, Sparkles, Square, Trash2, Type, Undo2, Wand2, X, type LucideIcon,
@@ -304,6 +305,13 @@ export default function Editor() {
     if (design && edited.current) persist(design)
     navigate(path)
   }, [design, navigate, persist])
+
+  // + Create: save this design first, then choose what to make next.
+  const [createOpen, setCreateOpen] = useState(false)
+  const openCreate = useCallback(() => {
+    if (design && edited.current) persist(design)
+    setCreateOpen(true)
+  }, [design, persist])
 
   const zoomBy = useCallback((factor: number) => setZoom(current => Math.min(8, Math.max(0.25, current * factor))), [])
   /** 100%: one design pixel per screen pixel. */
@@ -1572,7 +1580,7 @@ export default function Editor() {
     {
       label: 'File',
       items: [
-        { label: 'New canvas…', onSelect: () => leaveTo('/editor/new') },
+        { label: 'New design…', onSelect: openCreate },
         { label: 'Place image…', shortcut: 'I', onSelect: () => imageInputRef.current?.click() },
         { separator: true },
         { label: 'Export PNG', onSelect: () => exportAs('png'), disabled: !design || exporting },
@@ -1725,6 +1733,7 @@ export default function Editor() {
 
   return (
     <main className="figma-editor flex min-h-[100dvh] flex-col bg-[#0b0c0e] text-foreground lg:h-[100dvh] lg:overflow-hidden">
+      <CreateDesignDialog open={createOpen} onClose={() => setCreateOpen(false)} current={null} onChat={() => { setCreateOpen(false); exitCanvas() }} />
       {/* Menu bar */}
       <header className="flex h-9 shrink-0 items-center gap-1 border-b border-white/[0.06] bg-[#111214] px-1.5">
         <button
@@ -1735,6 +1744,14 @@ export default function Editor() {
           className="flex h-7 w-7 shrink-0 items-center justify-center rounded-md transition-colors hover:bg-white/[0.08]"
         >
           <img src="/assets/spyda-logo.png" alt="" className="h-5 w-5 object-contain" />
+        </button>
+        <button
+          type="button"
+          onClick={openCreate}
+          title="Create a new design"
+          className="inline-flex h-7 shrink-0 items-center gap-1 rounded-md bg-primary/15 px-2.5 text-[11px] font-semibold text-primary ring-1 ring-inset ring-primary/30 transition-colors hover:bg-primary/25"
+        >
+          <Plus className="h-3.5 w-3.5" aria-hidden /> Create
         </button>
         <div className="hidden lg:block"><EditorMenuBar menus={menus} /></div>
         <div className="min-w-0 flex-1 px-2 lg:hidden">

@@ -1,5 +1,4 @@
 import { useCallback, useEffect, useMemo, useRef, useState, type ClipboardEvent, type DragEvent, type KeyboardEvent } from 'react'
-import CreateDesignDialog from '../CreateDesignDialog'
 import { createPortal } from 'react-dom'
 import { useNavigate } from 'react-router-dom'
 import {
@@ -62,6 +61,7 @@ import { readProject, saveProject } from '../../lib/project-store'
 import { MOTION_FORMATS, type MotionFormat } from '../../lib/motion-harness'
 import SpydaSelect from '../ui/SpydaSelect'
 import { fetchBlob, useDownload } from '../DownloadProvider'
+import { canvasModePath } from '../../lib/canvas-launch'
 
 /**
  * The workspace home: bring a reference design and say what to change. In
@@ -544,7 +544,6 @@ export default function ChatView({ modelProvider, headerSlot, seed, onOpenWallet
   const messages = conversation.messages
   const lastReplyIndex = messages.map(message => message.role).lastIndexOf('assistant')
   const flyer = useMemo(() => latestFlyer(messages), [messages])
-  const [createOpen, setCreateOpen] = useState(false)
 
   const refreshStanding = useCallback(async () => {
     if (!user?.id) return
@@ -907,9 +906,9 @@ export default function ChatView({ modelProvider, headerSlot, seed, onOpenWallet
       </button>
       <button
         type="button"
-        onClick={() => setCreateOpen(true)}
+        onClick={() => { if (flyer) void openCanvas(); else navigate(canvasModePath()) }}
         disabled={canvasBusy}
-        title="Create a design in canvas mode"
+        title={flyer ? 'Open this flyer in canvas mode' : 'Open canvas mode'}
         className="inline-flex h-8 items-center gap-1.5 rounded-full bg-primary px-3 text-xs font-semibold text-primary-foreground transition-all hover:-translate-y-0.5 active:translate-y-0 active:scale-[0.98] disabled:translate-y-0 disabled:bg-white/10 disabled:text-muted-foreground"
       >
         {canvasBusy ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Layers className="h-3.5 w-3.5" />}
@@ -947,25 +946,6 @@ export default function ChatView({ modelProvider, headerSlot, seed, onOpenWallet
     >
       {headerSlot ? createPortal(headerActions, headerSlot) : null}
 
-      <CreateDesignDialog
-        open={createOpen}
-        onClose={() => setCreateOpen(false)}
-        current={flyer ? {
-          image: flyer,
-          title: conversation.flyerName || (conversation.title === 'New chat' ? 'Your flyer' : conversation.title),
-          hasLayers: Boolean(conversation.projectId && conversation.projectSource === flyer && readProject(conversation.projectId)?.breakdown),
-        } : null}
-        onContinue={() => { void openCanvas() }}
-        onMagicLayers={file => {
-          prepareImage(file)
-            .then(prepared => openCanvas(prepared.dataUrl))
-            .catch(error => setNotice(error instanceof Error ? error.message : 'That picture could not be read.'))
-        }}
-        onChat={nextMode => {
-          setMode(nextMode)
-          window.setTimeout(() => textareaRef.current?.focus(), 50)
-        }}
-      />
 
       {/* The teal floor light from the reference, in Spyda's colours. */}
       <div aria-hidden="true" className="pointer-events-none absolute inset-x-0 bottom-0 h-[60%] bg-[radial-gradient(70%_80%_at_50%_100%,rgba(18,134,111,0.32),transparent_70%)]" />

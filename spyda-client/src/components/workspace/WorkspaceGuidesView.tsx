@@ -173,7 +173,7 @@ const GUIDE_SECTIONS: GuideSection[] = [
         icon: Layers3,
         steps: [
           'Under any result in the chat, press Open in canvas.',
-          'Or press Canvas mode to open Create a design: pick a size (Instagram post, story, flyer, custom) or a blank canvas.',
+          'Or press Canvas mode to go straight to your latest design (or a blank canvas); press + Create there to pick a size (Instagram post, story, flyer, custom).',
           'Choose Magic Layers to upload a flat flyer and have it split into editable layers.',
           'Press Done in the editor to save and return; your design stays in Projects and History.',
         ],
