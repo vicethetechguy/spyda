@@ -71,6 +71,28 @@ const CONTINUOUS_PROPERTIES: ReadonlySet<DesignEditIntent['property']> = new Set
   'text', 'fill', 'stroke', 'opacity', 'fontFamily', 'fontSize', 'fontWeight', 'textAlign', 'bounds', 'rotation',
 ])
 
+/** Edits that turn a lifted (pixel) text layer into live text. */
+const LIVE_TEXT_EDITS: ReadonlySet<DesignEditIntent['property']> = new Set([
+  'text', 'fontFamily', 'fontSize', 'fontWeight', 'textAlign', 'fill', 'stroke', 'strokeWidth', 'letterSpacing', 'lineHeight',
+])
+
+/**
+ * Drops a lifted text layer's pixels and moves it to the box its live text
+ * needs, keeping any move the person already made.
+ */
+function liveTextIntents(object: DesignObject): DesignEditIntent[] {
+  const intents: DesignEditIntent[] = [{ objectId: object.id, property: 'assetRef', value: null }]
+  const live = object.legacy?.liveTextBounds as PercentBox | undefined
+  const lifted = object.legacy?.liftedBounds as PercentBox | undefined
+  const now = object.transform.bounds
+  if (live && lifted && now) {
+    const x = Math.min(Math.max(0, live.x + (now.x - lifted.x)), Math.max(0, 100 - live.width))
+    const y = Math.min(Math.max(0, live.y + (now.y - lifted.y)), Math.max(0, 100 - live.height))
+    intents.push({ objectId: object.id, property: 'bounds', value: { ...live, x, y }, explicitGeometryChange: true })
+  }
+  return intents
+}
+
 function streamKey(intent: DesignEditIntent) {
   return CONTINUOUS_PROPERTIES.has(intent.property) ? `${intent.objectId}:${intent.property}` : undefined
 }
@@ -308,7 +330,13 @@ export default function Editor() {
       const key = streamKey(intent)
       let result: ReturnType<typeof commitIntent>
       try {
-        result = commitIntent(current, intent, key ? { coalesceKey: key } : {})
+        const lifted = LIVE_TEXT_EDITS.has(intent.property)
+          ? currentDocument(current).objects.find(object => object.id === intent.objectId && (object.kind === 'text' || object.kind === 'action') && object.content.assetRef)
+          : undefined
+        result = lifted
+          // The first edit to text Magic Layers lifted swaps its pixels for live text in the matched font.
+          ? commitStep(current, [...liveTextIntents(lifted), intent], { label: 'Edit text' })
+          : commitIntent(current, intent, key ? { coalesceKey: key } : {})
       } catch (error) {
         // A change the document cannot hold is refused, never a crash.
         reportRejection(error instanceof Error && !/ZodError|\[/.test(error.message) ? error.message : 'That change would put the layer outside the canvas.')
@@ -457,10 +485,13 @@ export default function Editor() {
       const id = await putAsset(rendered.blob)
       const size = { width: rendered.width, height: rendered.height }
       setNotice(null)
-      // Half the canvas width, at the picture's own proportions, centred.
+      // As large as fits in 90% of the canvas, at the picture's own proportions,
+      // centred: big enough to read its text and details without resizing it.
       const canvasRatio = (design.canvas.width || 1) / (design.canvas.height || 1)
-      const width = 50
-      const height = Math.min(90, width * (size.height / size.width) * canvasRatio)
+      const pictureRatio = size.width / Math.max(1, size.height)
+      let width = 90
+      let height = (width * canvasRatio) / pictureRatio
+      if (height > 90) { height = 90; width = (height * pictureRatio) / canvasRatio }
       addLayer('image', {
         assetRef: `asset:${id}`,
         name: file.name.replace(/\.[a-z0-9]+$/i, '').slice(0, 40) || 'Image',

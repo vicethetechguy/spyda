@@ -8,10 +8,10 @@ import { encodeCanvas, renderAt4K } from './image-4k'
  * Magic Layers: one flat picture in, the same picture out as separate,
  * editable layers that look identical until you move something.
  *
- *  - Text becomes live text. Each line's ink is found in the pixels, then the
- *    bundled font, weight, size and letter spacing that reproduce that ink
- *    best are chosen by rendering candidates and comparing them with the
- *    original, so the type sits exactly where it was.
+ *  - Text is found to the pixel by OCR and lifted with its own pixels (matted
+ *    off its backdrop), so it looks exactly as it did. The closest bundled
+ *    font, size and spacing are worked out too, and the layer becomes live
+ *    text the moment the person edits it.
  *  - Logos and marks become their own cut-outs.
  *  - The main subject (people, products) becomes one cut-out from the
  *    full-frame matte.
@@ -99,6 +99,36 @@ function otsu(values: Float32Array, count: number) {
   return threshold * 1.73
 }
 
+/**
+ * Where paper ends and ink begins, as a colour distance. Otsu's split alone
+ * lands between the two strongest groups, which in a two-colour headline is
+ * between its colours, dropping one of them. So the cut is the end of the
+ * paper's own peak (where the histogram falls away), never above Otsu.
+ */
+function inkThreshold(distance: Float32Array) {
+  const upper = otsu(distance, distance.length)
+  const bins = new Float64Array(112)
+  for (let i = 0; i < distance.length; i += 1) bins[Math.min(111, Math.floor(distance[i] / 4))] += 1
+  let peak = 0
+  for (let i = 0; i < 16; i += 1) if (bins[i] > bins[peak]) peak = i
+  let end = peak
+  while (end < 111 && bins[end + 1] > bins[peak] * 0.02) end += 1
+  return Math.max(36, Math.min(upper, (end + 2) * 4))
+}
+
+/** One step of erosion: a pixel stays only if its whole 3x3 neighbourhood is set. */
+function erodeOnce(mask: Uint8Array, width: number, height: number) {
+  const out = new Uint8Array(mask.length)
+  for (let y = 1; y < height - 1; y += 1) {
+    for (let x = 1; x < width - 1; x += 1) {
+      const i = y * width + x
+      if (!mask[i]) continue
+      if (mask[i - 1] && mask[i + 1] && mask[i - width] && mask[i + width] && mask[i - width - 1] && mask[i - width + 1] && mask[i + width - 1] && mask[i + width + 1]) out[i] = 1
+    }
+  }
+  return out
+}
+
 /** Dilates a binary mask by `radius` pixels (square), in place on a copy. */
 function dilate(mask: Uint8Array, width: number, height: number, radius: number) {
   if (radius <= 0) return mask
@@ -173,9 +203,20 @@ type Ink = {
   /** Horizontal bands of ink: one per line of text. */
   bands: Rect[]
   pixels: number
+  /** The backdrop colour the ink was separated from. */
+  paper: Rgb
+  /** Separate pieces of ink kept (roughly one per letter). */
+  pieces: number
+  /** Every distinct ink colour (two-colour headlines have two). */
+  colours: Rgb[]
 }
 
-function findInk(image: ImageData, box: Rect, claimed: Uint8Array, expand: { x: number; y: number }): Ink | null {
+/**
+ * `tight` boxes (from OCR) hug the letters, and bold type can fill most of
+ * them, so their paper is sampled from a thin ring just outside the box.
+ * Loose boxes (from the analyser) take the colour their inside mostly is.
+ */
+function findInk(image: ImageData, box: Rect, claimed: Uint8Array, expand: { x: number; y: number }, tight = false, grow = tight): Ink | null {
   const { width, height, data } = image
   const region = clampRect({ x: box.x - box.w * expand.x, y: box.y - box.h * expand.y, w: box.w * (1 + 2 * expand.x), h: box.h * (1 + 2 * expand.y) }, width, height)
   const inner = clampRect(box, width, height)
@@ -187,8 +228,13 @@ function findInk(image: ImageData, box: Rect, claimed: Uint8Array, expand: { x: 
   // covers half its box, and this keeps black type on an orange panel reading
   // as type rather than taking the panel with it.
   const buckets = new Map<number, { count: number; r: number; g: number; b: number }>()
-  for (let y = inner.y; y < inner.y + inner.h; y += 1) {
-    for (let x = inner.x; x < inner.x + inner.w; x += 1) {
+  const ringWidth = Math.max(2, Math.round(Math.min(inner.h * 0.25, 10)))
+  const sample = tight
+    ? clampRect({ x: inner.x - ringWidth, y: inner.y - ringWidth, w: inner.w + ringWidth * 2, h: inner.h + ringWidth * 2 }, width, height)
+    : inner
+  for (let y = sample.y; y < sample.y + sample.h; y += 1) {
+    for (let x = sample.x; x < sample.x + sample.w; x += 1) {
+      if (tight && x >= inner.x && x < inner.x + inner.w && y >= inner.y && y < inner.y + inner.h) continue
       const at = (y * width + x) * 4
       const key = ((data[at] >> 3) << 10) | ((data[at + 1] >> 3) << 5) | (data[at + 2] >> 3)
       const bucket = buckets.get(key) ?? { count: 0, r: 0, g: 0, b: 0 }
@@ -216,7 +262,7 @@ function findInk(image: ImageData, box: Rect, claimed: Uint8Array, expand: { x: 
       distance[y * rw + x] = Math.hypot(data[at] - paper[0], data[at + 1] - paper[1], data[at + 2] - paper[2])
     }
   }
-  const threshold = Math.max(48, otsu(distance, distance.length))
+  const threshold = inkThreshold(distance)
   const local = new Uint8Array(rw * rh)
   for (let i = 0; i < local.length; i += 1) {
     const x = i % rw, y = (i - x) / rw
@@ -241,14 +287,29 @@ function findInk(image: ImageData, box: Rect, claimed: Uint8Array, expand: { x: 
     if (!touchesEdge && (insideCentre || overlap >= 0.5)) keep[index + 1] = 1
     else if (touchesEdge && overlap >= 0.08 && bboxArea < rw * rh * 0.6) keep[index + 1] = 2
   })
+  // The colour of the clean letters, for judging the joined pieces below.
+  const clean: number[][] = [[], [], []]
+  for (let i = 0; i < local.length && clean[0].length < 8000; i += 1) {
+    if (keep[labels[i]] !== 1 || distance[i] < threshold * 1.3) continue
+    const x = i % rw, y = (i - x) / rw
+    const at = ((region.y + y) * width + region.x + x) * 4
+    clean[0].push(data[at]); clean[1].push(data[at + 1]); clean[2].push(data[at + 2])
+  }
+  const letterColour: Rgb | null = clean[0].length ? [median(clean[0]), median(clean[1]), median(clean[2])] : null
   const pad = 3
   const insideBox = (x: number, y: number) => x >= innerLocal.x0 - pad && x <= innerLocal.x1 + pad && y >= innerLocal.y0 - pad && y <= innerLocal.y1 + pad
   const joined = new Uint8Array(local.length)
   for (let i = 0; i < local.length; i += 1) {
     if (keep[labels[i]] !== 2) continue
     const x = i % rw, y = (i - x) / rw
-    if (!insideBox(x, y)) labels[i] = 0
-    else joined[i] = 1
+    if (!insideBox(x, y)) { labels[i] = 0; continue }
+    // Only pixels of the letters' own colour: a panel's edge or a wave is not a letter.
+    if (letterColour) {
+      const at = ((region.y + y) * width + region.x + x) * 4
+      const off = Math.hypot(data[at] - letterColour[0], data[at + 1] - letterColour[1], data[at + 2] - letterColour[2])
+      if (off > Math.max(60, threshold * 0.8)) { labels[i] = 0; continue }
+    }
+    joined[i] = 1
   }
   // A morphological opening on those pieces drops hairlines (1-2 px) and keeps
   // the solid strokes of the letter they ran through.
@@ -264,22 +325,127 @@ function findInk(image: ImageData, box: Rect, claimed: Uint8Array, expand: { x: 
   }
   const opened = dilate(eroded, rw, rh, 1)
   for (let i = 0; i < local.length; i += 1) if (joined[i] && !opened[i]) labels[i] = 0
+  // A line OCR read only partly (two-colour headlines, a word it could not read)
+  // grows sideways along its baseline: pieces level with it, of letter height and
+  // within a word gap of what is already kept, belong to the same line.
+  const bandOf = new Map<number, [number, number]>()
+  if (grow) {
+    const kept = () => stats.map((stat, index) => ({ stat, index })).filter(({ index }) => keep[index + 1] === 1)
+    const letterHeights = kept().filter(({ stat }) => stat.area >= 6).map(({ stat }) => stat.y1 - stat.y0 + 1)
+    const letter = letterHeights.length ? median(letterHeights) : 0
+    if (letter > 0) {
+      // Dividers: thin pieces taller than the letters. Growth never crosses one.
+      const walls = stats.filter(stat => stat.y1 - stat.y0 + 1 > letter * 1.6 && stat.x1 - stat.x0 + 1 < letter * 0.35)
+      const level = (a: { y0: number; y1: number }, b: { y0: number; y1: number }) =>
+        Math.max(0, Math.min(a.y1, b.y1) - Math.max(a.y0, b.y0)) / Math.max(1, Math.min(a.y1 - a.y0, b.y1 - b.y0) + 1)
+      let grew = true
+      while (grew) {
+        grew = false
+        const current = kept()
+        for (const [index, stat] of stats.entries()) {
+          if (keep[index + 1] || stat.area < 4) continue
+          const height = stat.y1 - stat.y0 + 1
+          const touches = stat.x0 === 0 || stat.y0 === 0 || stat.x1 === rw - 1 || stat.y1 === rh - 1
+          // A tall piece is allowed when it is wide: a word joined to a divider. The
+          // divider is opened out of it below; a bare line (narrow) never is.
+          const width = stat.x1 - stat.x0 + 1
+          if (height < letter * 0.12 || (height > letter * 1.5 && width < letter * 1.2)) continue
+          const joined = touches || height > letter * 1.5
+          // The kept letters on the same line as this piece, and the gap to the nearest.
+          const sameLine = current.filter(({ stat: other }) => level(stat, other) >= 0.5)
+          if (!sameLine.length) continue
+          let gap = Infinity, nearest = sameLine[0].stat
+          for (const { stat: other } of sameLine) {
+            const g = stat.x1 < other.x0 ? other.x0 - stat.x1 : stat.x0 > other.x1 ? stat.x0 - other.x1 : 0
+            if (g < gap) { gap = g; nearest = other }
+          }
+          if (gap > letter * 0.9) continue
+          const from = Math.min(stat.x1, nearest.x1), to = Math.max(stat.x0, nearest.x0)
+          const blocked = walls.some(wall => wall.x0 >= from && wall.x1 <= to && level(wall, stat) > 0.5)
+          if (blocked) continue
+          if (joined) {
+            // Only its part level with the line it sits on comes along.
+            const line = sameLine.map(({ stat: other }) => other)
+            bandOf.set(index + 1, [Math.min(...line.map(s => s.y0)) - letter * 0.12, Math.max(...line.map(s => s.y1)) + letter * 0.12])
+            keep[index + 1] = 3
+          } else keep[index + 1] = 1
+          grew = true
+        }
+      }
+    }
+  }
+  if (bandOf.size) {
+    const cleanSamples: Rgb[] = []
+    for (let i = 0; i < local.length && cleanSamples.length < 8000; i += 1) {
+      if (keep[labels[i]] !== 1 || distance[i] < threshold * 1.3) continue
+      const x = i % rw, y = (i - x) / rw
+      const at = ((region.y + y) * width + region.x + x) * 4
+      cleanSamples.push([data[at], data[at + 1], data[at + 2]])
+    }
+    const lineColours = inkColours(cleanSamples, paper)
+    const banded = new Uint8Array(local.length)
+    for (let i = 0; i < local.length; i += 1) {
+      const band = bandOf.get(labels[i])
+      if (!band) continue
+      const x = i % rw, y = (i - x) / rw
+      const at = ((region.y + y) * width + region.x + x) * 4
+      const near = lineColours.some(c => Math.hypot(data[at] - c[0], data[at + 1] - c[1], data[at + 2] - c[2]) < Math.max(70, threshold))
+      if (y >= band[0] && y <= band[1] && near) banded[i] = 1
+      else labels[i] = 0
+    }
+    const openedBand = dilate(erodeOnce(banded, rw, rh), rw, rh, 1)
+    for (let i = 0; i < local.length; i += 1) if (banded[i] && !openedBand[i]) labels[i] = 0
+    for (const id of bandOf.keys()) keep[id] = 1
+  }
   // Letters share a height; a piece far taller than the typical letter is a stray shape.
+  // But a letter touching a divider or an underline joins it into one tall piece:
+  // thin lines are opened out of such a piece and its letter-sized parts kept.
+  const rescued = new Uint8Array(local.length)
+  let rescuedPieces = 0
   const heights = stats.filter((stat, index) => keep[index + 1] === 1 && stat.area >= 6).map(stat => stat.y1 - stat.y0 + 1)
-  if (heights.length >= 4) {
+  if (heights.length >= 3) {
     const typical = median(heights)
-    stats.forEach((stat, index) => { if (keep[index + 1] === 1 && stat.y1 - stat.y0 + 1 > typical * 2.6) keep[index + 1] = 0 })
+    stats.forEach((stat, index) => {
+      if (keep[index + 1] !== 1 || stat.y1 - stat.y0 + 1 <= typical * 2.6) return
+      keep[index + 1] = 0
+      const bw = stat.x1 - stat.x0 + 1, bh = stat.y1 - stat.y0 + 1
+      const piece = new Uint8Array(bw * bh)
+      for (let y = 0; y < bh; y += 1) for (let x = 0; x < bw; x += 1) {
+        if (labels[(stat.y0 + y) * rw + stat.x0 + x] === index + 1) piece[y * bw + x] = 1
+      }
+      const radius = Math.max(2, Math.round(typical * 0.06))
+      const eroded = new Uint8Array(piece.length)
+      for (let y = radius; y < bh - radius; y += 1) for (let x = radius; x < bw - radius; x += 1) {
+        let solid = true
+        for (let dy = -radius; dy <= radius && solid; dy += 1) for (let dx = -radius; dx <= radius; dx += 1) {
+          if (!piece[(y + dy) * bw + x + dx]) { solid = false; break }
+        }
+        if (solid) eroded[y * bw + x] = 1
+      }
+      const opened = dilate(eroded, bw, bh, radius)
+      for (let i = 0; i < piece.length; i += 1) piece[i] = piece[i] && opened[i] ? 1 : 0
+      const parts = components(piece, bw, bh)
+      parts.stats.forEach((part, partIndex) => {
+        const height = part.y1 - part.y0 + 1
+        if (part.area < 6 || height > typical * 1.8) return
+        rescuedPieces += 1
+        for (let y = part.y0; y <= part.y1; y += 1) for (let x = part.x0; x <= part.x1; x += 1) {
+          if (parts.labels[y * bw + x] === partIndex + 1) rescued[(stat.y0 + y) * rw + stat.x0 + x] = 1
+        }
+      })
+    })
   }
 
   const mask = new Uint8Array(width * height)
   let pixels = 0, x0 = width, y0 = height, x1 = 0, y1 = 0
   const ink: number[][] = [[], [], []]
   const strengths: number[] = []
-  for (let i = 0; i < local.length; i += 1) if (keep[labels[i]] && strengths.length < 40000) strengths.push(distance[i])
+  for (let i = 0; i < local.length; i += 1) if ((keep[labels[i]] || rescued[i]) && strengths.length < 40000) strengths.push(distance[i])
   const strong = strengths.length ? [...strengths].sort((a, b) => a - b)[Math.floor(strengths.length * 0.6)] : threshold
   const rows = new Int32Array(rh)
+  const solidInk: Rgb[] = []
   for (let i = 0; i < local.length; i += 1) {
-    if (!keep[labels[i]]) continue
+    if (!keep[labels[i]] && !rescued[i]) continue
     const x = i % rw, y = (i - x) / rw
     const gx = region.x + x, gy = region.y + y
     mask[gy * width + gx] = 1
@@ -291,6 +457,7 @@ function findInk(image: ImageData, box: Rect, claimed: Uint8Array, expand: { x: 
     if (gy > y1) y1 = gy
     // The ink's colour from its solid core, not its anti-aliased edge.
     if (distance[i] >= strong && ink[0].length < 20000) {
+      solidInk.push([data[(gy * width + gx) * 4], data[(gy * width + gx) * 4 + 1], data[(gy * width + gx) * 4 + 2]])
       const at = (gy * width + gx) * 4
       ink[0].push(data[at]); ink[1].push(data[at + 1]); ink[2].push(data[at + 2])
     }
@@ -318,7 +485,7 @@ function findInk(image: ImageData, box: Rect, claimed: Uint8Array, expand: { x: 
     let bx0 = rw, bx1 = 0
     for (let y = top; y <= bottom; y += 1) {
       for (let x = 0; x < rw; x += 1) {
-        if (keep[labels[y * rw + x]]) { if (x < bx0) bx0 = x; if (x > bx1) bx1 = x }
+        if (keep[labels[y * rw + x]] || rescued[y * rw + x]) { if (x < bx0) bx0 = x; if (x > bx1) bx1 = x }
       }
     }
     return { x: region.x + bx0, y: region.y + top, w: bx1 - bx0 + 1, h: bottom - top + 1 }
@@ -330,56 +497,10 @@ function findInk(image: ImageData, box: Rect, claimed: Uint8Array, expand: { x: 
     colour: ink[0].length ? [median(ink[0]), median(ink[1]), median(ink[2])] : [255, 255, 255],
     bands,
     pixels,
+    paper,
+    pieces: stats.filter((stat, index) => keep[index + 1] === 1 && stat.area >= 4).length + rescuedPieces,
+    colours: inkColours(solidInk, paper),
   }
-}
-
-/** Tightens a box to the ink inside it. */
-function tighten(rect: Rect, mask: Uint8Array, width: number): Rect | null {
-  let x0 = Infinity, y0 = Infinity, x1 = -1, y1 = -1
-  for (let y = rect.y; y < rect.y + rect.h; y += 1) {
-    for (let x = rect.x; x < rect.x + rect.w; x += 1) {
-      if (!mask[y * width + x]) continue
-      if (x < x0) x0 = x
-      if (x > x1) x1 = x
-      if (y < y0) y0 = y
-      if (y > y1) y1 = y
-    }
-  }
-  return x1 < 0 ? null : { x: x0, y: y0, w: x1 - x0 + 1, h: y1 - y0 + 1 }
-}
-
-/**
- * Splits one band of ink into `count` lines at the thinnest rows near each even
- * division: lines whose descenders touch the next line's capitals share a band
- * but still have a waist between them.
- */
-function splitBand(band: Rect, mask: Uint8Array, width: number, count: number): Rect[] | null {
-  if (count <= 1) return [band]
-  const rows = new Float32Array(band.h)
-  for (let y = 0; y < band.h; y += 1) {
-    let sum = 0
-    for (let x = band.x; x < band.x + band.w; x += 1) sum += mask[(band.y + y) * width + x]
-    rows[y] = sum
-  }
-  const cuts: number[] = []
-  for (let i = 1; i < count; i += 1) {
-    const target = (band.h * i) / count
-    const reach = band.h / count * 0.35
-    let best = Math.round(target), lowest = Infinity
-    for (let y = Math.max(1, Math.floor(target - reach)); y <= Math.min(band.h - 2, Math.ceil(target + reach)); y += 1) {
-      const value = rows[y - 1] + rows[y] * 2 + rows[y + 1]
-      if (value < lowest) { lowest = value; best = y }
-    }
-    cuts.push(best)
-  }
-  const edges = [0, ...cuts, band.h]
-  const parts: Rect[] = []
-  for (let i = 0; i < edges.length - 1; i += 1) {
-    const part = tighten({ x: band.x, y: band.y + edges[i], w: band.w, h: Math.max(1, edges[i + 1] - edges[i]) }, mask, width)
-    if (!part || part.h < band.h / count * 0.4) return null
-    parts.push(part)
-  }
-  return parts
 }
 
 /* ── type matching ───────────────────────────────────────────────────── */
@@ -451,31 +572,6 @@ function fitFace(text: string, face: Face, ink: Rect, mask: Uint8Array, maskWidt
     fontDescent: (m.fontDescent * size) / 100,
     advance: (m.advance * size) / 100,
   }
-}
-
-/** Splits a block's words over its ink bands, in proportion to each band's width. */
-function wordsPerBand(text: string, bands: Rect[]) {
-  const lines = text.split(/\n+/).map(line => line.trim()).filter(Boolean)
-  if (lines.length === bands.length) return lines
-  const words = text.split(/\s+/).filter(Boolean)
-  if (bands.length === 1 || words.length <= 1) return [words.join(' ')]
-  const totalWidth = bands.reduce((sum, band) => sum + band.w, 0)
-  const totalChars = words.reduce((sum, word) => sum + word.length + 1, 0)
-  const out: string[] = []
-  let index = 0
-  bands.forEach((band, bandIndex) => {
-    const remainingBands = bands.length - bandIndex
-    const target = (band.w / totalWidth) * totalChars
-    const line: string[] = []
-    let chars = 0
-    while (index < words.length && (words.length - index > remainingBands - 1)) {
-      if (line.length && chars + words[index].length / 2 > target) break
-      line.push(words[index]); chars += words[index].length + 1; index += 1
-    }
-    out.push(line.join(' '))
-  })
-  if (index < words.length) out[out.length - 1] = `${out[out.length - 1]} ${words.slice(index).join(' ')}`.trim()
-  return out.filter(Boolean).length === bands.length ? out : [words.join(' ')]
 }
 
 /* ── filling the gaps: push-pull inpainting ──────────────────────────── */
@@ -598,15 +694,324 @@ async function candidateFaces(preferred: string | null | undefined) {
   return wanted ? [...usable.filter(face => face.family.toLowerCase() === wanted), ...usable.filter(face => face.family.toLowerCase() !== wanted)] : usable
 }
 
+/* ── reading the text: OCR for exact positions ───────────────────────── */
+
+type TextLine = { text: string; rect: Rect; confidence: number }
+
+/**
+ * Tesseract finds where every line of text really is, to the pixel. The
+ * analyser's boxes are rough (often off by a tenth of the flyer), so they are
+ * only used to correct spelling, never to decide what gets cut.
+ */
+type OcrWorker = Awaited<ReturnType<typeof import('tesseract.js')['createWorker']>>
+
+async function startOcr(onProgress: (fraction: number) => void) {
+  const { createWorker } = await import('tesseract.js')
+  return createWorker('eng', 1, {
+    logger: message => { if (message.status === 'recognizing text') onProgress(message.progress) },
+  })
+}
+
+async function readTextLines(work: HTMLCanvasElement, worker: OcrWorker): Promise<TextLine[]> {
+  const { PSM } = await import('tesseract.js')
+  // Small pictures are enlarged so the letters are big enough to read.
+  const scale = Math.max(1, Math.min(3, 1800 / Math.max(work.width, work.height)))
+  const input = canvasOf(work.width * scale, work.height * scale)
+  const context = input.getContext('2d')!
+  context.imageSmoothingQuality = 'high'
+  context.drawImage(work, 0, 0, input.width, input.height)
+
+  {
+    await worker.setParameters({ tessedit_pageseg_mode: PSM.SPARSE_TEXT, preserve_interword_spaces: '1' })
+    const { data } = await worker.recognize(input, {}, { blocks: true, text: true })
+    const lines: TextLine[] = []
+    for (const block of data.blocks ?? []) {
+      for (const paragraph of block.paragraphs) {
+        for (const line of paragraph.lines) {
+          const words = line.words.filter(word => word.confidence >= 50 && /[\p{L}\p{N}]/u.test(word.text))
+          if (!words.length) continue
+          // A wide gap on one row means two separate pieces of text (a phone number and a handle).
+          let group: typeof words = []
+          const flush = () => {
+            if (!group.length) return
+            const x0 = Math.min(...group.map(word => word.bbox.x0)), y0 = Math.min(...group.map(word => word.bbox.y0))
+            const x1 = Math.max(...group.map(word => word.bbox.x1)), y1 = Math.max(...group.map(word => word.bbox.y1))
+            const confidence = group.reduce((sum, word) => sum + word.confidence, 0) / group.length
+            const text = group.map(word => word.text).join(' ').trim()
+            if ((y1 - y0) / scale >= 6 && text.replace(/[^\p{L}\p{N}]/gu, '').length >= 2 && confidence >= 62) {
+              lines.push({ text, confidence, rect: { x: x0 / scale, y: y0 / scale, w: (x1 - x0) / scale, h: (y1 - y0) / scale } })
+            }
+            group = []
+          }
+          for (const word of words) {
+            const last = group[group.length - 1]
+            const height = last ? last.bbox.y1 - last.bbox.y0 : 0
+            if (last && word.bbox.x0 - last.bbox.x1 > height * 2.2) flush()
+            group.push(word)
+          }
+          flush()
+        }
+      }
+    }
+    return lines
+  }
+}
+
+/**
+ * Reads a candidate's ink on its own: the mask drawn black on white, at a size
+ * OCR likes. Busy backdrops, crossing lines and two-colour type stop mattering,
+ * and a sparkle or a sleeve reads as nothing like the words it was meant to be.
+ */
+async function readInk(worker: OcrWorker, ink: Ink, width: number) {
+  const { PSM } = await import('tesseract.js')
+  const lineHeight = ink.box.h / Math.max(1, ink.bands.length)
+  const scale = Math.max(0.5, Math.min(4, 56 / Math.max(1, lineHeight)))
+  const pad = 16
+  const canvas = canvasOf(ink.box.w * scale + pad * 2, ink.box.h * scale + pad * 2)
+  const context = canvas.getContext('2d')!
+  const picture = context.createImageData(canvas.width, canvas.height)
+  for (let y = 0; y < canvas.height; y += 1) {
+    for (let x = 0; x < canvas.width; x += 1) {
+      const sx = Math.floor((x - pad) / scale) + ink.box.x, sy = Math.floor((y - pad) / scale) + ink.box.y
+      const on = x >= pad && y >= pad && sx < ink.box.x + ink.box.w && sy < ink.box.y + ink.box.h && ink.mask[sy * width + sx] === 1
+      const at = (y * canvas.width + x) * 4
+      const value = on ? 0 : 255
+      picture.data[at] = value; picture.data[at + 1] = value; picture.data[at + 2] = value; picture.data[at + 3] = 255
+    }
+  }
+  context.putImageData(picture, 0, 0)
+  await worker.setParameters({ tessedit_pageseg_mode: PSM.SINGLE_BLOCK })
+  const { data } = await worker.recognize(canvas)
+  return data.text || ''
+}
+
+/** Lower-case letters and digits only, for comparing what OCR read with what the analyser read. */
+function letters(text: string) {
+  return text.toLowerCase().replace(/[^\p{L}\p{N}]/gu, '')
+}
+
+function similarity(a: string, b: string) {
+  if (!a.length || !b.length) return 0
+  const previous = new Array(b.length + 1).fill(0).map((_, i) => i)
+  for (let i = 1; i <= a.length; i += 1) {
+    let diagonal = previous[0]
+    previous[0] = i
+    for (let j = 1; j <= b.length; j += 1) {
+      const above = previous[j]
+      previous[j] = Math.min(previous[j] + 1, previous[j - 1] + 1, diagonal + (a[i - 1] === b[j - 1] ? 0 : 1))
+      diagonal = above
+    }
+  }
+  return 1 - previous[b.length] / Math.max(a.length, b.length)
+}
+
+/**
+ * The run of the analyser's words that the ink actually says: an analyser block
+ * can cover two lines while its ink is only the first.
+ */
+function wordsMatching(read: string, text: string) {
+  const words = text.split(/\s+/).filter(Boolean)
+  const target = letters(read)
+  let best = { text, score: -1 }
+  for (let start = 0; start < words.length; start += 1) {
+    for (let end = start + 1; end <= words.length; end += 1) {
+      const candidate = words.slice(start, end).join(' ')
+      const score = similarity(target, letters(candidate))
+      if (score > best.score) best = { text: candidate, score }
+    }
+  }
+  return best.text
+}
+
+/** The analyser's spelling (case, punctuation) of an OCR line, when one of its lines says the same thing. */
+function bestSpelling(ocr: string, analysed: DesignObject[]) {
+  const target = letters(ocr)
+  let best = { text: ocr, score: 0 }
+  for (const object of analysed) {
+    for (const candidate of (object.content.text || '').split(/\n+/)) {
+      const score = similarity(target, letters(candidate))
+      if (score > best.score) best = { text: candidate.trim(), score }
+    }
+  }
+  return best.score >= 0.72 ? best.text : ocr
+}
+
+/* ── matting: lifting ink off its paper without a halo ───────────────── */
+
+/**
+ * Text and marks are lifted with their own pixels: for each pixel, the share
+ * of ink over paper becomes its alpha and the paper's colour is taken back out
+ * of it. Over the filled background the layer reproduces the original pixel for
+ * pixel; moved onto anything else it carries no ring of the old backdrop.
+ */
+/**
+ * The distinct colours of a piece of ink: k-means with up to three centres,
+ * keeping a centre only when it is clearly its own colour.
+ */
+function inkColours(samples: Rgb[], paper: Rgb): Rgb[] {
+  if (!samples.length) return [[255, 255, 255]]
+  let best: Rgb[] = [[median(samples.map(s => s[0])), median(samples.map(s => s[1])), median(samples.map(s => s[2]))]]
+  for (const k of [2, 3]) {
+    let centres: Rgb[] = Array.from({ length: k }, (_, i) => samples[Math.floor(((i + 0.5) / k) * samples.length)])
+    // Seed far apart: sort by brightness so the seeds span dark to light.
+    const sorted = [...samples].sort((a, b) => a[0] + a[1] + a[2] - (b[0] + b[1] + b[2]))
+    centres = Array.from({ length: k }, (_, i) => sorted[Math.floor(((i + 0.5) / k) * sorted.length)])
+    for (let round = 0; round < 8; round += 1) {
+      const sums = centres.map(() => [0, 0, 0, 0])
+      for (const s of samples) {
+        let nearest = 0, d = Infinity
+        centres.forEach((c, i) => { const e = (s[0] - c[0]) ** 2 + (s[1] - c[1]) ** 2 + (s[2] - c[2]) ** 2; if (e < d) { d = e; nearest = i } })
+        sums[nearest][0] += s[0]; sums[nearest][1] += s[1]; sums[nearest][2] += s[2]; sums[nearest][3] += 1
+      }
+      centres = sums.map((sum, i) => (sum[3] ? [sum[0] / sum[3], sum[1] / sum[3], sum[2] / sum[3]] : centres[i]) as Rgb)
+    }
+    const counts = centres.map(c => samples.filter(s => Math.hypot(s[0] - c[0], s[1] - c[1], s[2] - c[2]) < 60).length)
+    const distinct = centres.every((a, i) => centres.every((b, j) => i === j || Math.hypot(a[0] - b[0], a[1] - b[1], a[2] - b[2]) > 70))
+    const substantial = counts.every(count => count > samples.length * 0.06)
+    const offPaper = centres.every(c => Math.hypot(c[0] - paper[0], c[1] - paper[1], c[2] - paper[2]) > 40)
+    if (distinct && substantial && offPaper) best = centres
+  }
+  return best
+}
+
+/** How much of `ink` (the nearest of its colours) covers `paper` at this pixel, 0..1, and that colour. */
+function unmix(r: number, g: number, b: number, paper: Rgb, colours: Rgb[]) {
+  let alpha = 0, colour = colours[0], residual = Infinity
+  for (const c of colours) {
+    const dx = c[0] - paper[0], dy = c[1] - paper[1], dz = c[2] - paper[2]
+    const length = Math.max(1, dx * dx + dy * dy + dz * dz)
+    const t = Math.max(0, Math.min(1, ((r - paper[0]) * dx + (g - paper[1]) * dy + (b - paper[2]) * dz) / length))
+    const off = Math.hypot(r - (paper[0] + t * dx), g - (paper[1] + t * dy), b - (paper[2] + t * dz))
+    if (off < residual) { residual = off; alpha = t; colour = c }
+  }
+  return { alpha, colour }
+}
+
+/**
+ * A mark's whole shape: for a compact mark (an app icon, a coin, a badge) the
+ * span of each row and column, so the letter inside a logo's square comes along
+ * even when it reaches the square's edge; for a sprawling one, only what its
+ * outline encloses.
+ */
+function markShape(mask: Uint8Array, box: Rect, width: number) {
+  const enclosed = fillEnclosed(mask, box, width)
+  const rows = Array.from({ length: box.h }, () => [Infinity, -1])
+  const cols = Array.from({ length: box.w }, () => [Infinity, -1])
+  let area = 0
+  for (let y = 0; y < box.h; y += 1) {
+    for (let x = 0; x < box.w; x += 1) {
+      if (!enclosed[(box.y + y) * width + box.x + x]) continue
+      area += 1
+      rows[y][0] = Math.min(rows[y][0], x); rows[y][1] = Math.max(rows[y][1], x)
+      cols[x][0] = Math.min(cols[x][0], y); cols[x][1] = Math.max(cols[x][1], y)
+    }
+  }
+  const out = new Uint8Array(enclosed)
+  let hull = 0
+  for (let y = 0; y < box.h; y += 1) {
+    for (let x = 0; x < box.w; x += 1) {
+      if (x >= rows[y][0] && x <= rows[y][1] && y >= cols[x][0] && y <= cols[x][1]) hull += 1
+    }
+  }
+  // A shape mostly made of its outline (a wordmark, scattered pieces) keeps only what it encloses.
+  if (!area || hull > area * 1.7) return enclosed
+  for (let y = 0; y < box.h; y += 1) {
+    for (let x = 0; x < box.w; x += 1) {
+      if (x >= rows[y][0] && x <= rows[y][1] && y >= cols[x][0] && y <= cols[x][1]) out[(box.y + y) * width + box.x + x] = 1
+    }
+  }
+  return out
+}
+
+/**
+ * Adds every pixel the mask encloses within `box`: anything the box's border
+ * cannot reach without crossing the mask. A logo's inner letter or a coin's
+ * symbol is part of the mark even when it has the backdrop's colour.
+ */
+function fillEnclosed(mask: Uint8Array, box: Rect, width: number) {
+  const out = new Uint8Array(mask)
+  const bw = box.w + 2, bh = box.h + 2
+  const outside = new Uint8Array(bw * bh)
+  const at = (x: number, y: number) => {
+    const gx = box.x + x - 1, gy = box.y + y - 1
+    return gx < box.x || gy < box.y || gx >= box.x + box.w || gy >= box.y + box.h ? 0 : mask[gy * width + gx]
+  }
+  const stack: number[] = [0]
+  outside[0] = 1
+  while (stack.length) {
+    const i = stack.pop()!
+    const x = i % bw, y = (i - x) / bw
+    for (const [nx, ny] of [[x + 1, y], [x - 1, y], [x, y + 1], [x, y - 1]]) {
+      if (nx < 0 || ny < 0 || nx >= bw || ny >= bh) continue
+      const n = ny * bw + nx
+      if (outside[n] || at(nx, ny)) continue
+      outside[n] = 1
+      stack.push(n)
+    }
+  }
+  for (let y = 1; y < bh - 1; y += 1) {
+    for (let x = 1; x < bw - 1; x += 1) {
+      if (!outside[y * bw + x]) out[(box.y + y - 1) * width + box.x + x - 1] = 1
+    }
+  }
+  return out
+}
+
+/** Pixels (working size) inside `mask` where ink covers at least `minimum` of the paper. */
+function coverage(image: ImageData, mask: Uint8Array, crop: Rect, paper: Rgb, colours: Rgb[], minimum: number) {
+  const out = new Uint8Array(mask.length)
+  for (let y = crop.y; y < crop.y + crop.h; y += 1) {
+    for (let x = crop.x; x < crop.x + crop.w; x += 1) {
+      const i = y * image.width + x
+      if (!mask[i]) continue
+      const at = i * 4
+      if (unmix(image.data[at], image.data[at + 1], image.data[at + 2], paper, colours).alpha >= minimum) out[i] = 1
+    }
+  }
+  return out
+}
+
+function matteCrop(full: HTMLCanvasElement, crop: Rect, workWidth: number, mask: Uint8Array, maskWidth: number, paper: Rgb, ink: Rgb[] | null) {
+  const k = full.width / workWidth
+  const target = { x: Math.floor(crop.x * k), y: Math.floor(crop.y * k), w: Math.max(1, Math.ceil(crop.w * k)), h: Math.max(1, Math.ceil(crop.h * k)) }
+  const canvas = canvasOf(target.w, target.h)
+  const context = canvas.getContext('2d', { willReadFrequently: true })!
+  context.drawImage(full, target.x, target.y, target.w, target.h, 0, 0, target.w, target.h)
+  const image = context.getImageData(0, 0, target.w, target.h)
+  const data = image.data
+  for (let y = 0; y < target.h; y += 1) {
+    const my = Math.min(Math.floor((target.y + y) / k), Math.floor(full.height / k) - 1)
+    for (let x = 0; x < target.w; x += 1) {
+      const mx = Math.min(Math.floor((target.x + x) / k), maskWidth - 1)
+      const at = (y * target.w + x) * 4
+      if (!mask[my * maskWidth + mx]) { data[at + 3] = 0; continue }
+      if (!ink) continue
+      const r = data[at], g = data[at + 1], b = data[at + 2]
+      const { alpha } = unmix(r, g, b, paper, ink)
+      if (alpha < 0.03) { data[at + 3] = 0; continue }
+      data[at] = paper[0] + (r - paper[0]) / alpha
+      data[at + 1] = paper[1] + (g - paper[1]) / alpha
+      data[at + 2] = paper[2] + (b - paper[2]) / alpha
+      data[at + 3] = Math.round(alpha * 255)
+    }
+  }
+  context.putImageData(image, 0, 0)
+  return canvas
+}
+
+/* ── the pipeline ────────────────────────────────────────────────────── */
+
+const TEXT_EDITABLE = ['text', 'fontFamily', 'fontSize', 'fontWeight', 'textAlign', 'fill', 'stroke', 'strokeWidth', 'opacity', 'letterSpacing', 'lineHeight', 'assetRef']
+
 export async function runMagicLayers(options: MagicLayersOptions): Promise<MagicLayersResult> {
   const { source, document: doc, analysed, frame, wholeFlyer, saveAsset, onProgress } = options
   const warnings: string[] = []
   const progress = (stage: string, fraction: number) => onProgress?.(stage, fraction)
 
-  // Working copy for analysis, and the 4K copy every picture layer is cut from.
-  progress('Reading the picture', 0.04)
+  progress('Reading the picture', 0.03)
   const native = dims(source)
-  const workScale = Math.min(1, WORK_LONG_EDGE / Math.max(native.width, native.height))
+  const long = Math.max(native.width, native.height)
+  const workScale = Math.min(WORK_LONG_EDGE / long, Math.max(1, 1600 / long))
   const work = canvasOf(native.width * workScale, native.height * workScale)
   const workContext = work.getContext('2d', { willReadFrequently: true })!
   workContext.imageSmoothingQuality = 'high'
@@ -615,7 +1020,6 @@ export async function runMagicLayers(options: MagicLayersOptions): Promise<Magic
   const image = workContext.getImageData(0, 0, W, H)
   const full = renderAt4K(source)
 
-  // Document units: picture px → document percent and document px.
   const toDocPercent = (rect: Rect): PercentBox => ({
     x: frame.x + (rect.x / W) * frame.width,
     y: frame.y + (rect.y / H) * frame.height,
@@ -623,122 +1027,184 @@ export async function runMagicLayers(options: MagicLayersOptions): Promise<Magic
     height: (rect.h / H) * frame.height,
   })
   const docPxPerWorkPx = ((frame.width / 100) * (doc.canvas.width || W)) / W
-
   const claimed = new Uint8Array(W * H)
-  const objects: DesignObject[] = []
+  const searched = new Uint8Array(W * H)
 
-  /* Text */
-  progress('Finding the text', 0.12)
-  const textBlocks = analysed.filter(object => TEXT_KINDS.has(object.kind) && (object.content.text || '').trim())
-    .map(object => ({ object, rect: analysedRect(object, W, H) }))
-    .filter((block): block is { object: DesignObject; rect: Rect } => Boolean(block.rect))
-    .sort((a, b) => a.rect.y - b.rect.y)
-  const faces = textBlocks.length ? await candidateFaces(textBlocks[0].object.style.fontFamily) : []
-
+  /* Text: exact lines from OCR, lifted as pixel-exact layers that turn into live text when edited */
+  progress('Reading the text', 0.06)
+  let lines: TextLine[] = []
+  let ocr: OcrWorker | null = null
+  try {
+    ocr = await startOcr(fraction => progress('Reading the text', 0.06 + fraction * 0.24))
+    lines = await readTextLines(work, ocr)
+  } catch (error) {
+    warnings.push(`The text could not be read (${error instanceof Error ? error.message : 'OCR failed'}), so it stays part of the picture.`)
+  }
   const textLayers: DesignObject[] = []
-  for (const [index, { object, rect }] of textBlocks.entries()) {
-    progress('Matching the type', 0.12 + 0.3 * (index / Math.max(1, textBlocks.length)))
-    const ink = findInk(image, rect, claimed, { x: 0.08, y: 0.3 })
-    if (!ink || !faces.length) {
-      warnings.push(`“${(object.content.text || '').slice(0, 24)}” stayed in the picture: its letters could not be separated from the backdrop.`)
-      continue
-    }
-    const text = object.content.text || ''
-    const words = text.split(/\s+/).filter(Boolean)
-    const declaredLines = text.split(/\n+/).map(line => line.trim()).filter(Boolean).length
+  try {
+  const faces = await candidateFaces(analysed.find(item => TEXT_KINDS.has(item.kind))?.style.fontFamily)
 
-    // Line layouts to try: the bands as found, the analyser's own line count,
-    // and, for a single band, one to four lines split at its waists.
-    const layouts: Rect[][] = [ink.bands]
-    if (declaredLines > 1 && declaredLines !== ink.bands.length) {
-      const split = splitBand(ink.box, ink.mask, W, declaredLines)
-      if (split) layouts.push(split)
-    }
-    if (ink.bands.length === 1) {
-      for (let count = 2; count <= Math.min(4, words.length); count += 1) {
-        const split = splitBand(ink.bands[0], ink.mask, W, count)
-        if (split) layouts.push(split)
-      }
-    }
+  /** Lifts one piece of ink as a pixel-exact text layer that knows its words and closest font. */
+  const lift = async (ink: Ink, text: string, confidence: number, evidence: string) => {
+    const halo = dilate(ink.mask, W, H, 3)
+    const pad = Math.ceil(Math.max(3, ink.box.h * 0.08))
+    const crop = clampRect({ x: ink.box.x - pad, y: ink.box.y - pad, w: ink.box.w + pad * 2, h: ink.box.h + pad * 2 }, W, H)
+    const lifted = matteCrop(full, crop, W, halo, W, ink.paper, ink.colours)
+    const assetId = await saveAsset(await encodeCanvas(lifted, true))
+    // Only where the ink really covers the paper is filled behind it: the grain of
+    // a photo around the letters stays as it was.
+    const covered = coverage(image, halo, crop, ink.paper, ink.colours, 0.12)
+    const hole = dilate(covered, W, H, 1)
+    for (let i = 0; i < hole.length; i += 1) if (hole[i]) claimed[i] = 1
+    for (let i = 0; i < halo.length; i += 1) if (halo[i]) searched[i] = 1
 
-    const preferredWeight = String(object.style.fontWeight || '')
-    let best: { face: Face; fitted: FittedLine[]; score: number } | null = null
-    for (const [layoutIndex, bands] of layouts.entries()) {
-      const lines = wordsPerBand(text, bands)
-      const lineBands = lines.length === bands.length ? bands : [ink.box]
-      for (const face of faces) {
-        const fitted = lines.map((line, i) => fitFace(line, face, lineBands[i], ink.mask, W))
-        if (fitted.some(item => !item)) continue
-        const items = fitted as FittedLine[]
-        let score = items.reduce((sum, item) => sum + item.score * item.ink.w, 0) / items.reduce((sum, item) => sum + item.ink.w, 0)
-        if (face.family.toLowerCase() === (object.style.fontFamily || '').toLowerCase()) score += 0.015
-        if (preferredWeight && face.weight === preferredWeight) score += 0.005
-        // The bands as found are the likeliest reading; a split has to earn its place.
-        if (layoutIndex > 0) score -= 0.02
-        if (!best || score > best.score) best = { face, fitted: items, score }
-      }
+    let best: FittedLine | null = null
+    const single = text.replace(/\s*\n\s*/g, ' ')
+    for (const face of faces) {
+      const fitted = fitFace(single, face, ink.box, ink.mask, W)
+      if (fitted && (!best || fitted.score > best.score)) best = fitted
     }
-    // Text that no bundled face reproduces stays in the picture, exactly as it was,
-    // rather than being swapped for type that does not look like it.
-    if (!best || best.score < 0.3) {
-      warnings.push(`“${text.slice(0, 24)}” stayed in the picture: no available font matched it closely.`)
-      continue
-    }
-
-    // The text leaves the backdrop: its ink (plus its anti-aliased halo) becomes a hole.
-    const grown = dilate(ink.mask, W, H, 2)
-    for (let i = 0; i < grown.length; i += 1) if (grown[i]) claimed[i] = 1
-
-    const colour = hex(ink.colour)
-    const lineObjects = best.fitted.map((line, i) => {
-      // Konva puts a single line's alphabetic baseline at H/2 + (fontAscent - fontDescent)/2.
-      const boxHeight = Math.max(line.size * 1.2, line.ink.h + 4)
-      const baseline = line.ink.y + line.ascent
-      const boxY = baseline - boxHeight / 2 - (line.fontAscent - line.fontDescent) / 2
-      const boxX = line.ink.x + line.left
-      const boxWidth = line.advance + line.spacing * [...line.text].length + line.size * 0.08 + 2
-      const layer = makeLayer(doc, 'text', {
-        text: line.text,
-        name: line.text.slice(0, 32),
-        bounds: toDocPercent({ x: boxX, y: boxY, w: boxWidth, h: boxHeight }),
-        fill: colour,
-        fontFamily: line.face.family,
-        fontWeight: line.face.weight,
-        fontSize: Math.round(line.size * docPxPerWorkPx * 10) / 10,
-        textAlign: 'left',
-        zIndex: 0,
-      })
-      layer.style.lineHeight = Math.round((boxHeight / line.size) * 1000) / 1000
-      layer.style.letterSpacing = Math.round(line.spacing * docPxPerWorkPx * 100) / 100
-      layer.source = { provider: 'magic-layers', confidence: Math.round(line.score * 100) / 100, evidence: [`font-match:${line.face.family}/${line.face.weight}`, `line:${i + 1}/${best!.fitted.length}`] }
-      return layer
+    const layer = makeLayer(doc, 'text', {
+      text,
+      name: single.slice(0, 32),
+      bounds: toDocPercent(crop),
+      fill: hex(ink.colour),
+      fontFamily: best?.face.family ?? 'Montserrat',
+      fontWeight: best?.face.weight ?? '700',
+      fontSize: Math.round((best?.size ?? ink.box.h) * docPxPerWorkPx * 10) / 10,
+      textAlign: 'left',
+      zIndex: 0,
     })
-    textLayers.push(...lineObjects)
+    layer.content.assetRef = `asset:${assetId}`
+    layer.protection.editableProperties = [...TEXT_EDITABLE]
+    if (best && ink.bands.length <= 1) {
+      const boxHeight = Math.max(best.size * 1.2, best.ink.h + 4)
+      const baseline = best.ink.y + best.ascent
+      const live = {
+        x: best.ink.x + best.left,
+        y: baseline - boxHeight / 2 - (best.fontAscent - best.fontDescent) / 2,
+        w: best.advance + best.spacing * [...single].length + best.size * 0.08 + 2,
+        h: boxHeight,
+      }
+      layer.style.lineHeight = Math.round((boxHeight / best.size) * 1000) / 1000
+      layer.style.letterSpacing = Math.round(best.spacing * docPxPerWorkPx * 100) / 100
+      layer.legacy = { ...layer.legacy, liveTextBounds: toDocPercent(clampRect(live, W, H)), liftedBounds: toDocPercent(crop) }
+    } else if (best) {
+      // Several lines: the live text starts as one block over the same box.
+      layer.content.text = text
+      layer.style.fontSize = Math.round((ink.box.h / Math.max(1, ink.bands.length) / 1.15) * docPxPerWorkPx * 10) / 10
+      layer.style.lineHeight = 1.15
+      layer.legacy = { ...layer.legacy, liveTextBounds: toDocPercent(crop), liftedBounds: toDocPercent(crop) }
+    }
+    layer.source = { provider: 'magic-layers', confidence: Math.round(confidence) / 100, evidence: [evidence, 'pixel-text', best ? `font-match:${best.face.family}/${best.face.weight}` : 'font-unmatched'] }
+    textLayers.push(layer)
   }
 
-  /* Marks: logos, icons, QR codes */
-  progress('Lifting logos and marks', 0.46)
-  const markLayers: DesignObject[] = []
-  for (const object of analysed.filter(item => MARK_KINDS.has(item.kind))) {
-    const rect = analysedRect(object, W, H)
-    if (!rect || rect.w * rect.h > W * H * 0.2) continue
-    const ink = findInk(image, rect, claimed, { x: 0.06, y: 0.06 })
+  // Pass 1: lines OCR read with confidence, at their exact positions.
+  const accepted: string[] = []
+  for (const [index, line] of lines.sort((a, b) => a.rect.y - b.rect.y || a.rect.x - b.rect.x).entries()) {
+    progress('Lifting the text', 0.3 + 0.1 * (index / Math.max(1, lines.length)))
+    const ink = findInk(image, line.rect, claimed, { x: Math.min(2, (line.rect.h * 6) / Math.max(1, line.rect.w)), y: 0.22 }, true)
     if (!ink) continue
-    const grown = dilate(ink.mask, W, H, 1)
-    const alpha = maskCanvas(grown, W, H, 0.6)
+    // The ink must be the line OCR read, not a neighbour or a panel.
+    const ox = Math.max(0, Math.min(ink.box.x + ink.box.w, line.rect.x + line.rect.w) - Math.max(ink.box.x, line.rect.x))
+    const oy = Math.max(0, Math.min(ink.box.y + ink.box.h, line.rect.y + line.rect.h) - Math.max(ink.box.y, line.rect.y))
+    // It covers the line OCR read, at that line's height (it may run wider: words OCR missed on the same line).
+    const covered = (ox * oy) / Math.max(1, line.rect.w * line.rect.h)
+    const fill = ink.pixels / Math.max(1, ink.box.w * ink.box.h)
+    if (covered < 0.55 || ink.box.h > line.rect.h * 1.7 || fill < 0.04 || fill > 0.8) continue
+    const text = bestSpelling(line.text, analysed)
+    accepted.push(letters(text))
+    await lift(ink, text, line.confidence, 'ocr-line')
+  }
+
+  // Pass 2: text the analyser saw that OCR could not read (big display type, type
+  // crossed by lines). Its boxes are rough, so the ink found near them has to
+  // look like that many letters on that many lines before anything is lifted.
+  const blocks = analysed.filter(object => TEXT_KINDS.has(object.kind) && (object.content.text || '').trim())
+  for (const [index, object] of blocks.entries()) {
+    progress('Lifting the text', 0.4 + 0.08 * (index / Math.max(1, blocks.length)))
+    const remaining = (object.content.text || '').split(/\n+/).map(line => line.trim()).filter(Boolean)
+      .filter(line => !accepted.some(done => similarity(done, letters(line)) >= 0.72 || (letters(line).length > 3 && done.includes(letters(line)))))
+    if (!remaining.length) continue
+    const rect = analysedRect(object, W, H)
+    if (!rect) continue
+    const ink = findInk(image, rect, searched, { x: 0.3, y: 0.45 }, false, true)
+    if (!ink || !ocr) continue
+    const glyphs = letters(remaining.join('')).length
+    const fill = ink.pixels / Math.max(1, ink.box.w * ink.box.h)
+    // Heavy, tightly set type merges letters into few pieces, so the count only has
+    // to be in the right range; the ink's density and size against the analyser's
+    // box do the rest of the judging.
+    const plausible = ink.pieces >= 1 && ink.pieces <= glyphs * 3 + 4
+      && ink.bands.length <= remaining.length + 2
+      && fill > 0.08 && fill < 0.75
+      && ink.box.w * ink.box.h <= rect.w * rect.h * 3 && ink.box.h <= rect.h * 2
+    if (!plausible) continue
+    // The deciding test: read on its own, the ink has to say those words.
+    const read = await readInk(ocr, ink, W)
+    const expected = letters(remaining.join(''))
+    const said = letters(read)
+    const agreement = Math.max(similarity(said, expected), said.length >= 4 && expected.includes(said) ? said.length / expected.length : 0)
+    // Junk (a sparkle, a sleeve) reads as 0-0.15; real type, even heavy display type, well above.
+    if (agreement < 0.42) continue
+    await lift(ink, wordsMatching(read, remaining.join(' ')), Math.round(agreement * 100), 'analyser-text')
+  }
+  } finally {
+    await ocr?.terminate().catch(() => undefined)
+  }
+
+  /* Marks: logos, icons, coins and badges the analyser saw, found again in the pixels */
+  progress('Lifting logos and icons', 0.5)
+  const markLayers: DesignObject[] = []
+  const markCandidates = analysed.filter(item => !item.status.removed && (MARK_KINDS.has(item.kind)
+    || (item.kind === 'image' && (item.transform.bounds?.width ?? 100) * (item.transform.bounds?.height ?? 100) < 400)))
+  for (const object of markCandidates) {
+    const rect = analysedRect(object, W, H)
+    if (!rect || rect.w * rect.h > W * H * 0.12) continue
+    const ink = findInk(image, rect, claimed, { x: 0.3, y: 0.3 }, true, false)
+    if (!ink) continue
+    const fill = ink.pixels / Math.max(1, ink.box.w * ink.box.h)
+    // A real mark is compact and of a size near what the analyser described.
+    const sizeRatio = (ink.box.w * ink.box.h) / Math.max(1, rect.w * rect.h)
+    if (fill < 0.12 || sizeRatio < 0.12 || sizeRatio > 3) continue
+    const hole = dilate(markShape(ink.mask, ink.box, W), W, H, 1)
     const pad = 2
     const crop = clampRect({ x: ink.box.x - pad, y: ink.box.y - pad, w: ink.box.w + pad * 2, h: ink.box.h + pad * 2 }, W, H)
-    const id = await cutout(full, alpha, crop, W, saveAsset)
-    const hole = dilate(ink.mask, W, H, 2)
+    const lifted = matteCrop(full, crop, W, hole, W, [0, 0, 0], null)
+    const id = await saveAsset(await encodeCanvas(lifted, true))
     for (let i = 0; i < hole.length; i += 1) if (hole[i]) claimed[i] = 1
     const layer = makeLayer(doc, 'image', { assetRef: `asset:${id}`, name: object.name || 'Logo', bounds: toDocPercent(crop), zIndex: 0 })
-    layer.kind = object.kind === 'qr-code' ? 'qr-code' : 'logo'
-    layer.source = { provider: 'magic-layers', confidence: 0.9, evidence: ['mark-cutout'] }
+    layer.kind = object.kind === 'qr-code' ? 'qr-code' : object.kind === 'image' ? 'icon' : 'logo'
+    layer.source = { provider: 'magic-layers', confidence: 0.85, evidence: ['mark-cutout'] }
     markLayers.push(layer)
   }
 
+  /* Stage 1: the picture without its text and marks. Each small gap is filled from
+     its own surroundings (the jacket behind a word, the panel behind a logo), and
+     everything after this works from that clean picture. */
+  progress('Taking out the text', 0.54)
+  const textHole = dilate(claimed, W, H, 1)
+  const cleanWork = inpaint(image, textHole)
+  for (let i = 0; i < textHole.length; i += 1) {
+    if (textHole[i]) continue
+    cleanWork.data[i * 4] = image.data[i * 4]; cleanWork.data[i * 4 + 1] = image.data[i * 4 + 1]; cleanWork.data[i * 4 + 2] = image.data[i * 4 + 2]
+  }
+  const clean = canvasOf(full.width, full.height)
+  {
+    const textPatch = canvasOf(W, H)
+    const patchContext = textPatch.getContext('2d')!
+    patchContext.putImageData(cleanWork, 0, 0)
+    patchContext.globalCompositeOperation = 'destination-in'
+    patchContext.drawImage(maskCanvas(textHole, W, H, 0.8), 0, 0)
+    const cleanContext = clean.getContext('2d')!
+    cleanContext.drawImage(full, 0, 0)
+    cleanContext.imageSmoothingQuality = 'high'
+    cleanContext.drawImage(textPatch, 0, 0, full.width, full.height)
+  }
+
   /* Subject */
-  progress('Cutting out the subject', 0.52)
+  progress('Cutting out the subject', 0.6)
   let subjectLayer: DesignObject | null = null
   let subjectHole: Uint8Array | null = null
   try {
@@ -746,30 +1212,27 @@ export async function runMagicLayers(options: MagicLayersOptions): Promise<Magic
     const matteContext = canvasOf(W, H).getContext('2d', { willReadFrequently: true })!
     matteContext.drawImage(matte.canvas, 0, 0, W, H)
     const matteData = matteContext.getImageData(0, 0, W, H).data
-    // Where the analyser marked photos, the subject stays inside them (a little
-    // margin for hair and hands): the matte also likes buttons and badges.
+    // The subject stays inside the photos the analyser marked: the matte also likes buttons and badges.
     const photos = analysed
       .filter(item => item.kind === 'image' && !item.status.removed)
       .map(item => analysedRect(item, W, H))
-      .filter((rect): rect is Rect => Boolean(rect) && rect!.w * rect!.h > W * H * 0.04)
-      .map(rect => ({ x0: rect.x - rect.w * 0.06, y0: rect.y - rect.h * 0.06, x1: rect.x + rect.w * 1.06, y1: rect.y + rect.h * 1.06 }))
+      .filter((rect): rect is Rect => Boolean(rect) && rect!.w * rect!.h > W * H * 0.06)
+      .map(rect => ({ x0: rect.x - rect.w * 0.1, y0: rect.y - rect.h * 0.1, x1: rect.x + rect.w * 1.1, y1: rect.y + rect.h * 1.1 }))
     const inPhoto = (x: number, y: number) => !photos.length || photos.some(rect => x >= rect.x0 && x <= rect.x1 && y >= rect.y0 && y <= rect.y1)
     const alpha = new Uint8ClampedArray(W * H)
     for (let i = 0; i < W * H; i += 1) {
       const x = i % W, y = (i - x) / W
-      alpha[i] = claimed[i] || !inPhoto(x, y) ? 0 : matteData[i * 4 + 3]
+      alpha[i] = !inPhoto(x, y) ? 0 : matteData[i * 4 + 3]
     }
-
-    // Drop specks: keep components holding at least 0.3% of the picture.
+    // Only the largest connected subject (and pieces at least a fifth its size) survive.
     const solid = new Uint8Array(W * H)
     for (let i = 0; i < solid.length; i += 1) solid[i] = alpha[i] > 24 ? 1 : 0
     const { labels, stats } = components(solid, W, H)
-    const minArea = W * H * 0.003
+    const largest = Math.max(0, ...stats.map(stat => stat.area))
     let area = 0, x0 = W, y0 = H, x1 = 0, y1 = 0
     for (let i = 0; i < solid.length; i += 1) {
-      if (!solid[i]) continue
-      const stat = stats[labels[i] - 1]
-      if (stat.area < minArea) { alpha[i] = 0; continue }
+      if (!solid[i]) { alpha[i] = 0; continue }
+      if (stats[labels[i] - 1].area < largest * 0.2) { alpha[i] = 0; continue }
       area += 1
       const x = i % W, y = (i - x) / W
       if (x < x0) x0 = x
@@ -778,40 +1241,36 @@ export async function runMagicLayers(options: MagicLayersOptions): Promise<Magic
       if (y > y1) y1 = y
     }
     const share = area / (W * H)
-    if (share > 0.015 && share < 0.85) {
+    if (share > 0.02 && share < 0.8) {
       const crop = clampRect({ x: x0 - 2, y: y0 - 2, w: x1 - x0 + 5, h: y1 - y0 + 5 }, W, H)
-      // The subject's solid core is made fully opaque and only that core is filled
-      // behind it, so a half-transparent matte never lets the fill show through:
-      // before anything moves, the picture looks exactly as it did.
+      // An opaque core with only the core filled behind it: nothing shows through before anything moves.
       const core = new Uint8Array(W * H)
       for (let i = 0; i < core.length; i += 1) if (alpha[i] > 160) { core[i] = 1; alpha[i] = 255 }
-      const id = await cutout(full, maskCanvas(alpha, W, H), crop, W, saveAsset)
+      const id = await cutout(clean, maskCanvas(alpha, W, H), crop, W, saveAsset)
       subjectLayer = makeLayer(doc, 'image', { assetRef: `asset:${id}`, name: 'Subject', bounds: toDocPercent(crop), zIndex: 0 })
       subjectLayer.source = { provider: 'magic-layers', confidence: 0.9, evidence: ['subject-matte'] }
       subjectHole = dilate(core, W, H, 1)
-    } else if (share <= 0.015) {
-      warnings.push('No clear subject was found, so the picture stayed in the background.')
     }
   } catch (error) {
     warnings.push(`The subject could not be cut out: ${error instanceof Error ? error.message : 'segmentation failed'}.`)
   }
 
   /* Background */
-  progress('Filling in the background', 0.8)
-  const hole = new Uint8Array(W * H)
-  for (let i = 0; i < hole.length; i += 1) hole[i] = claimed[i] || (subjectHole && subjectHole[i]) ? 1 : 0
-  const filled = inpaint(image, dilate(hole, W, H, 1))
-  const patch = canvasOf(W, H)
-  const patchContext = patch.getContext('2d')!
-  patchContext.putImageData(filled, 0, 0)
-  // Only the gaps take the fill; the rest keeps the 4K original's own pixels.
-  patchContext.globalCompositeOperation = 'destination-in'
-  patchContext.drawImage(maskCanvas(dilate(hole, W, H, 2), W, H, 1.2), 0, 0)
+  progress('Filling in the background', 0.84)
   const backdrop = canvasOf(full.width, full.height)
   const backdropContext = backdrop.getContext('2d')!
-  backdropContext.drawImage(full, 0, 0)
-  backdropContext.imageSmoothingQuality = 'high'
-  backdropContext.drawImage(patch, 0, 0, full.width, full.height)
+  backdropContext.drawImage(clean, 0, 0)
+  if (subjectHole) {
+    const hole = dilate(subjectHole, W, H, 1)
+    const filled = inpaint(cleanWork, hole)
+    const patch = canvasOf(W, H)
+    const patchContext = patch.getContext('2d')!
+    patchContext.putImageData(filled, 0, 0)
+    patchContext.globalCompositeOperation = 'destination-in'
+    patchContext.drawImage(maskCanvas(hole, W, H, 0.8), 0, 0)
+    backdropContext.imageSmoothingQuality = 'high'
+    backdropContext.drawImage(patch, 0, 0, full.width, full.height)
+  }
   const backgroundId = await saveAsset(await encodeCanvas(backdrop, false))
 
   const background = makeLayer(doc, 'image', {
@@ -827,12 +1286,10 @@ export async function runMagicLayers(options: MagicLayersOptions): Promise<Magic
     background.constraints = { ...background.constraints, lockPosition: true, lockSize: true, lockRotation: true, stayInsideCanvas: true, fit: 'cover' }
   }
 
-  // Stack: background, subject, marks, then text top to bottom.
+  if (!textLayers.length && lines.length === 0 && !warnings.length) warnings.push('No text was found to lift.')
   const ordered = [background, ...(subjectLayer ? [subjectLayer] : []), ...markLayers, ...textLayers]
   const baseZ = wholeFlyer ? 0 : doc.objects.reduce((max, object) => Math.max(max, object.zIndex), 0) + 1
   ordered.forEach((object, index) => { object.zIndex = baseZ + index })
-  objects.push(...ordered)
-
   progress('Done', 1)
-  return { objects, warnings }
+  return { objects: ordered, warnings }
 }

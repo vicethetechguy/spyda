@@ -123,6 +123,18 @@ function resolvedFontSize(
   })
 }
 
+/**
+ * Konva draws pictures with the canvas's default (low) smoothing, which turns a
+ * 4K picture shown at a few hundred pixels soft and jagged. Asking for high
+ * quality resampling keeps its text and edges crisp on screen and in exports.
+ */
+function smoothImage(context: Konva.Context, shape: Konva.Shape) {
+  const native = (context as unknown as { _context: CanvasRenderingContext2D })._context
+  native.imageSmoothingEnabled = true
+  native.imageSmoothingQuality = 'high'
+  ;(shape as unknown as { _sceneFunc: (context: Konva.Context) => void })._sceneFunc(context)
+}
+
 function usesTextMetrics(object: DesignObject) {
   return object.kind === 'text' || object.kind === 'action'
 }
@@ -411,7 +423,10 @@ export default function LayerCanvas({
                   scaleX={object.transform.flipX ? -1 : 1}
                   scaleY={object.transform.flipY ? -1 : 1}
                 >
-                {usesTextMetrics(object) ? (() => {
+                {usesTextMetrics(object) && image ? (
+                  // Text lifted by Magic Layers keeps its own pixels until its words or style are edited.
+                  <KonvaImage image={image} width={widthPx} height={heightPx} sceneFunc={smoothImage} />
+                ) : usesTextMetrics(object) ? (() => {
                   const fontFamily = resolveFamily(object.style.fontFamily, missingFonts)
                   const bold = Number(object.style.fontWeight) >= 600
                   return (
@@ -435,6 +450,7 @@ export default function LayerCanvas({
                   )
                 })() : source ? (
                   <KonvaImage
+                    sceneFunc={smoothImage}
                     image={source}
                     width={widthPx}
                     height={heightPx}
