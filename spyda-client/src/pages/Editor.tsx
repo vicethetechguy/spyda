@@ -44,6 +44,7 @@ import LayerCanvas from '../components/editor/LayerCanvas'
 import PropertiesPanel from '../components/editor/PropertiesPanel'
 import SelectionPanel, { type AlignMode } from '../components/editor/SelectionPanel'
 import LayerList from '../components/editor/LayerList'
+import AssetsPanel from '../components/editor/AssetsPanel'
 import { useAssetImages } from '../components/editor/useAssetImages'
 import AssistPanel, { type AssistEntry } from '../components/editor/AssistPanel'
 import CanvasToolbar from '../components/editor/CanvasToolbar'
@@ -219,6 +220,8 @@ export default function Editor() {
   const [displayScale, setDisplayScale] = useState(1)
   const [dock, setDock] = useState({ layers: true, navigator: true })
   const [lowerTab, setLowerTab] = useState<'navigator' | 'history'>('navigator')
+  const [layerTab, setLayerTab] = useState<'layers' | 'assets'>('layers')
+  const [layerQuery, setLayerQuery] = useState('')
   const [thumbnail, setThumbnail] = useState('')
   const [showShortcuts, setShowShortcuts] = useState(false)
   const [playing, setPlaying] = useState<number | null>(null)
@@ -1967,38 +1970,67 @@ export default function Editor() {
 
           <div className={`flex flex-col border-t border-white/[0.06] ${dock.layers ? 'lg:h-[30%] lg:min-h-[160px]' : ''}`}>
             {panelHeader(
-              'Layers',
+              layerTab === 'layers' ? 'Layers' : 'Assets',
               dock.layers,
               () => setDock(current => ({ ...current, layers: !current.layers })),
-              <span className="text-[10px] text-muted-foreground">{live.length}{missingAssets.length ? <span className="ml-1.5 text-amber-300">{missingAssets.length} loading</span> : null}</span>,
+              <span role="tablist" aria-label="Layers or assets" className="flex items-center gap-0.5">
+                {missingAssets.length ? <span className="mr-1 text-[10px] text-amber-300">{missingAssets.length} loading</span> : null}
+                {(['layers', 'assets'] as const).map(tab => (
+                  <button key={tab} type="button" role="tab" aria-selected={layerTab === tab} onClick={() => { setLayerTab(tab); setDock(current => ({ ...current, layers: true })) }} className={`h-5 rounded px-1.5 text-[10px] capitalize ${layerTab === tab ? 'bg-white/[0.1] text-foreground' : 'text-muted-foreground hover:text-foreground'}`}>
+                    {tab}{tab === 'layers' ? ` ${live.length}` : ''}
+                  </button>
+                ))}
+              </span>,
             )}
             {dock.layers ? (
               <div className="flex min-h-0 flex-1 flex-col px-1.5 pb-1.5 pt-1">
-                <div className="mb-1 flex flex-wrap gap-1 px-0.5">
-                  {FILTERS.map(item => (
-                    <button
-                      key={item.id}
-                      type="button"
-                      onClick={() => setFilter(item.id)}
-                      aria-pressed={filter === item.id}
-                      className={`h-5 rounded px-1.5 text-[9px] font-medium transition-colors ${filter === item.id ? 'bg-white/[0.12] text-foreground' : 'text-muted-foreground hover:text-foreground'}`}
-                    >
-                      {item.label}
-                    </button>
-                  ))}
-                </div>
-                <div className="editor-dense max-h-[40vh] min-h-0 flex-1 overflow-y-auto lg:max-h-none">
-                  <LayerList
-                    objects={filtered}
-                    selectedId={selectedId}
-                    selectedIds={selection}
-                    onSelect={selectLayer}
-                    onReorder={handleReorder}
-                    onToggleVisibility={handleToggleVisibility}
-                    onDuplicate={handleDuplicate}
-                    onRemove={objectId => applyIntent({ objectId, property: 'removed', value: true })}
-                  />
-                </div>
+                {layerTab === 'layers' ? (
+                  <>
+                    <input
+                      type="search"
+                      value={layerQuery}
+                      onChange={event => setLayerQuery(event.target.value)}
+                      onKeyDown={event => event.stopPropagation()}
+                      placeholder="Find a layer…"
+                      aria-label="Find a layer"
+                      className="mx-0.5 mb-1 h-6 rounded-md bg-white/[0.05] px-2 text-[11px] outline-none placeholder:text-muted-foreground focus:ring-1 focus:ring-primary/60"
+                    />
+                    <div className="mb-1 flex flex-wrap gap-1 px-0.5">
+                      {FILTERS.map(item => {
+                        const count = live.filter(object => matchesFilter(object, item.id)).length
+                        return (
+                          <button
+                            key={item.id}
+                            type="button"
+                            onClick={() => setFilter(item.id)}
+                            aria-pressed={filter === item.id}
+                            className={`h-5 rounded px-1.5 text-[9px] font-medium transition-colors ${filter === item.id ? 'bg-white/[0.12] text-foreground' : 'text-muted-foreground hover:text-foreground'}`}
+                          >
+                            {item.label} <span className="opacity-60">{count}</span>
+                          </button>
+                        )
+                      })}
+                    </div>
+                    <div className="editor-dense max-h-[40vh] min-h-0 flex-1 overflow-y-auto lg:max-h-none">
+                      <LayerList
+                        objects={filtered}
+                        selectedId={selectedId}
+                        selectedIds={selection}
+                        onSelect={selectLayer}
+                        onReorder={handleReorder}
+                        onToggleVisibility={handleToggleVisibility}
+                        onDuplicate={handleDuplicate}
+                        onRemove={objectId => applyIntent({ objectId, property: 'removed', value: true })}
+                        thumbnail={object => (object.content.assetRef ? images[object.content.assetRef]?.src : undefined)}
+                        query={layerQuery}
+                      />
+                    </div>
+                  </>
+                ) : (
+                  <div className="max-h-[40vh] min-h-0 flex-1 overflow-y-auto lg:max-h-none">
+                    <AssetsPanel objects={objects} images={images} selectedIds={selection} onSelect={selectMany} onAddPicture={() => imageInputRef.current?.click()} />
+                  </div>
+                )}
               </div>
             ) : null}
           </div>

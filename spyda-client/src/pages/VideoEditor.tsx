@@ -24,7 +24,8 @@ import { BUNDLED_FAMILIES, loadFontPreviews, previewFamily } from '../lib/fonts'
  */
 
 type Selection = { kind: 'clip' | 'title' | 'audio' | 'transition'; id: string } | null
-type LeftTab = 'media' | 'effects' | 'transitions' | 'titles'
+type LeftTab = 'media' | 'timeline' | 'effects' | 'transitions' | 'titles'
+type MediaFilter = 'all' | 'video' | 'image' | 'audio' | 'unused'
 type Format = (typeof FORMATS)[number]
 
 /** Drag payloads inside the editor. */
@@ -358,6 +359,8 @@ export default function VideoEditor() {
   const [time, setTime] = useState(0)
   const [playing, setPlaying] = useState(false)
   const [tab, setTab] = useState<LeftTab>('media')
+  const [mediaFilter, setMediaFilter] = useState<MediaFilter>('all')
+  const [mediaQuery, setMediaQuery] = useState('')
   const [zoomState, setZoomState] = useState<{ fit: boolean; value: number }>({ fit: true, value: 60 })
   const [viewWidth, setViewWidth] = useState(900)
   const [exporting, setExporting] = useState<number | null>(null)
@@ -1066,10 +1069,38 @@ export default function VideoEditor() {
   const step = tickStep(zoom)
   const tabs: Array<{ id: LeftTab; label: string; icon: typeof Layers }> = [
     { id: 'media', label: 'Media', icon: ImagePlus },
+    { id: 'timeline', label: 'In use', icon: Clapperboard },
     { id: 'effects', label: 'Effects', icon: Sparkles },
     { id: 'transitions', label: 'Transitions', icon: Layers },
     { id: 'titles', label: 'Titles', icon: Type },
   ]
+  // Where each imported file is used: clips on the video track, items on the music track.
+  const usage = new Map<string, number>()
+  for (const clip of project.clips) usage.set(clip.mediaId, (usage.get(clip.mediaId) ?? 0) + 1)
+  for (const track of project.audio) usage.set(track.mediaId, (usage.get(track.mediaId) ?? 0) + 1)
+  const mediaCounts = {
+    all: media.length,
+    video: media.filter(item => item.kind === 'video').length,
+    image: media.filter(item => item.kind === 'image').length,
+    audio: media.filter(item => item.kind === 'audio').length,
+    unused: media.filter(item => !usage.get(item.id)).length,
+  }
+  const shownMedia = media.filter(item => (mediaFilter === 'all' || (mediaFilter === 'unused' ? !usage.get(item.id) : item.kind === mediaFilter)) && (!mediaQuery.trim() || item.name.toLowerCase().includes(mediaQuery.trim().toLowerCase())))
+  /** Selects where a file is used and moves the playhead there. */
+  const locateMedia = (item: MediaItem) => {
+    const clip = placed.find(entry => entry.clip.mediaId === item.id)
+    if (clip) { setSelection({ kind: 'clip', id: clip.clip.id }); seek(clip.start + 0.01); return }
+    const track = project.audio.find(entry => entry.mediaId === item.id)
+    if (track) { setSelection({ kind: 'audio', id: track.id }); seek(track.start + 0.01) }
+  }
+  const removeMedia = (item: MediaItem) => {
+    if (usage.get(item.id)) return
+    URL.revokeObjectURL(item.url)
+    mediaRef.current = mediaRef.current.filter(entry => entry.id !== item.id)
+    setMedia(mediaRef.current)
+  }
+  const jumpTo = (next: Selection, at: number) => { setSelection(next); seek(at + 0.01) }
+
   const fontOptions = BUNDLED_FAMILIES.map(font => ({ value: font.family, label: font.family, style: { fontFamily: previewFamily(font.family) } }))
   const canUndo = history.current.past.length > 0
   const canRedo = history.current.future.length > 0
@@ -1126,7 +1157,7 @@ export default function VideoEditor() {
       <div className="flex min-h-0 flex-1">
         {/* Left: media, effects, transitions, titles */}
         <aside className="flex w-[280px] shrink-0 flex-col border-r border-white/[0.06] bg-[#111214]">
-          <div role="tablist" className="grid grid-cols-4 gap-0.5 border-b border-white/[0.06] p-1">
+          <div role="tablist" className="grid grid-cols-5 gap-0.5 border-b border-white/[0.06] p-1">
             {tabs.map(item => (
               <button key={item.id} type="button" role="tab" aria-selected={tab === item.id} onClick={() => setTab(item.id)} className={`flex flex-col items-center gap-0.5 rounded-md py-1.5 text-[9px] font-medium ${tab === item.id ? 'bg-white/[0.08] text-foreground' : 'text-muted-foreground hover:text-foreground'}`}>
                 <item.icon className={`h-4 w-4 ${tab === item.id ? 'text-primary' : ''}`} /> {item.label}
@@ -1142,28 +1173,100 @@ export default function VideoEditor() {
                   <span className="text-[12px] font-semibold">Import media</span>
                   <span className="text-[10px] text-muted-foreground">Video, images or music. Or drop files anywhere.</span>
                 </button>
+                {media.length ? (
+                  <>
+                    <input type="search" value={mediaQuery} onChange={event => setMediaQuery(event.target.value)} onKeyDown={event => event.stopPropagation()} placeholder="Search your media…" aria-label="Search your media" className="h-8 w-full rounded-md bg-white/[0.05] px-2.5 text-[11px] outline-none placeholder:text-muted-foreground focus:ring-1 focus:ring-primary/60" />
+                    <div className="flex flex-wrap gap-1">
+                      {([['all', 'All'], ['video', 'Videos'], ['image', 'Pictures'], ['audio', 'Music'], ['unused', 'Not used']] as const).map(([id, label]) => (
+                        <button key={id} type="button" onClick={() => setMediaFilter(id)} aria-pressed={mediaFilter === id} className={`h-6 rounded-md px-2 text-[10px] font-medium ${mediaFilter === id ? 'bg-primary/15 text-primary' : 'bg-white/[0.04] text-muted-foreground hover:text-foreground'}`}>
+                          {label} <span className="opacity-60">{mediaCounts[id]}</span>
+                        </button>
+                      ))}
+                    </div>
+                  </>
+                ) : null}
                 <div className="grid grid-cols-2 gap-2">
-                  {media.map(item => (
-                    <button
-                      key={item.id}
-                      type="button"
-                      draggable
-                      onDragStart={event => { event.dataTransfer.setData(MEDIA_MIME, item.id); event.dataTransfer.effectAllowed = 'copy' }}
-                      onDragEnd={() => setDropMarker(null)}
-                      onClick={() => placeMedia(item, item.kind === 'audio' ? { at: time } : {})}
-                      title={`Drag onto the timeline, or click to add ${item.name}`}
-                      className="group cursor-grab overflow-hidden rounded-lg border border-white/[0.08] bg-black/30 text-left hover:border-primary/50 active:cursor-grabbing"
-                    >
-                      <span className="relative block aspect-video bg-[#16171a]">
-                        {item.thumbnail ? <img src={item.thumbnail} alt="" draggable={false} className="h-full w-full object-contain" /> : <span className="flex h-full items-center justify-center text-[10px] text-muted-foreground">♪ Audio</span>}
-                        <span className="absolute bottom-1 right-1 rounded bg-black/70 px-1 font-mono text-[9px]">{item.kind === 'image' ? 'Image' : formatTime(item.duration)}</span>
-                        <span className="absolute inset-0 hidden items-center justify-center bg-black/40 group-hover:flex"><Plus className="h-5 w-5" /></span>
-                      </span>
-                      <span className="block truncate px-1.5 py-1 text-[10px]">{item.name}</span>
-                    </button>
+                  {shownMedia.map(item => {
+                    const used = usage.get(item.id) ?? 0
+                    return (
+                      <div key={item.id} className={`group relative overflow-hidden rounded-lg border bg-black/30 ${used ? 'border-primary/30' : 'border-white/[0.08]'} hover:border-primary/60`}>
+                        <button
+                          type="button"
+                          draggable
+                          onDragStart={event => { event.dataTransfer.setData(MEDIA_MIME, item.id); event.dataTransfer.effectAllowed = 'copy' }}
+                          onDragEnd={() => setDropMarker(null)}
+                          onClick={() => placeMedia(item, item.kind === 'audio' ? { at: time } : {})}
+                          title={`Drag onto the timeline, or click to add ${item.name}`}
+                          className="block w-full cursor-grab text-left active:cursor-grabbing"
+                        >
+                          <span className="relative block aspect-video bg-[#16171a]">
+                            {item.thumbnail ? <img src={item.thumbnail} alt="" draggable={false} className="h-full w-full object-contain" /> : <span className="flex h-full items-center justify-center text-[10px] text-muted-foreground">♪ Music</span>}
+                            <span className="absolute bottom-1 right-1 rounded bg-black/70 px-1 font-mono text-[9px]">{item.kind === 'image' ? 'Picture' : formatTime(item.duration)}</span>
+                            <span className={`absolute left-1 top-1 rounded px-1 text-[8px] font-semibold ${used ? 'bg-primary text-primary-foreground' : 'bg-black/70 text-muted-foreground'}`}>{used ? `In use · ${used}` : 'Not used'}</span>
+                            <span className="absolute inset-0 hidden items-center justify-center bg-black/40 group-hover:flex"><Plus className="h-5 w-5" /></span>
+                          </span>
+                          <span className="block truncate px-1.5 pt-1 text-[10px]">{item.name}</span>
+                          <span className="block px-1.5 pb-1 text-[9px] capitalize text-muted-foreground">{item.kind === 'audio' ? 'Music' : item.kind === 'image' ? 'Picture' : 'Video'}{item.width ? ` · ${item.width}×${item.height}` : ''}</span>
+                        </button>
+                        <div className="absolute right-1 top-1 hidden gap-0.5 group-hover:flex">
+                          {used ? <button type="button" onClick={() => locateMedia(item)} title="Show where it is used" aria-label={`Show where ${item.name} is used`} className="rounded bg-black/75 px-1 text-[9px] font-semibold text-primary hover:bg-black">Show</button> : null}
+                          {!used ? <button type="button" onClick={() => removeMedia(item)} title="Remove from your media" aria-label={`Remove ${item.name}`} className="rounded bg-black/75 p-0.5 text-muted-foreground hover:bg-red-500/40 hover:text-foreground"><Trash2 className="h-3 w-3" /></button> : null}
+                        </div>
+                      </div>
+                    )
+                  })}
+                </div>
+                {media.length && !shownMedia.length ? <p className="text-[10px] text-muted-foreground">Nothing here. Try another filter or search.</p> : null}
+                <p className="text-[10px] leading-4 text-muted-foreground">{media.length ? 'Drag a file onto the video or music track to place it, or click it to add it to the end. Green files are in your edit.' : 'Imported files stay on this device.'}</p>
+              </div>
+            ) : tab === 'timeline' ? (
+              <div className="space-y-4">
+                <div className="grid grid-cols-3 gap-1.5 text-center">
+                  {[[formatTime(end), 'Length'], [String(project.clips.length), 'Clips'], [String(project.titles.length + project.audio.length), 'Titles & music']].map(([value, label]) => (
+                    <div key={label} className="rounded-lg bg-white/[0.03] px-1 py-2"><p className="font-mono text-[12px] font-semibold">{value}</p><p className="text-[9px] text-muted-foreground">{label}</p></div>
                   ))}
                 </div>
-                <p className="text-[10px] leading-4 text-muted-foreground">{media.length ? 'Drag a file onto the video or music track to place it, or click it to add it to the end.' : 'Imported files stay on this device.'}</p>
+                {[
+                  {
+                    title: 'Video track',
+                    empty: 'No clips yet. Add media from the Media tab.',
+                    rows: placed.map(item => {
+                      const info = mediaFor(item.clip)
+                      const tags = [item.clip.speed !== 1 ? `${item.clip.speed}×` : '', item.clip.effect !== 'none' ? EFFECTS.find(effect => effect.id === item.clip.effect)?.name ?? '' : '', item.index < placed.length - 1 && item.clip.transition.type !== 'cut' ? `→ ${TRANSITIONS.find(transition => transition.id === item.clip.transition.type)?.name}` : ''].filter(Boolean)
+                      return { key: item.clip.id, selected: selection?.kind === 'clip' && selection.id === item.clip.id, thumb: info?.thumbnail ?? null, label: `${item.index + 1}. ${info?.name ?? 'Clip'}`, detail: `${formatTime(item.start)} – ${formatTime(item.end)}${tags.length ? ` · ${tags.join(' · ')}` : ''}`, onClick: () => jumpTo({ kind: 'clip', id: item.clip.id }, item.start), onRemove: () => { setSelection({ kind: 'clip', id: item.clip.id }); change(current => ({ ...current, clips: current.clips.filter(clip => clip.id !== item.clip.id) })) } }
+                    }),
+                  },
+                  {
+                    title: 'Titles',
+                    empty: 'No titles yet. Add one from the Titles tab.',
+                    rows: [...project.titles].sort((a, b) => a.start - b.start).map(title => ({ key: title.id, selected: selection?.kind === 'title' && selection.id === title.id, thumb: null, label: title.text.split('\n')[0] || 'Title', detail: `${formatTime(title.start)} – ${formatTime(title.start + title.duration)} · ${title.animation}`, onClick: () => jumpTo({ kind: 'title', id: title.id }, title.start), onRemove: () => change(current => ({ ...current, titles: current.titles.filter(item => item.id !== title.id) })) })),
+                  },
+                  {
+                    title: 'Music',
+                    empty: 'No music yet. Drag a song onto the music track.',
+                    rows: [...project.audio].sort((a, b) => a.start - b.start).map(track => ({ key: track.id, selected: selection?.kind === 'audio' && selection.id === track.id, thumb: null, label: `♪ ${media.find(item => item.id === track.mediaId)?.name ?? 'Music'}`, detail: `${formatTime(track.start)} – ${formatTime(track.start + track.out - track.in)} · ${Math.round(track.volume * 100)}%`, onClick: () => jumpTo({ kind: 'audio', id: track.id }, track.start), onRemove: () => { musicElements.current.get(track.id)?.pause(); change(current => ({ ...current, audio: current.audio.filter(item => item.id !== track.id) })) } })),
+                  },
+                ].map(section => (
+                  <section key={section.title}>
+                    <h3 className="mb-1.5 text-[10px] font-semibold uppercase tracking-[0.14em] text-muted-foreground">{section.title} <span className="ml-1 rounded bg-white/[0.06] px-1 font-mono text-[9px] normal-case tracking-normal">{section.rows.length}</span></h3>
+                    {section.rows.length ? (
+                      <ul className="space-y-1">
+                        {section.rows.map(row => (
+                          <li key={row.key} className={`group flex items-center gap-2 rounded-lg border px-1.5 py-1 ${row.selected ? 'border-primary/50 bg-primary/10' : 'border-white/[0.06] hover:border-white/20'}`}>
+                            <button type="button" onClick={row.onClick} className="flex min-w-0 flex-1 items-center gap-2 text-left" title="Select it and jump to it">
+                              {row.thumb ? <img src={row.thumb} alt="" className="h-7 w-11 shrink-0 rounded bg-black object-contain" /> : <span className="h-7 w-11 shrink-0 rounded bg-white/[0.05]" />}
+                              <span className="min-w-0">
+                                <span className="block truncate text-[11px] font-medium">{row.label}</span>
+                                <span className="block truncate font-mono text-[9px] text-muted-foreground">{row.detail}</span>
+                              </span>
+                            </button>
+                            <button type="button" onClick={row.onRemove} aria-label={`Remove ${row.label}`} title="Remove from the edit" className="hidden rounded p-1 text-muted-foreground hover:bg-red-500/20 hover:text-foreground group-hover:block"><Trash2 className="h-3 w-3" /></button>
+                          </li>
+                        ))}
+                      </ul>
+                    ) : <p className="rounded-md bg-white/[0.02] px-2 py-2 text-[10px] text-muted-foreground">{section.empty}</p>}
+                  </section>
+                ))}
               </div>
             ) : tab === 'effects' ? (
               <div>
