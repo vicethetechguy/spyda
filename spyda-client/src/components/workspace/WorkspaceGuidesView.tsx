@@ -234,7 +234,8 @@ const GUIDE_SECTIONS: GuideSection[] = [
           'Pick the font and weight from the Spyda menus; each font previews in its own typeface.',
           'Set Line spacing, Letter spacing and Paragraph spacing (the room after each Enter) with the sliders.',
           'Toggle Bold, Italic, Underline and Strikethrough, and letter case: As typed, UPPERCASE, lowercase, Title Case.',
-          'Align left, centre, right or justified; resize text from a corner to scale the font with it.',
+          'Align left, centre, right or justified, and place the text at the top, middle or bottom of its box: from the toolbar that floats above a selected text box, or in Properties.',
+          'Resize text from a corner to scale the font with it.',
         ],
       },
       {

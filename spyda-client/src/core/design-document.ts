@@ -123,6 +123,8 @@ export const TypographySchema = z.object({
   underline: z.boolean().nullable().optional(),
   strike: z.boolean().nullable().optional(),
   case: z.enum(TEXT_CASES).nullable().optional(),
+  /** Where the text sits inside its box. Default: middle. */
+  verticalAlign: z.enum(['top', 'middle', 'bottom']).nullable().optional(),
 }).strict()
 
 export type Typography = z.infer<typeof TypographySchema>

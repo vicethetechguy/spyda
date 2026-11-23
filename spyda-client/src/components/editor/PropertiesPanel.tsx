@@ -5,6 +5,7 @@ import { BUNDLED_FAMILIES, loadFontPreviews, previewFamily } from '../../lib/fon
 import { ArrowDown, ArrowUp, Copy, ImagePlus, Layers, Loader2, Lock, Sparkles, Trash2, Wand2 } from '../ui/icons'
 import EffectsPanel from './EffectsPanel'
 import ImageColorsPanel from './ImageColorsPanel'
+import { TextAlignControls, type HorizontalAlign } from './TextAlignControls'
 import SpydaSelect from '../ui/SpydaSelect'
 
 /**
@@ -422,6 +423,16 @@ export default function PropertiesPanel({
               />
               <NumberField label="S" title="Font size" value={object.style.fontSize ?? 48} min={6} max={600} onCommit={size => onIntent({ objectId: object.id, property: 'fontSize', value: size })} disabled={!can('fontSize')} />
             </div>
+            {/* Alignment: across the box and inside it (also on the canvas, above the text). */}
+            <TextAlignControls
+              textAlign={(object.style.textAlign as HorizontalAlign | null) ?? 'left'}
+              verticalAlign={typography.verticalAlign ?? 'middle'}
+              disabled={locked}
+              onChange={patch => {
+                if (patch.textAlign && can('textAlign')) onIntent({ objectId: object.id, property: 'textAlign', value: patch.textAlign })
+                if (patch.verticalAlign) onTypography({ verticalAlign: patch.verticalAlign })
+              }}
+            />
             {/* Type style: bold, italic, underline, strikethrough and letter case. */}
             <div className="space-y-1.5">
               <div className="flex gap-1.5">
@@ -441,13 +452,6 @@ export default function PropertiesPanel({
               <SpacingRow label="Letter spacing" short="Letter" value={object.style.letterSpacing ?? 0} min={-10} max={60} step={0.5} reset={0} disabled={!can('letterSpacing')} onChange={value => onIntent({ objectId: object.id, property: 'letterSpacing', value })} />
               <SpacingRow label="Paragraph spacing" short="Paragraph" value={typography.paragraphSpacing ?? 0} min={0} max={200} step={1} reset={0} disabled={locked} onChange={value => onTypography({ paragraphSpacing: value })} />
               <p className="text-[9px] leading-3 text-muted-foreground">Paragraph spacing adds room after each line break (Enter) in the text.</p>
-            </div>
-            <div className="flex gap-1.5">
-              {(['left', 'center', 'right', 'justify'] as const).map(align => (
-                <IconButton key={align} label={`Align text ${align}`} active={(object.style.textAlign ?? 'left') === align} disabled={!can('textAlign')} onClick={() => onIntent({ objectId: object.id, property: 'textAlign', value: align })}>
-                  <span className="text-[10px] capitalize">{align === 'justify' ? 'Just' : align}</span>
-                </IconButton>
-              ))}
             </div>
           </div>
         </Section>

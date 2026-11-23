@@ -5,6 +5,7 @@ import { compositeOf, gradientProps, motionAt, needsFilters, playLength, shadowP
 import type { DesignDocument, DesignObject, PercentBox } from '../../core/design-document'
 import { resolveFamily } from '../../lib/fonts'
 import { duotoneFilter, recolorFilter } from '../../lib/image-colors'
+import { TextAlignControls, type HorizontalAlign, type VerticalAlign } from './TextAlignControls'
 import { fitFontSize } from '../../lib/text-fit'
 
 /**
@@ -72,6 +73,8 @@ export type LayerCanvasProps = {
   onPlaybackEnd?: () => void
   /** Typing in a text layer on the canvas. */
   onTextChange?: (objectId: string, text: string) => void
+  /** Alignment from the floating text toolbar on the canvas. */
+  onTextAlign?: (objectId: string, patch: { textAlign?: HorizontalAlign; verticalAlign?: VerticalAlign }) => void
   /** Right-click on a layer, at screen coordinates. */
   onContextMenu?: (objectId: string, x: number, y: number) => void
 }
@@ -281,6 +284,7 @@ export default function LayerCanvas({
   playing = null,
   onPlaybackEnd,
   onTextChange,
+  onTextAlign,
   onContextMenu,
 }: LayerCanvasProps) {
   const containerRef = useRef<HTMLDivElement | null>(null)
@@ -772,7 +776,8 @@ export default function LayerCanvas({
                     // Paragraph spacing: one block per paragraph, measured by Konva itself, centred as a whole.
                     const heights = paragraphs.map(paragraph => new Konva.Text({ ...base, text: paragraph || ' ' }).height())
                     const total = heights.reduce((sum, height) => sum + height, 0) + gap * (paragraphs.length - 1)
-                    let y = (heightPx - total) / 2
+                    const place = object.style.typography?.verticalAlign ?? 'middle'
+                    let y = place === 'top' ? 0 : place === 'bottom' ? heightPx - total : (heightPx - total) / 2
                     return (
                       <Group>
                         {paragraphs.map((paragraph, index) => {
@@ -783,7 +788,7 @@ export default function LayerCanvas({
                       </Group>
                     )
                   }
-                  return <Text {...base} {...paint} text={text} height={heightPx} verticalAlign="middle" />
+                  return <Text {...base} {...paint} text={text} height={heightPx} verticalAlign={object.style.typography?.verticalAlign ?? 'middle'} />
                 })() : source ? (
                   <KonvaImage
                     sceneFunc={smoothImage}
@@ -958,7 +963,11 @@ export default function LayerCanvas({
               height: h,
               transform: editingObject.transform.rotation ? `rotate(${editingObject.transform.rotation}deg)` : undefined,
               transformOrigin: 'top left',
-              paddingTop: Math.max(0, (h - lines * size * lineHeight) / 2),
+              paddingTop: (() => {
+                const room = Math.max(0, h - lines * size * lineHeight)
+                const place = editingObject.style.typography?.verticalAlign ?? 'middle'
+                return place === 'top' ? 0 : place === 'bottom' ? room : room / 2
+              })(),
               fontFamily: family,
               fontWeight: /^\d{3}$/.test(editingObject.style.fontWeight || '') ? Number(editingObject.style.fontWeight) : bold ? 700 : 400,
               fontSize: size,
@@ -971,6 +980,26 @@ export default function LayerCanvas({
               color: editingObject.style.fill || '#ffffff',
             }}
           />
+        )
+      })() : null}
+      {/* Floating text toolbar: alignment right above the selected text box. */}
+      {onTextAlign && !many && !editingObject && selectedObject && usesTextMetrics(selectedObject) && selectedObject.transform.bounds && !selectedObject.protection.locked ? (() => {
+        const b = selectedObject.transform.bounds
+        const left = ((b.x + b.width / 2) / 100) * display.width
+        const top = (b.y / 100) * display.height
+        return (
+          <div
+            className="pointer-events-auto absolute z-20 -translate-x-1/2 rounded-xl border border-white/[0.12] bg-[#15161a]/95 p-1 shadow-[0_12px_32px_rgba(0,0,0,0.5)] backdrop-blur-xl"
+            style={{ left: Math.min(Math.max(left, 150), Math.max(150, display.width - 150)), top: Math.max(4, top - 48) }}
+            onPointerDown={event => event.stopPropagation()}
+          >
+            <TextAlignControls
+              variant="toolbar"
+              textAlign={(selectedObject.style.textAlign as HorizontalAlign | null) ?? 'left'}
+              verticalAlign={selectedObject.style.typography?.verticalAlign ?? 'middle'}
+              onChange={patch => onTextAlign(selectedObject.id, patch)}
+            />
+          </div>
         )
       })() : null}
       {scanning ? (

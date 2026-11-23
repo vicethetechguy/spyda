@@ -1935,6 +1935,10 @@ export default function Editor() {
                 playing={playing}
                 onPlaybackEnd={stopPlaying}
                 onTextChange={(objectId, text) => applyIntent({ objectId, property: 'text', value: text })}
+                onTextAlign={(objectId, patch) => {
+                  if (patch.textAlign) applyIntent({ objectId, property: 'textAlign', value: patch.textAlign })
+                  if (patch.verticalAlign) applyIntent({ objectId, property: 'typography', value: { verticalAlign: patch.verticalAlign } })
+                }}
                 onContextMenu={(id, x, y) => setContextMenu({ id, x, y })}
                 missingFonts={missingFonts}
                 stageRef={stageRef}
