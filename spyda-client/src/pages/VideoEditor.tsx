@@ -33,6 +33,8 @@ const CLIP_MIME = 'application/x-spyda-clip'
 const MIN_ZOOM = 2
 const MAX_ZOOM = 400
 const TRACK_HEAD = 92
+/** Space before 0:00 and after the end, shared by the timeline and its scrubber so both start in line. */
+const GUTTER = 12
 
 const GRADE_CONTROLS: Array<{ key: keyof Grade; label: string; min: number; max: number; step: number }> = [
   { key: 'exposure', label: 'Exposure', min: -2, max: 2, step: 0.01 },
@@ -260,11 +262,13 @@ function drawTitle(context: CanvasRenderingContext2D, raw: Title, t: number, W: 
  * in green, music in amber, the playhead in pink) under a glowing Spyda-green
  * lens showing the part in view. Drag the lens to scroll; click to jump.
  */
-function TimelineScrubber({ scroller, left, view, content, zoom, time, placed, music }: {
+function TimelineScrubber({ scroller, left, view, content, lane, zoom, time, placed, music }: {
   scroller: { current: HTMLDivElement | null }
   left: number
   view: number
   content: number
+  /** Width of the timeline itself (without its gutters): the mini-map's scale. */
+  lane: number
   zoom: number
   time: number
   placed: Placed[]
@@ -281,9 +285,9 @@ function TimelineScrubber({ scroller, left, view, content, zoom, time, placed, m
     setWidth(node.clientWidth)
     return () => observer.disconnect()
   }, [])
-  const span = Math.max(1, content)
+  const span = Math.max(1, lane)
   const range = Math.max(0, content - view)
-  const lens = Math.min(width, Math.max(44, (view / span) * width))
+  const lens = Math.min(width, Math.max(44, (view / Math.max(1, content)) * width))
   const travel = Math.max(1, width - lens)
   const x = range > 0 ? (left / range) * travel : 0
   const at = (seconds: number) => `${((seconds * zoom) / span) * 100}%`
@@ -308,7 +312,7 @@ function TimelineScrubber({ scroller, left, view, content, zoom, time, placed, m
   }
 
   return (
-    <div className="shrink-0 px-2.5 pb-2 pt-1">
+    <div className="shrink-0 pb-2 pt-1" style={{ paddingLeft: GUTTER, paddingRight: GUTTER }}>
       <div
         ref={track}
         role="scrollbar"
@@ -391,7 +395,8 @@ export default function VideoEditor() {
   placedRef.current = placed
   const end = Math.max(total, ...project.titles.map(title => title.start + title.duration), ...project.audio.map(item => item.start + item.out - item.in), 0)
   // The timeline fits the whole edit by default; Shift/Ctrl + wheel (or the slider) zooms.
-  const zoom = zoomState.fit ? clamp((viewWidth - 48) / Math.max(end, 10), MIN_ZOOM, MAX_ZOOM) : zoomState.value
+  const lane = Math.max(100, viewWidth - GUTTER * 2)
+  const zoom = zoomState.fit ? clamp((lane * 0.94) / Math.max(end, 8), MIN_ZOOM, MAX_ZOOM) : zoomState.value
   const zoomRef = useRef(zoom)
   zoomRef.current = zoom
 
@@ -497,9 +502,9 @@ export default function VideoEditor() {
       if (event.shiftKey || event.ctrlKey || event.metaKey) {
         event.preventDefault()
         const x = event.clientX - scroller.getBoundingClientRect().left
-        const at = (scroller.scrollLeft + x) / zoomRef.current
+        const at = Math.max(0, (scroller.scrollLeft + x - GUTTER) / zoomRef.current)
         const next = clamp(zoomRef.current * Math.exp(-delta * 0.0025), MIN_ZOOM, MAX_ZOOM)
-        pendingScroll.current = at * next - x
+        pendingScroll.current = at * next + GUTTER - x
         setZoomState({ fit: false, value: next })
       } else if (Math.abs(event.deltaY) > Math.abs(event.deltaX)) {
         event.preventDefault()
@@ -513,9 +518,9 @@ export default function VideoEditor() {
   const zoomBy = (factor: number) => {
     const scroller = scrollerRef.current
     const x = scroller ? scroller.clientWidth / 2 : 0
-    const at = ((scroller?.scrollLeft ?? 0) + x) / zoom
+    const at = Math.max(0, ((scroller?.scrollLeft ?? 0) + x - GUTTER) / zoom)
     const next = clamp(zoom * factor, MIN_ZOOM, MAX_ZOOM)
-    pendingScroll.current = at * next - x
+    pendingScroll.current = at * next + GUTTER - x
     setZoomState({ fit: false, value: next })
   }
 
@@ -695,7 +700,7 @@ export default function VideoEditor() {
   useEffect(() => {
     const scroller = scrollerRef.current
     if (!playing || !scroller) return
-    const x = time * zoom
+    const x = GUTTER + time * zoom
     if (x > scroller.scrollLeft + scroller.clientWidth - 40 || x < scroller.scrollLeft) scroller.scrollLeft = Math.max(0, x - 80)
   }, [playing, time, zoom])
 
@@ -1049,7 +1054,8 @@ export default function VideoEditor() {
 
   /* ── layout ──────────────────────────────────────────────────────── */
 
-  const timelineWidth = Math.max(viewWidth, (end + Math.max(4, end * 0.15)) * zoom)
+  // Fit shows exactly the visible width (nothing to scroll); zoomed in, a little room past the end.
+  const timelineWidth = zoomState.fit ? lane : Math.max(lane, (end + Math.max(2, end * 0.08)) * zoom)
   const step = tickStep(zoom)
   const tabs: Array<{ id: LeftTab; label: string; icon: typeof Layers }> = [
     { id: 'media', label: 'Media', icon: ImagePlus },
@@ -1446,11 +1452,12 @@ export default function VideoEditor() {
             <p className="flex h-[44px] items-center gap-1.5 px-3">♪ Music</p>
           </div>
           <div className="flex min-w-0 flex-1 flex-col">
-          <div ref={scrollerRef} id="spyda-timeline" onScroll={event => setScrollLeft(event.currentTarget.scrollLeft)} className="relative min-h-0 min-w-0 flex-1 overflow-x-auto overflow-y-hidden">
+          <div ref={scrollerRef} id="spyda-timeline" onScroll={event => setScrollLeft(event.currentTarget.scrollLeft)} className="relative min-h-0 min-w-0 flex-1 overflow-x-auto overflow-y-hidden overscroll-x-contain">
+            <div className="h-full" style={{ width: timelineWidth + GUTTER * 2, paddingLeft: GUTTER, paddingRight: GUTTER }}>
             <div className="relative h-full" style={{ width: timelineWidth }}>
               {/* Ruler: click or drag to move the playhead. */}
               <div
-                className="sticky top-0 h-6 cursor-pointer border-b border-white/[0.06] bg-[#111214]"
+                className="sticky top-0 h-6 cursor-pointer overflow-hidden border-b border-white/[0.06] bg-[#111214]"
                 onPointerDown={event => {
                   const rect = event.currentTarget.getBoundingClientRect()
                   const at = (event.clientX - rect.left) / zoom
@@ -1458,7 +1465,7 @@ export default function VideoEditor() {
                   dragStart(event, dx => seek(at + dx), 'seek')
                 }}
               >
-                {Array.from({ length: Math.ceil(timelineWidth / zoom / step) + 1 }, (_, index) => {
+                {Array.from({ length: Math.floor(timelineWidth / zoom / step) + 1 }, (_, index) => {
                   const second = index * step
                   return (
                     <span key={index} className="absolute top-0 h-full border-l border-white/[0.1] pl-1 font-mono text-[9px] text-muted-foreground" style={{ left: second * zoom }}>
@@ -1582,8 +1589,9 @@ export default function VideoEditor() {
                 <span className="absolute -left-1.5 top-0 h-3 w-3 rotate-45 bg-[#ff4fd8]" />
               </div>
             </div>
+            </div>
           </div>
-          <TimelineScrubber scroller={scrollerRef} left={scrollLeft} view={viewWidth} content={timelineWidth} zoom={zoom} time={time} placed={placed} music={project.audio} />
+          <TimelineScrubber scroller={scrollerRef} left={scrollLeft} view={viewWidth} content={timelineWidth + GUTTER * 2} lane={timelineWidth} zoom={zoom} time={time} placed={placed} music={project.audio} />
           </div>
         </div>
       </div>
