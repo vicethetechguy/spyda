@@ -117,3 +117,14 @@ export function collectFontRequests(objects: Array<{ style: { fontFamily: string
   }
   return requests
 }
+
+let previewsLoaded = false
+/** Loads every bundled family once, so font menus preview each typeface. */
+export function loadFontPreviews() {
+  if (previewsLoaded) return
+  previewsLoaded = true
+  void preloadFonts(BUNDLED_FAMILIES.map(font => ({ family: font.family, weight: '400' })))
+}
+
+/** CSS for previewing a family, with a sans-serif stand-in while it loads. */
+export const previewFamily = (family: string) => `"${family}", system-ui, sans-serif`

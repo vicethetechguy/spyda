@@ -1,4 +1,4 @@
-import { NEUTRAL_GRADE, type EffectId, type Grade, type TransitionId } from './renderer'
+import { IDENTITY_TRANSFORM, NEUTRAL_GRADE, type ClipFit, type ClipTransform, type EffectId, type Grade, type TransitionId } from './renderer'
 
 /**
  * The video editor's timeline: a main track of clips (video or still image)
@@ -28,13 +28,31 @@ export type Clip = {
   speed: number
   volume: number
   muted: boolean
-  fit: 'cover' | 'contain'
+  fit: ClipFit
+  transform: ClipTransform
+  /** Slow move over the clip (Ken Burns), on top of `transform`. */
+  motion: ClipMotion
+  /** Seconds of fade from and to black (and silence) at the clip's ends. */
+  fadeIn: number
+  fadeOut: number
   grade: Grade
   effect: EffectId
   amount: number
   /** How this clip hands over to the next one. */
   transition: { type: TransitionId; duration: number }
 }
+
+export type ClipMotion = 'none' | 'zoom-in' | 'zoom-out' | 'pan-left' | 'pan-right' | 'pan-up' | 'pan-down'
+
+export const CLIP_MOTIONS: Array<{ id: ClipMotion; name: string }> = [
+  { id: 'none', name: 'None' },
+  { id: 'zoom-in', name: 'Slow zoom in' },
+  { id: 'zoom-out', name: 'Slow zoom out' },
+  { id: 'pan-left', name: 'Pan left' },
+  { id: 'pan-right', name: 'Pan right' },
+  { id: 'pan-up', name: 'Pan up' },
+  { id: 'pan-down', name: 'Pan down' },
+]
 
 export type TitleAnimation = 'fade' | 'rise' | 'pop' | 'slide' | 'typewriter' | 'zoom'
 
@@ -54,9 +72,42 @@ export type Title = {
   animation: TitleAnimation
   /** A soft pill behind the text, for legibility over busy footage. */
   background: boolean
+  backgroundColor: string
+  /** Line spacing, as a multiple of the font size. */
+  lineHeight: number
+  /** Extra space after each paragraph (line break), as a multiple of the font size. */
+  paragraphSpacing: number
+  /** Extra space between letters, as a fraction of the font size. */
+  letterSpacing: number
+  align: 'left' | 'center' | 'right'
+  italic: boolean
+  uppercase: boolean
+  /** Outline colour, and its width as a fraction of the font size (0 = none). */
+  outlineColor: string
+  outlineWidth: number
+  shadow: boolean
+  /** Lines wrap at this width (fraction of the frame). */
+  maxWidth: number
 }
 
-export type AudioTrackItem = { id: string; mediaId: string; start: number; volume: number }
+/** Older titles (and presets) fill in from these. */
+export const TITLE_DEFAULTS: Omit<Title, 'id' | 'text' | 'start' | 'duration'> = {
+  x: 0.5, y: 0.78, size: 0.085, color: '#FFFFFF', font: 'Space Grotesk', weight: 700, animation: 'rise',
+  background: false, backgroundColor: '#000000', lineHeight: 1.2, paragraphSpacing: 0, letterSpacing: 0,
+  align: 'center', italic: false, uppercase: false, outlineColor: '#000000', outlineWidth: 0, shadow: true, maxWidth: 0.86,
+}
+
+export type AudioTrackItem = {
+  id: string
+  mediaId: string
+  start: number
+  volume: number
+  /** Trim, in seconds of the source. */
+  in: number
+  out: number
+  fadeIn: number
+  fadeOut: number
+}
 
 export type VideoProject = {
   width: number
@@ -88,7 +139,12 @@ export function makeClip(media: MediaItem): Clip {
     speed: 1,
     volume: 1,
     muted: false,
-    fit: 'cover',
+    // The whole picture, never cropped, unless the user asks to fill the frame.
+    fit: 'contain',
+    transform: { ...IDENTITY_TRANSFORM },
+    motion: 'none',
+    fadeIn: 0,
+    fadeOut: 0,
     grade: { ...NEUTRAL_GRADE },
     effect: 'none',
     amount: 0.7,
@@ -98,18 +154,12 @@ export function makeClip(media: MediaItem): Clip {
 
 export function makeTitle(start: number, width: number, height: number): Title {
   return {
+    ...TITLE_DEFAULTS,
     id: newId('title'),
     text: 'Your title',
     start,
     duration: 3,
-    x: 0.5,
     y: width >= height ? 0.78 : 0.7,
-    size: 0.085,
-    color: '#FFFFFF',
-    font: 'Space Grotesk',
-    weight: 700,
-    animation: 'rise',
-    background: false,
   }
 }
 
@@ -198,4 +248,47 @@ export function splitAt(clips: Clip[], t: number): Clip[] | null {
   const next = [...clips]
   next.splice(target.index, 1, left, right)
   return next
+}
+
+/** How visible a clip is at `t` (its fade in and out): 0..1. */
+export function clipOpacity(item: Placed, t: number) {
+  const local = t - item.start
+  const { fadeIn, fadeOut } = item.clip
+  let value = 1
+  if (fadeIn > 0) value = Math.min(value, local / fadeIn)
+  if (fadeOut > 0) value = Math.min(value, (item.length - local) / fadeOut)
+  return Math.max(0, Math.min(1, value))
+}
+
+/** The clip's transform at `t`, with its slow motion (Ken Burns) applied. */
+export function clipTransformAt(item: Placed, t: number): ClipTransform {
+  const base = item.clip.transform ?? IDENTITY_TRANSFORM
+  const p = Math.max(0, Math.min(1, (t - item.start) / Math.max(0.1, item.length)))
+  const ease = p * p * (3 - 2 * p)
+  const move = { ...base }
+  switch (item.clip.motion) {
+    case 'zoom-in': move.scale = base.scale * (1 + 0.18 * ease); break
+    case 'zoom-out': move.scale = base.scale * (1.18 - 0.18 * ease); break
+    case 'pan-left': move.scale = base.scale * 1.15; move.x = base.x + 0.06 - 0.12 * ease; break
+    case 'pan-right': move.scale = base.scale * 1.15; move.x = base.x - 0.06 + 0.12 * ease; break
+    case 'pan-up': move.scale = base.scale * 1.15; move.y = base.y + 0.06 - 0.12 * ease; break
+    case 'pan-down': move.scale = base.scale * 1.15; move.y = base.y - 0.06 + 0.12 * ease; break
+    default: break
+  }
+  return move
+}
+
+/** Volume multiplier of a music item at its own time `local` (fades). */
+export function audioFade(item: AudioTrackItem, local: number) {
+  const length = item.out - item.in
+  let value = 1
+  if (item.fadeIn > 0) value = Math.min(value, local / item.fadeIn)
+  if (item.fadeOut > 0) value = Math.min(value, (length - local) / item.fadeOut)
+  return Math.max(0, Math.min(1, value))
+}
+
+/** Picks the project size closest to a picture's shape. */
+export function formatFor(width: number, height: number) {
+  const aspect = width / Math.max(1, height)
+  return FORMATS.reduce((best, format) => (Math.abs(Math.log(format.width / format.height / aspect)) < Math.abs(Math.log(best.width / best.height / aspect)) ? format : best))
 }

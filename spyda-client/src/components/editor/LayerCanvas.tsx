@@ -142,6 +142,45 @@ function resolvedFontSize(
   })
 }
 
+/** The text as shown: letter case is a display setting, the words stay as typed. */
+function shownText(object: DesignObject) {
+  const text = object.content.text || ''
+  switch (object.style.typography?.case) {
+    case 'upper': return text.toUpperCase()
+    case 'lower': return text.toLowerCase()
+    case 'title': return text.toLowerCase().replace(/(^|[\s\-/(])(\p{L})/gu, (_, lead: string, letter: string) => lead + letter.toUpperCase())
+    default: return text
+  }
+}
+
+/**
+ * Typewriter playback: shows the first `fraction` of the text, across every
+ * paragraph block when paragraph spacing splits it into several.
+ */
+function revealText(group: Konva.Group, object: DesignObject, fraction: number) {
+  const nodes = group.find('Text') as Konva.Text[]
+  if (!nodes.length) return
+  const shown = shownText(object)
+  const parts = nodes.length > 1 ? shown.split('\n') : [shown]
+  let budget = Math.round(shown.replace(/\n/g, '').length * fraction)
+  nodes.forEach((node, index) => {
+    const part = parts[index] ?? ''
+    node.text(part.slice(0, Math.max(0, budget)))
+    budget -= part.replace(/\n/g, '').length
+  })
+}
+
+/** Konva's fontStyle: italic and the weight together ("italic 700"). */
+function konvaFontStyle(object: DesignObject, bold: boolean) {
+  const weight = /^\d{3}$/.test(object.style.fontWeight || '') ? object.style.fontWeight! : bold ? 'bold' : 'normal'
+  return object.style.typography?.italic ? `italic ${weight}` : weight
+}
+
+function textDecoration(object: DesignObject) {
+  const typography = object.style.typography
+  return [typography?.underline ? 'underline' : '', typography?.strike ? 'line-through' : ''].filter(Boolean).join(' ')
+}
+
 /**
  * Konva draws pictures with the canvas's default (low) smoothing, which turns a
  * 4K picture shown at a few hundred pixels soft and jagged. Asking for high
@@ -469,8 +508,7 @@ export default function LayerCanvas({
       for (const [id, group] of motionRefs.current) {
         group.setAttrs({ x: group.offsetX(), y: group.offsetY(), scaleX: 1, scaleY: 1, rotation: 0, opacity: 1 })
         const object = document.objects.find(item => item.id === id)
-        const text = group.findOne('Text') as Konva.Text | undefined
-        if (text && object) text.text(object.content.text || '')
+        if (object?.style.fx?.enter?.type === 'typewriter') revealText(group, object, 1)
       }
       motionRefs.current.values().next().value?.getLayer()?.batchDraw()
       return
@@ -485,11 +523,7 @@ export default function LayerCanvas({
         if (!group) continue
         const m = motionAt(object.style.fx, t, travel)
         group.setAttrs({ x: group.offsetX() + m.dx, y: group.offsetY() + m.dy, scaleX: m.scaleX, scaleY: m.scaleY, rotation: m.rotation, opacity: m.opacity })
-        if (object.style.fx?.enter?.type === 'typewriter') {
-          const text = group.findOne('Text') as Konva.Text | undefined
-          const full = object.content.text || ''
-          if (text) text.text(full.slice(0, Math.round(full.length * m.reveal)))
-        }
+        if (object.style.fx?.enter?.type === 'typewriter') revealText(group, object, m.reveal)
       }
       motionRefs.current.values().next().value?.getLayer()?.batchDraw()
       if (t >= length) { onPlaybackEnd?.(); return }
@@ -703,27 +737,44 @@ export default function LayerCanvas({
                 ) : usesTextMetrics(object) ? (() => {
                   const fontFamily = resolveFamily(object.style.fontFamily, missingFonts)
                   const bold = Number(object.style.fontWeight) >= 600
-                  return (
-                  <Text
-                    text={object.content.text || ''}
-                    width={widthPx}
-                    height={heightPx}
-                    wrap="word"
-                    align={object.style.textAlign || 'left'}
-                    verticalAlign="middle"
-                    fontFamily={fontFamily}
-                    fontSize={resolvedFontSize(object, { width: widthPx, height: heightPx }, display.scale, fontFamily, bold)}
-                    fontStyle={/^\d{3}$/.test(object.style.fontWeight || '') ? object.style.fontWeight! : bold ? 'bold' : 'normal'}
-                    fill={object.style.fill || '#ffffff'}
-                    lineHeight={object.style.lineHeight || 1.2}
-                    letterSpacing={object.style.letterSpacing ?? 0}
-                    stroke={object.style.stroke || undefined}
-                    strokeWidth={object.style.stroke ? strokePx : 0}
-                    fillAfterStrokeEnabled
-                    {...shadowProps(object.style.fx, display.scale)}
-                    {...gradientProps(object.style.fx, widthPx, heightPx)}
-                  />
-                  )
+                  const text = shownText(object)
+                  const base = {
+                    width: widthPx,
+                    wrap: 'word',
+                    align: object.style.textAlign || 'left',
+                    fontFamily,
+                    fontSize: resolvedFontSize(object, { width: widthPx, height: heightPx }, display.scale, fontFamily, bold),
+                    fontStyle: konvaFontStyle(object, bold),
+                    textDecoration: textDecoration(object),
+                    lineHeight: object.style.lineHeight || 1.2,
+                    letterSpacing: object.style.letterSpacing ?? 0,
+                  }
+                  const paint = {
+                    fill: object.style.fill || '#ffffff',
+                    stroke: object.style.stroke || undefined,
+                    strokeWidth: object.style.stroke ? strokePx : 0,
+                    fillAfterStrokeEnabled: true,
+                    ...shadowProps(object.style.fx, display.scale),
+                    ...gradientProps(object.style.fx, widthPx, heightPx),
+                  }
+                  const gap = (object.style.typography?.paragraphSpacing ?? 0) * display.scale
+                  const paragraphs = text.split('\n')
+                  if (gap > 0 && paragraphs.length > 1) {
+                    // Paragraph spacing: one block per paragraph, measured by Konva itself, centred as a whole.
+                    const heights = paragraphs.map(paragraph => new Konva.Text({ ...base, text: paragraph || ' ' }).height())
+                    const total = heights.reduce((sum, height) => sum + height, 0) + gap * (paragraphs.length - 1)
+                    let y = (heightPx - total) / 2
+                    return (
+                      <Group>
+                        {paragraphs.map((paragraph, index) => {
+                          const top = y
+                          y += heights[index] + gap
+                          return <Text key={index} {...base} {...paint} y={top} text={paragraph} />
+                        })}
+                      </Group>
+                    )
+                  }
+                  return <Text {...base} {...paint} text={text} height={heightPx} verticalAlign="middle" />
                 })() : source ? (
                   <KonvaImage
                     sceneFunc={smoothImage}
@@ -902,6 +953,9 @@ export default function LayerCanvas({
               fontFamily: family,
               fontWeight: /^\d{3}$/.test(editingObject.style.fontWeight || '') ? Number(editingObject.style.fontWeight) : bold ? 700 : 400,
               fontSize: size,
+              fontStyle: editingObject.style.typography?.italic ? 'italic' : undefined,
+              textDecoration: textDecoration(editingObject) || undefined,
+              textTransform: ({ upper: 'uppercase', lower: 'lowercase', title: 'capitalize' } as const)[editingObject.style.typography?.case as 'upper'] ?? undefined,
               lineHeight,
               letterSpacing: (editingObject.style.letterSpacing ?? 0) * display.scale,
               textAlign: editingObject.style.textAlign || 'left',

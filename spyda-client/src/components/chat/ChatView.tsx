@@ -60,6 +60,7 @@ import {
 } from '../../lib/chat'
 import { readProject, saveProject } from '../../lib/project-store'
 import { MOTION_FORMATS, type MotionFormat } from '../../lib/motion-harness'
+import SpydaSelect from '../ui/SpydaSelect'
 
 /**
  * The workspace home: bring a reference design and say what to change. In
@@ -299,15 +300,14 @@ function Composer({
           {mode === 'motion' ? (
             <label className="hidden items-center sm:flex">
               <span className="sr-only">Video format</span>
-              <select
+              <SpydaSelect
+                ariaLabel="Motion size"
                 value={format}
-                onChange={event => onFormatChange(event.target.value as MotionFormat)}
-                className="h-9 rounded-full border border-white/[0.09] bg-surface-raised px-3 text-xs font-medium text-foreground outline-none"
-              >
-                {(Object.keys(MOTION_FORMATS) as MotionFormat[]).map(id => (
-                  <option key={id} value={id}>{MOTION_FORMATS[id].name} {MOTION_FORMATS[id].label}</option>
-                ))}
-              </select>
+                onChange={value => onFormatChange(value)}
+                options={(Object.keys(MOTION_FORMATS) as MotionFormat[]).map(id => ({ value: id, label: `${MOTION_FORMATS[id].name} ${MOTION_FORMATS[id].label}` }))}
+                menuWidth={220}
+                className="h-9 rounded-full border border-white/[0.09] bg-surface-raised px-3 text-xs font-medium hover:bg-white/[0.06]"
+              />
             </label>
           ) : null}
           <span className="ml-auto" />

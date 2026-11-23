@@ -2,6 +2,7 @@ import type { ReactNode } from 'react'
 import { BLEND_MODES, ENTER_ANIMATIONS, LOOP_ANIMATIONS, type DesignObject, type ObjectEffects } from '../../core/design-document'
 import { SHADOW_PRESETS, type ShadowPreset } from '../../lib/canvas-fx'
 import { Play } from '../ui/icons'
+import SpydaSelect from '../ui/SpydaSelect'
 
 /**
  * Effects and motion for one layer: shadows and glows, gradients, blend modes,
@@ -155,13 +156,13 @@ export default function EffectsPanel({ object, onFx, onPreview, disabled }: {
         <h3 className="mb-2 text-[10px] font-semibold text-foreground/90">{isPicture ? 'Adjust' : 'Blend & blur'}</h3>
         <div className="space-y-1.5">
           <Row label="Blend">
-            <select
+            <SpydaSelect
+              ariaLabel="Blend mode"
               value={fx.blend ?? 'normal'}
-              onChange={event => onFx({ blend: event.target.value === 'normal' ? undefined : event.target.value })}
-              className="h-7 min-w-0 flex-1 rounded-md bg-white/[0.04] px-2 text-[11px] capitalize text-foreground outline-none"
-            >
-              {BLEND_MODES.map(mode => <option key={mode} value={mode}>{mode.replace('-', ' ')}</option>)}
-            </select>
+              onChange={value => onFx({ blend: value === 'normal' ? undefined : value })}
+              options={BLEND_MODES.map(mode => ({ value: mode as string, label: mode.replace('-', ' ').replace(/^./, c => c.toUpperCase()) }))}
+              className="h-7 min-w-0 flex-1 rounded-md bg-white/[0.04] px-2 text-[11px] hover:bg-white/[0.08]"
+            />
           </Row>
           <Row label="Blur"><Slider label="Layer blur" value={fx.blur ?? 0} min={0} max={40} step={0.5} onChange={value => onFx({ blur: value || undefined })} /></Row>
           {isPicture ? (

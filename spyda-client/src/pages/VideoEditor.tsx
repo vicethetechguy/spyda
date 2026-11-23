@@ -1,24 +1,38 @@
-import { useCallback, useEffect, useMemo, useRef, useState, type PointerEvent as ReactPointerEvent } from 'react'
+import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, type DragEvent as ReactDragEvent, type PointerEvent as ReactPointerEvent, type ReactNode } from 'react'
 import { useNavigate } from 'react-router-dom'
 import {
-  ArrowLeft, Clapperboard, Copy, Download, ImagePlus, Layers, Loader2, LogOut, Palette, Pause, Play, Plus, Sparkles, Trash2, Type, Upload, Wand2, X,
+  Clapperboard, Copy, Download, ImagePlus, Layers, Loader2, LogOut, Maximize2, Palette, Pause, Play, Plus, Redo2, Sparkles, Trash2, Type, Undo2, Upload, Wand2, X,
 } from '../components/ui/icons'
-import { EFFECTS, NEUTRAL_GRADE, TRANSITIONS, VideoRenderer, type ClipLayer, type EffectId, type Grade, type TransitionId } from '../lib/video/renderer'
+import SpydaSelect from '../components/ui/SpydaSelect'
 import {
-  FORMATS, activeAt, clipLength, formatTime, layout, makeClip, makeTitle, newId, sourceTime, splitAt, titleFrame,
-  type AudioTrackItem, type Clip, type MediaItem, type Title, type TitleAnimation, type VideoProject,
+  EFFECTS, IDENTITY_TRANSFORM, NEUTRAL_GRADE, TRANSITIONS, VideoRenderer,
+  type ClipFit, type ClipLayer, type ClipTransform, type EffectId, type Grade, type TransitionId,
+} from '../lib/video/renderer'
+import {
+  CLIP_MOTIONS, FORMATS, TITLE_DEFAULTS, activeAt, audioFade, clipLength, clipOpacity, clipTransformAt, formatFor, formatTime, layout, makeClip, makeTitle,
+  newId, sourceTime, splitAt, titleFrame,
+  type AudioTrackItem, type Clip, type ClipMotion, type MediaItem, type Placed, type Title, type TitleAnimation, type VideoProject,
 } from '../lib/video/timeline'
-import { BUNDLED_FAMILIES } from '../lib/fonts'
+import { BUNDLED_FAMILIES, loadFontPreviews, previewFamily } from '../lib/fonts'
 
 /**
- * Spyda's video editor: import clips, cut them on a timeline, grade them
- * (exposure to hue), add effects, transitions, titles and music, and export
- * an MP4 (WebM where MP4 is unavailable) with sound. Rendering runs on the GPU
- * in one shader pass per frame, so preview and export look the same.
+ * Spyda's video editor: import clips, cut them on a timeline, frame and move
+ * them, grade them (exposure to hue), add effects, transitions, titles and
+ * music, and export an MP4 (WebM where MP4 is unavailable) with sound.
+ * Rendering runs on the GPU, so preview and export look the same.
  */
 
 type Selection = { kind: 'clip' | 'title' | 'audio' | 'transition'; id: string } | null
 type LeftTab = 'media' | 'effects' | 'transitions' | 'titles'
+type Format = (typeof FORMATS)[number]
+
+/** Drag payloads inside the editor. */
+const MEDIA_MIME = 'application/x-spyda-media'
+const CLIP_MIME = 'application/x-spyda-clip'
+
+const MIN_ZOOM = 2
+const MAX_ZOOM = 400
+const TRACK_HEAD = 92
 
 const GRADE_CONTROLS: Array<{ key: keyof Grade; label: string; min: number; max: number; step: number }> = [
   { key: 'exposure', label: 'Exposure', min: -2, max: 2, step: 0.01 },
@@ -48,26 +62,40 @@ const GRADE_PRESETS: Array<{ name: string; grade: Partial<Grade> }> = [
 
 const TITLE_PRESETS: Array<{ name: string; patch: Partial<Title> }> = [
   { name: 'Big title', patch: { text: 'Big title', size: 0.13, y: 0.5, weight: 800, animation: 'pop' } },
-  { name: 'Lower third', patch: { text: 'Name Surname · Role', size: 0.05, y: 0.84, x: 0.32, background: true, animation: 'slide', weight: 600 } },
+  { name: 'Lower third', patch: { text: 'Name Surname\nRole · Company', size: 0.045, y: 0.82, x: 0.3, background: true, animation: 'slide', weight: 600, align: 'left', paragraphSpacing: 0.15 } },
   { name: 'Caption', patch: { text: 'Say it in a caption', size: 0.055, y: 0.88, background: true, animation: 'fade', weight: 600 } },
   { name: 'Typewriter', patch: { text: 'Typed out, letter by letter', size: 0.06, y: 0.5, animation: 'typewriter', font: 'Space Grotesk', weight: 500 } },
-  { name: 'Zoom headline', patch: { text: 'GRAND OPENING', size: 0.11, y: 0.42, animation: 'zoom', font: 'Bebas Neue', weight: 400, color: '#9DFAB0' } },
+  { name: 'Zoom headline', patch: { text: 'GRAND OPENING', size: 0.11, y: 0.42, animation: 'zoom', font: 'Bebas Neue', weight: 400, color: '#9DFAB0', letterSpacing: 0.06 } },
+  { name: 'Outlined', patch: { text: 'BOLD MOVE', size: 0.12, y: 0.5, weight: 800, animation: 'rise', color: '#FFFFFF', outlineColor: '#7C3AED', outlineWidth: 0.06, uppercase: true } },
 ]
 
 const TITLE_ANIMATIONS: TitleAnimation[] = ['fade', 'rise', 'pop', 'slide', 'zoom', 'typewriter']
 const SPEEDS = [0.25, 0.5, 0.75, 1, 1.25, 1.5, 2, 3, 4]
+const QUALITIES = [
+  { value: 'standard', label: 'Standard', bits: 0.5 },
+  { value: 'high', label: 'High', bits: 1 },
+  { value: 'max', label: 'Maximum', bits: 2 },
+] as const
+const FRAME_RATES = [24, 30, 60] as const
+const FITS: Array<{ id: ClipFit; name: string }> = [
+  { id: 'contain', name: 'Fit inside' },
+  { id: 'blur', name: 'Blur fill' },
+  { id: 'cover', name: 'Fill frame' },
+]
 
-function Slider({ label, value, min, max, step, onChange, format }: { label: string; value: number; min: number; max: number; step: number; onChange: (value: number) => void; format?: (value: number) => string }) {
+const clamp = (value: number, min: number, max: number) => Math.min(max, Math.max(min, value))
+
+function Slider({ label, value, min, max, step, onChange, format, reset }: { label: string; value: number; min: number; max: number; step: number; onChange: (value: number) => void; format?: (value: number) => string; reset?: number }) {
   return (
     <label className="flex items-center gap-2 text-[10px] text-muted-foreground">
-      <span className="w-[68px] shrink-0">{label}</span>
-      <input type="range" min={min} max={max} step={step} value={value} onChange={event => onChange(Number(event.target.value))} onDoubleClick={() => onChange(min < 0 ? 0 : min)} className="min-w-0 flex-1 accent-[#9dfab0]" aria-label={label} />
-      <span className="w-9 text-right font-mono text-foreground/80">{format ? format(value) : Math.round(value * 100) / 100}</span>
+      <span className="w-[72px] shrink-0">{label}</span>
+      <input type="range" min={min} max={max} step={step} value={value} onChange={event => onChange(Number(event.target.value))} onDoubleClick={() => onChange(reset ?? (min < 0 ? 0 : min))} className="min-w-0 flex-1 accent-[#9dfab0]" aria-label={label} />
+      <span className="w-10 text-right font-mono text-foreground/80">{format ? format(value) : Math.round(value * 100) / 100}</span>
     </label>
   )
 }
 
-function Section({ title, children, action }: { title: string; children: React.ReactNode; action?: React.ReactNode }) {
+function Section({ title, children, action }: { title: string; children: ReactNode; action?: ReactNode }) {
   return (
     <section className="border-b border-white/[0.06] px-3 py-3">
       <div className="mb-2 flex items-center justify-between">
@@ -76,6 +104,14 @@ function Section({ title, children, action }: { title: string; children: React.R
       </div>
       <div className="space-y-1.5">{children}</div>
     </section>
+  )
+}
+
+function Toggle({ label, active, onClick, children }: { label: string; active: boolean; onClick: () => void; children: ReactNode }) {
+  return (
+    <button type="button" aria-label={label} title={label} aria-pressed={active} onClick={onClick} className={`flex h-7 min-w-7 flex-1 items-center justify-center rounded px-1.5 text-[11px] transition-colors ${active ? 'bg-primary text-primary-foreground' : 'bg-white/[0.05] hover:bg-white/[0.1]'}`}>
+      {children}
+    </button>
   )
 }
 
@@ -96,7 +132,7 @@ function readMedia(file: File): Promise<MediaItem> {
       const image = new Image()
       image.onload = () => {
         const canvas = document.createElement('canvas')
-        canvas.width = 160; canvas.height = Math.round(160 * image.naturalHeight / image.naturalWidth)
+        canvas.width = 160; canvas.height = Math.max(1, Math.round(160 * image.naturalHeight / image.naturalWidth))
         canvas.getContext('2d')!.drawImage(image, 0, 0, canvas.width, canvas.height)
         resolve({ ...base, duration: 4, width: image.naturalWidth, height: image.naturalHeight, thumbnail: canvas.toDataURL('image/jpeg', 0.7) })
       }
@@ -124,13 +160,13 @@ function readMedia(file: File): Promise<MediaItem> {
       const duration = Number.isFinite(element.duration) ? element.duration : 0
       if (!duration) { reject(new Error(`${file.name} has no readable length.`)); return }
       if (kind === 'audio') { resolve({ ...base, duration, width: 0, height: 0, thumbnail: null }); return }
-      element.currentTime = Math.min(0.5, duration / 3)
       element.onseeked = () => {
         const canvas = document.createElement('canvas')
         canvas.width = 160; canvas.height = Math.max(1, Math.round(160 * element.videoHeight / Math.max(1, element.videoWidth)))
         canvas.getContext('2d')!.drawImage(element, 0, 0, canvas.width, canvas.height)
         resolve({ ...base, duration, width: element.videoWidth, height: element.videoHeight, thumbnail: canvas.toDataURL('image/jpeg', 0.7) })
       }
+      element.currentTime = Math.min(0.5, duration / 3)
     }
   })
 }
@@ -145,30 +181,120 @@ function waitSeek(element: HTMLMediaElement, time: number) {
   })
 }
 
+/** Word-wraps each paragraph of `text` at `width` with the context's current font. */
+function wrapText(context: CanvasRenderingContext2D, text: string, width: number) {
+  const out: Array<{ text: string; paragraph: number }> = []
+  text.split('\n').forEach((paragraph, index) => {
+    const words = paragraph.split(/(\s+)/).filter(Boolean)
+    let line = ''
+    for (const word of words) {
+      const candidate = line + word
+      if (line.trim() && context.measureText(candidate.trimEnd()).width > width) {
+        out.push({ text: line.trimEnd(), paragraph: index })
+        line = word.trimStart()
+      } else line = candidate
+    }
+    out.push({ text: line.trimEnd(), paragraph: index })
+  })
+  return out
+}
+
+/** Draws a title onto the output at its frame of animation. */
+function drawTitle(context: CanvasRenderingContext2D, raw: Title, t: number, W: number, H: number) {
+  const title = { ...TITLE_DEFAULTS, ...raw }
+  const frame = titleFrame(title, t)
+  if (!frame || frame.opacity <= 0.001) return
+  const size = title.size * H * frame.scale
+  context.save()
+  context.globalAlpha = frame.opacity
+  context.font = `${title.italic ? 'italic ' : ''}${title.weight} ${size}px "${title.font}", sans-serif`
+  ;(context as CanvasRenderingContext2D & { letterSpacing?: string }).letterSpacing = `${title.letterSpacing * size}px`
+  context.textBaseline = 'middle'
+  const text = title.uppercase ? title.text.toUpperCase() : title.text
+  const lines = wrapText(context, text, Math.max(size * 2, title.maxWidth * W))
+  // Typewriter: reveal characters across the wrapped lines.
+  let budget = Math.ceil(text.replace(/\n/g, '').length * frame.reveal)
+  const shown = lines.map(line => { const part = line.text.slice(0, Math.max(0, budget)); budget -= line.text.length; return { ...line, text: part } })
+  const lineGap = size * title.lineHeight
+  const paragraphGap = size * title.paragraphSpacing
+  const paragraphs = lines.length ? lines[lines.length - 1].paragraph : 0
+  const height = lines.length * lineGap + paragraphs * paragraphGap
+  const widest = Math.max(1, ...lines.map(line => context.measureText(line.text).width))
+  const cx = (title.x + frame.dx) * W, cy = (title.y + frame.dy) * H
+  const padX = size * 0.45, padY = size * 0.25
+  // Keep the block (and its pill) inside a small safe margin of the frame.
+  const margin = W * 0.04 + (title.background ? padX : 0)
+  const left = widest + margin * 2 <= W ? clamp(cx - widest / 2, margin, W - margin - widest) : cx - widest / 2
+  if (title.background) {
+    context.fillStyle = title.backgroundColor
+    context.globalAlpha = frame.opacity * 0.62
+    context.beginPath()
+    context.roundRect(left - padX, cy - height / 2 - padY, widest + padX * 2, height + padY * 2, size * 0.3)
+    context.fill()
+    context.globalAlpha = frame.opacity
+  }
+  context.textAlign = title.align
+  const anchor = title.align === 'left' ? left : title.align === 'right' ? left + widest : cx
+  let y = cy - height / 2 + lineGap / 2
+  shown.forEach((line, index) => {
+    if (index > 0 && line.paragraph !== shown[index - 1].paragraph) y += paragraphGap
+    if (title.outlineWidth > 0) {
+      context.save()
+      context.strokeStyle = title.outlineColor
+      context.lineWidth = title.outlineWidth * size * 2
+      context.lineJoin = 'round'
+      context.strokeText(line.text, anchor, y)
+      context.restore()
+    }
+    if (title.shadow) { context.shadowColor = 'rgba(0,0,0,0.45)'; context.shadowBlur = size * 0.15; context.shadowOffsetY = size * 0.03 }
+    context.fillStyle = title.color
+    context.fillText(line.text, anchor, y)
+    context.shadowColor = 'transparent'
+    y += lineGap
+  })
+  context.restore()
+}
+
+/** A readable tick spacing for the ruler at `zoom` pixels per second. */
+function tickStep(zoom: number) {
+  return [0.1, 0.25, 0.5, 1, 2, 5, 10, 15, 30, 60, 120, 300, 600].find(step => step * zoom >= 64) ?? 600
+}
+
 export default function VideoEditor() {
   const navigate = useNavigate()
-  const [format, setFormat] = useState<(typeof FORMATS)[number]>(FORMATS[0])
+  const [format, setFormat] = useState<Format>(FORMATS[0])
   const [project, setProject] = useState<VideoProject>({ width: 1920, height: 1080, clips: [], titles: [], audio: [] })
   const [media, setMedia] = useState<MediaItem[]>([])
   const [selection, setSelection] = useState<Selection>(null)
   const [time, setTime] = useState(0)
   const [playing, setPlaying] = useState(false)
   const [tab, setTab] = useState<LeftTab>('media')
-  const [zoom, setZoom] = useState(70)
+  const [zoomState, setZoomState] = useState<{ fit: boolean; value: number }>({ fit: true, value: 60 })
+  const [viewWidth, setViewWidth] = useState(900)
   const [exporting, setExporting] = useState<number | null>(null)
   const [notice, setNotice] = useState<string | null>(null)
   const [importing, setImporting] = useState(false)
   const [dropping, setDropping] = useState(false)
+  const [dropMarker, setDropMarker] = useState<{ track: 'video' | 'music'; x: number } | null>(null)
+  const [quality, setQuality] = useState<(typeof QUALITIES)[number]['value']>('high')
+  const [fps, setFps] = useState<(typeof FRAME_RATES)[number]>(30)
+  const [, setHistoryTick] = useState(0)
 
   const outputRef = useRef<HTMLCanvasElement | null>(null)
+  const previewRef = useRef<HTMLDivElement | null>(null)
   const glCanvas = useRef<HTMLCanvasElement | null>(null)
   const renderer = useRef<VideoRenderer | null>(null)
   const elements = useRef(new Map<string, HTMLVideoElement | HTMLImageElement>())
   const musicElements = useRef(new Map<string, HTMLAudioElement>())
   const audio = useRef<{ context: AudioContext; recorder: MediaStreamAudioDestinationNode; gains: Map<HTMLMediaElement, GainNode> } | null>(null)
   const fileRef = useRef<HTMLInputElement | null>(null)
+  const scrollerRef = useRef<HTMLDivElement | null>(null)
   const lastSeek = useRef(new WeakMap<HTMLMediaElement, number>())
   const clock = useRef({ startedAt: 0, from: 0 })
+  const history = useRef({ past: [] as VideoProject[], future: [] as VideoProject[], key: '', at: 0 })
+  const pendingScroll = useRef<number | null>(null)
+  const dragIndex = useRef<number | null>(null)
+  const trimming = useRef(false)
   const projectRef = useRef(project)
   projectRef.current = project
   const mediaRef = useRef(media)
@@ -179,7 +305,58 @@ export default function VideoEditor() {
   const { placed, total } = useMemo(() => layout(project.clips), [project.clips])
   const placedRef = useRef(placed)
   placedRef.current = placed
-  const end = Math.max(total, ...project.titles.map(title => title.start + title.duration), 0)
+  const end = Math.max(total, ...project.titles.map(title => title.start + title.duration), ...project.audio.map(item => item.start + item.out - item.in), 0)
+  // The timeline fits the whole edit by default; Shift/Ctrl + wheel (or the slider) zooms.
+  const zoom = zoomState.fit ? clamp((viewWidth - 48) / Math.max(end, 10), MIN_ZOOM, MAX_ZOOM) : zoomState.value
+  const zoomRef = useRef(zoom)
+  zoomRef.current = zoom
+
+  /* ── history (undo / redo) ───────────────────────────────────────── */
+
+  /** Every edit goes through here. Edits with the same `key` in quick succession (a slider drag) are one undo step. */
+  const change = useCallback((update: (current: VideoProject) => VideoProject, key = '') => {
+    const current = projectRef.current
+    const next = update(current)
+    if (next === current) return
+    const memory = history.current
+    const now = performance.now()
+    if (!(key && key === memory.key && now - memory.at < 900)) {
+      memory.past.push(current)
+      if (memory.past.length > 200) memory.past.shift()
+    }
+    memory.key = key
+    memory.at = now
+    memory.future = []
+    projectRef.current = next
+    setProject(next)
+    setHistoryTick(n => n + 1)
+  }, [])
+
+  const undo = useCallback(() => {
+    const memory = history.current
+    const previous = memory.past.pop()
+    if (!previous) return
+    const current = projectRef.current
+    memory.future.push(current)
+    memory.key = ''
+    const next = { ...previous, width: current.width, height: current.height }
+    projectRef.current = next
+    setProject(next)
+    setHistoryTick(n => n + 1)
+  }, [])
+
+  const redo = useCallback(() => {
+    const memory = history.current
+    const following = memory.future.pop()
+    if (!following) return
+    const current = projectRef.current
+    memory.past.push(current)
+    memory.key = ''
+    const next = { ...following, width: current.width, height: current.height }
+    projectRef.current = next
+    setProject(next)
+    setHistoryTick(n => n + 1)
+  }, [])
 
   /* ── canvas and renderer ─────────────────────────────────────────── */
 
@@ -209,6 +386,54 @@ export default function VideoEditor() {
     window.addEventListener('beforeunload', warn)
     return () => window.removeEventListener('beforeunload', warn)
   }, [project.clips.length])
+
+  // The timeline's visible width, for fitting the edit into view.
+  useEffect(() => {
+    const scroller = scrollerRef.current
+    if (!scroller) return
+    const observer = new ResizeObserver(() => setViewWidth(scroller.clientWidth))
+    observer.observe(scroller)
+    setViewWidth(scroller.clientWidth)
+    return () => observer.disconnect()
+  }, [])
+
+  // Zooming keeps the moment under the cursor in place.
+  useLayoutEffect(() => {
+    if (pendingScroll.current == null || !scrollerRef.current) return
+    scrollerRef.current.scrollLeft = Math.max(0, pendingScroll.current)
+    pendingScroll.current = null
+  }, [zoom])
+
+  // Shift or Ctrl/⌘ + wheel zooms the timeline; the plain wheel scrolls it sideways.
+  useEffect(() => {
+    const scroller = scrollerRef.current
+    if (!scroller) return
+    const onWheel = (event: WheelEvent) => {
+      const delta = Math.abs(event.deltaY) >= Math.abs(event.deltaX) ? event.deltaY : event.deltaX
+      if (event.shiftKey || event.ctrlKey || event.metaKey) {
+        event.preventDefault()
+        const x = event.clientX - scroller.getBoundingClientRect().left
+        const at = (scroller.scrollLeft + x) / zoomRef.current
+        const next = clamp(zoomRef.current * Math.exp(-delta * 0.0025), MIN_ZOOM, MAX_ZOOM)
+        pendingScroll.current = at * next - x
+        setZoomState({ fit: false, value: next })
+      } else if (Math.abs(event.deltaY) > Math.abs(event.deltaX)) {
+        event.preventDefault()
+        scroller.scrollLeft += event.deltaY
+      }
+    }
+    scroller.addEventListener('wheel', onWheel, { passive: false })
+    return () => scroller.removeEventListener('wheel', onWheel)
+  }, [])
+
+  const zoomBy = (factor: number) => {
+    const scroller = scrollerRef.current
+    const x = scroller ? scroller.clientWidth / 2 : 0
+    const at = ((scroller?.scrollLeft ?? 0) + x) / zoom
+    const next = clamp(zoom * factor, MIN_ZOOM, MAX_ZOOM)
+    pendingScroll.current = at * next - x
+    setZoomState({ fit: false, value: next })
+  }
 
   /* ── media elements and sound ────────────────────────────────────── */
 
@@ -263,7 +488,7 @@ export default function VideoEditor() {
     const gl = renderer.current
     if (!output || !gl || !glCanvas.current) return
     const { a, b, progress } = activeAt(placedRef.current, t)
-    const layerOf = (item: NonNullable<typeof a>): ClipLayer | null => {
+    const layerOf = (item: Placed): ClipLayer | null => {
       const element = elementFor(item.clip)
       const info = mediaFor(item.clip)
       if (!element || !info) return null
@@ -278,44 +503,17 @@ export default function VideoEditor() {
         effect: item.clip.effect,
         amount: item.clip.amount,
         time: t - item.start,
+        transform: clipTransformAt(item, t),
+        opacity: clipOpacity(item, t),
       }
     }
     const la = a ? layerOf(a) : null
     const lb = b ? layerOf(b) : null
     // A clip still decoding (just seeked) keeps the last good frame rather than flashing black.
-    if (a && !la) { /* keep the previous picture */ }
-    else gl.draw(la, la && lb ? lb : null, a?.clip.transition.type ?? 'cut', progress)
+    if (!(a && !la)) gl.draw(la, la && lb ? lb : null, a?.clip.transition.type ?? 'cut', progress)
     const context = output.getContext('2d')!
     context.drawImage(glCanvas.current, 0, 0, output.width, output.height)
-
-    // Titles, drawn over the picture with their entrance and exit.
-    for (const title of projectRef.current.titles) {
-      const frame = titleFrame(title, t)
-      if (!frame || frame.opacity <= 0.001) continue
-      const H = output.height, W = output.width
-      const size = title.size * H * frame.scale
-      context.save()
-      context.globalAlpha = frame.opacity
-      context.font = `${title.weight} ${size}px "${title.font}", sans-serif`
-      context.textAlign = 'center'
-      context.textBaseline = 'middle'
-      const text = title.text.slice(0, Math.ceil(title.text.length * frame.reveal))
-      const x = (title.x + frame.dx) * W, y = (title.y + frame.dy) * H
-      const lines = text.split('\n')
-      if (title.background) {
-        const width = Math.max(...lines.map(line => context.measureText(line).width)) + size * 0.9
-        const height = lines.length * size * 1.2 + size * 0.5
-        context.fillStyle = 'rgba(0,0,0,0.55)'
-        context.beginPath()
-        context.roundRect(x - width / 2, y - height / 2, width, height, size * 0.3)
-        context.fill()
-      }
-      context.fillStyle = title.color
-      context.shadowColor = 'rgba(0,0,0,0.45)'
-      context.shadowBlur = size * 0.15
-      lines.forEach((line, index) => context.fillText(line, x, y + (index - (lines.length - 1) / 2) * size * 1.2))
-      context.restore()
-    }
+    for (const title of projectRef.current.titles) drawTitle(context, title, t, output.width, output.height)
   }, [elementFor, mediaFor])
 
   /** Puts every element at the right moment for `t`, playing or still. */
@@ -330,7 +528,7 @@ export default function VideoEditor() {
       if (!active.has(item.clip.id)) { if (!element.paused) element.pause(); continue }
       const target = sourceTime(item, t)
       element.playbackRate = item.clip.speed
-      route(element, item.clip.muted ? 0 : item.clip.volume)
+      route(element, item.clip.muted ? 0 : item.clip.volume * clipOpacity(item, t))
       if (play) {
         // Re-sync only on real drift, and not again while the last seek settles.
         const now = performance.now()
@@ -350,15 +548,16 @@ export default function VideoEditor() {
       let element = musicElements.current.get(track.id)
       if (!element) { element = new Audio(item.url); element.crossOrigin = 'anonymous'; musicElements.current.set(track.id, element) }
       const local = t - track.start
-      const on = local >= 0 && local < item.duration
+      const on = local >= 0 && local < track.out - track.in
       if (!on) { if (!element.paused) element.pause(); continue }
-      route(element, track.volume)
+      route(element, track.volume * audioFade(track, local))
+      const target = track.in + local
       if (play) {
-        if (Math.abs(element.currentTime - local) > 0.3) element.currentTime = local
+        if (Math.abs(element.currentTime - target) > 0.3) element.currentTime = target
         if (element.paused) void element.play().catch(() => undefined)
       } else {
         if (!element.paused) element.pause()
-        element.currentTime = local
+        element.currentTime = target
       }
     }
     if (waits.length) await Promise.all(waits)
@@ -408,46 +607,74 @@ export default function VideoEditor() {
     return () => { cancelled = true }
   }, [draw, exporting, playing, project, sync, time, media])
 
-  const seek = (t: number) => {
+  // Keep the playhead in view while playing.
+  useEffect(() => {
+    const scroller = scrollerRef.current
+    if (!playing || !scroller) return
+    const x = time * zoom
+    if (x > scroller.scrollLeft + scroller.clientWidth - 40 || x < scroller.scrollLeft) scroller.scrollLeft = Math.max(0, x - 80)
+  }, [playing, time, zoom])
+
+  const seek = useCallback((t: number) => {
     const next = Math.max(0, Math.min(end, t))
     if (playing) clock.current = { startedAt: performance.now(), from: next }
     setTime(next)
-  }
+  }, [end, playing])
 
   /* ── editing ─────────────────────────────────────────────────────── */
 
-  const updateClip = (id: string, patch: Partial<Clip> | ((clip: Clip) => Partial<Clip>)) => setProject(current => ({
+  const updateClip = (id: string, patch: Partial<Clip> | ((clip: Clip) => Partial<Clip>), key?: string) => change(current => ({
     ...current,
     clips: current.clips.map(clip => (clip.id === id ? { ...clip, ...(typeof patch === 'function' ? patch(clip) : patch) } : clip)),
-  }))
-  const updateTitle = (id: string, patch: Partial<Title>) => setProject(current => ({ ...current, titles: current.titles.map(title => (title.id === id ? { ...title, ...patch } : title)) }))
-  const updateAudio = (id: string, patch: Partial<AudioTrackItem>) => setProject(current => ({ ...current, audio: current.audio.map(item => (item.id === id ? { ...item, ...patch } : item)) }))
+  }), key ?? `clip:${id}:${typeof patch === 'function' ? 'fn' : Object.keys(patch).join(',')}`)
+  const updateTitle = (id: string, patch: Partial<Title>, key?: string) => change(current => ({ ...current, titles: current.titles.map(title => (title.id === id ? { ...title, ...patch } : title)) }), key ?? `title:${id}:${Object.keys(patch).join(',')}`)
+  const updateAudio = (id: string, patch: Partial<AudioTrackItem>, key?: string) => change(current => ({ ...current, audio: current.audio.map(item => (item.id === id ? { ...item, ...patch } : item)) }), key ?? `audio:${id}:${Object.keys(patch).join(',')}`)
+  const updateTransform = (clip: Clip, patch: Partial<ClipTransform>, key?: string) => updateClip(clip.id, current => ({ transform: { ...IDENTITY_TRANSFORM, ...current.transform, ...patch } }), key ?? `clip:${clip.id}:transform:${Object.keys(patch).join(',')}`)
 
-  const addToTimeline = (item: MediaItem) => {
+  /** Places footage on the timeline (at `index`, else the end); music goes on the music track at `at`. */
+  const placeMedia = useCallback((item: MediaItem, options: { index?: number; at?: number } = {}) => {
     if (item.kind === 'audio') {
-      const track: AudioTrackItem = { id: newId('audio'), mediaId: item.id, start: 0, volume: 0.8 }
-      setProject(current => ({ ...current, audio: [...current.audio, track] }))
+      const track: AudioTrackItem = { id: newId('audio'), mediaId: item.id, start: Math.max(0, options.at ?? 0), volume: 0.8, in: 0, out: item.duration, fadeIn: 0, fadeOut: 0 }
+      change(current => ({ ...current, audio: [...current.audio, track] }))
       setSelection({ kind: 'audio', id: track.id })
       return
     }
+    // The first footage sets the project's shape, so nothing is cropped or boxed in.
+    if (!projectRef.current.clips.length && item.width && item.height) {
+      const best = formatFor(item.width, item.height)
+      if (best.id !== format.id) {
+        setFormat(best)
+        setNotice(`Matched the size to your ${item.kind === 'image' ? 'picture' : 'video'} (${best.name.split(' · ')[0]}). Change it in the size menu.`)
+      }
+    }
     const clip = makeClip(item)
-    setProject(current => ({ ...current, clips: [...current.clips, clip] }))
+    change(current => {
+      const clips = [...current.clips]
+      clips.splice(clamp(options.index ?? clips.length, 0, clips.length), 0, clip)
+      return { ...current, clips }
+    })
     setSelection({ kind: 'clip', id: clip.id })
-  }
+  }, [change, format.id])
 
-  const importFiles = async (files: File[]) => {
+  const importFiles = async (files: File[], place?: { index?: number; at?: number }) => {
     const usable = files.filter(file => /^(video|image|audio)\//.test(file.type))
     if (!usable.length) { setNotice('Add video (MP4, WebM, MOV), image or audio files.'); return }
     setImporting(true)
+    let index = place?.index
     try {
       for (const file of usable) {
         const item = await readMedia(file)
-        setMedia(current => [...current, item])
         mediaRef.current = [...mediaRef.current, item]
-        // The first footage goes straight onto the timeline, so there is something to edit at once.
-        if (item.kind !== 'audio' && !projectRef.current.clips.length) addToTimeline(item)
+        setMedia(mediaRef.current)
+        if (place) {
+          placeMedia(item, { index, at: place.at })
+          if (index != null && item.kind !== 'audio') index += 1
+        } else if (item.kind !== 'audio' && !projectRef.current.clips.length) {
+          // The first footage goes straight onto the timeline, so there is something to edit at once.
+          placeMedia(item)
+        }
       }
-      setNotice(null)
+      if (!place) setNotice(current => current?.startsWith('Matched') ? current : null)
     } catch (error) {
       setNotice(error instanceof Error ? error.message : 'That file could not be opened.')
     } finally {
@@ -457,15 +684,14 @@ export default function VideoEditor() {
 
   const removeSelected = () => {
     if (!selection) return
-    if (selection.kind === 'clip') {
-      elements.current.get(selection.id)?.removeAttribute('src')
-      elements.current.delete(selection.id)
-      setProject(current => ({ ...current, clips: current.clips.filter(clip => clip.id !== selection.id) }))
+    if (selection.kind === 'clip' || selection.kind === 'transition') {
+      if (selection.kind === 'transition') { updateClip(selection.id, { transition: { type: 'cut', duration: 0 } }); setSelection(null); return }
+      change(current => ({ ...current, clips: current.clips.filter(clip => clip.id !== selection.id) }))
     }
-    if (selection.kind === 'title') setProject(current => ({ ...current, titles: current.titles.filter(title => title.id !== selection.id) }))
+    if (selection.kind === 'title') change(current => ({ ...current, titles: current.titles.filter(title => title.id !== selection.id) }))
     if (selection.kind === 'audio') {
       musicElements.current.get(selection.id)?.pause()
-      setProject(current => ({ ...current, audio: current.audio.filter(item => item.id !== selection.id) }))
+      change(current => ({ ...current, audio: current.audio.filter(item => item.id !== selection.id) }))
     }
     setSelection(null)
   }
@@ -473,19 +699,30 @@ export default function VideoEditor() {
   const split = () => {
     const next = splitAt(project.clips, time)
     if (!next) { setNotice('Move the playhead inside a clip to split it.'); return }
-    setProject(current => ({ ...current, clips: next }))
+    change(current => ({ ...current, clips: next }))
   }
 
-  const duplicateClip = (id: string) => setProject(current => {
-    const index = current.clips.findIndex(clip => clip.id === id)
-    if (index < 0) return current
-    const copy = { ...structuredClone(current.clips[index]), id: newId('clip') }
-    const clips = [...current.clips]
-    clips.splice(index + 1, 0, copy)
-    return { ...current, clips }
-  })
+  const duplicateSelected = () => {
+    if (selection?.kind === 'clip') {
+      const copyId = newId('clip')
+      change(current => {
+        const index = current.clips.findIndex(clip => clip.id === selection.id)
+        if (index < 0) return current
+        const clips = [...current.clips]
+        clips.splice(index + 1, 0, { ...structuredClone(current.clips[index]), id: copyId })
+        return { ...current, clips }
+      })
+      setSelection({ kind: 'clip', id: copyId })
+    } else if (selection?.kind === 'title') {
+      const source = project.titles.find(title => title.id === selection.id)
+      if (!source) return
+      const copy = { ...structuredClone(source), id: newId('title'), start: source.start + source.duration }
+      change(current => ({ ...current, titles: [...current.titles, copy] }))
+      setSelection({ kind: 'title', id: copy.id })
+    }
+  }
 
-  const moveClip = (from: number, to: number) => setProject(current => {
+  const moveClip = (from: number, to: number) => change(current => {
     if (to < 0 || to >= current.clips.length || from === to) return current
     const clips = [...current.clips]
     const [moved] = clips.splice(from, 1)
@@ -495,7 +732,7 @@ export default function VideoEditor() {
 
   const addTitle = (patch: Partial<Title> = {}) => {
     const title = { ...makeTitle(time, project.width, project.height), ...patch }
-    setProject(current => ({ ...current, titles: [...current.titles, title] }))
+    change(current => ({ ...current, titles: [...current.titles, title] }))
     setSelection({ kind: 'title', id: title.id })
   }
 
@@ -505,6 +742,19 @@ export default function VideoEditor() {
   const target = selectedClip ?? (placed.length ? activeAt(placed, time).a?.clip ?? null : null)
 
   /* ── export ──────────────────────────────────────────────────────── */
+
+  const saveFrame = () => {
+    const output = outputRef.current
+    if (!output) return
+    output.toBlob(blob => {
+      if (!blob) return
+      const link = document.createElement('a')
+      link.href = URL.createObjectURL(blob)
+      link.download = `spyda-frame-${formatTime(time).replace(/[:.]/g, '-')}.png`
+      link.click()
+      window.setTimeout(() => URL.revokeObjectURL(link.href), 30_000)
+    }, 'image/png')
+  }
 
   const exportVideo = async () => {
     const output = outputRef.current
@@ -519,10 +769,11 @@ export default function VideoEditor() {
     for (const item of placed) { const element = elementFor(item.clip); if (element instanceof HTMLVideoElement) route(element, item.clip.muted ? 0 : item.clip.volume) }
     await sync(0, false)
     draw(0)
-    const stream = output.captureStream(30)
+    const stream = output.captureStream(fps)
     const recorderAudio = audio.current?.recorder.stream.getAudioTracks() ?? []
     for (const track of recorderAudio) stream.addTrack(track)
-    const recorder = new MediaRecorder(stream, { mimeType: type, videoBitsPerSecond: project.width * project.height > 1_500_000 ? 16_000_000 : 10_000_000 })
+    const bits = QUALITIES.find(item => item.value === quality)?.bits ?? 1
+    const recorder = new MediaRecorder(stream, { mimeType: type, videoBitsPerSecond: Math.round(project.width * project.height * fps * 0.27 * bits) })
     const chunks: Blob[] = []
     recorder.ondataavailable = event => { if (event.data.size) chunks.push(event.data) }
     const finished = new Promise<void>(resolve => { recorder.onstop = () => resolve() })
@@ -552,22 +803,31 @@ export default function VideoEditor() {
     link.download = `spyda-video-${format.id}.${type.includes('mp4') ? 'mp4' : 'webm'}`
     link.click()
     window.setTimeout(() => URL.revokeObjectURL(link.href), 30_000)
-    setNotice(`Exported a ${formatTime(end)} ${type.includes('mp4') ? 'MP4' : 'WebM'} at ${project.width} × ${project.height}.`)
+    setNotice(`Exported a ${formatTime(end)} ${type.includes('mp4') ? 'MP4' : 'WebM'} at ${project.width} × ${project.height}, ${fps} fps.`)
   }
 
   /* ── keyboard ────────────────────────────────────────────────────── */
 
   useEffect(() => {
     const onKey = (event: KeyboardEvent) => {
-      const typing = /^(INPUT|TEXTAREA|SELECT)$/.test((event.target as HTMLElement | null)?.tagName ?? '')
+      const typing = /^(INPUT|TEXTAREA|SELECT)$/.test((event.target as HTMLElement | null)?.tagName ?? '') || (event.target as HTMLElement | null)?.getAttribute('role') === 'combobox'
       if (typing || exporting != null) return
+      const mod = event.metaKey || event.ctrlKey
+      const key = event.key.toLowerCase()
+      if (mod && key === 'z') { event.preventDefault(); if (event.shiftKey) redo(); else undo(); return }
+      if (mod && key === 'y') { event.preventDefault(); redo(); return }
+      if (mod && key === 'd') { event.preventDefault(); duplicateSelected(); return }
+      if (mod) return
       if (event.key === ' ') { event.preventDefault(); if (playing) stop(); else play() }
-      if (event.key.toLowerCase() === 's' && !event.metaKey && !event.ctrlKey) { event.preventDefault(); split() }
+      if (key === 's') { event.preventDefault(); split() }
       if (event.key === 'Delete' || event.key === 'Backspace') { event.preventDefault(); removeSelected() }
       if (event.key === 'ArrowLeft') { event.preventDefault(); seek(timeRef.current - (event.shiftKey ? 1 : 1 / 30)) }
       if (event.key === 'ArrowRight') { event.preventDefault(); seek(timeRef.current + (event.shiftKey ? 1 : 1 / 30)) }
       if (event.key === 'Home') { event.preventDefault(); seek(0) }
       if (event.key === 'End') { event.preventDefault(); seek(end) }
+      if (event.key === '=' || event.key === '+') { event.preventDefault(); zoomBy(1.4) }
+      if (event.key === '-' || event.key === '_') { event.preventDefault(); zoomBy(1 / 1.4) }
+      if (event.key === '\\') { event.preventDefault(); setZoomState(current => ({ ...current, fit: true })) }
       if (event.key === 'Escape') setSelection(null)
     }
     window.addEventListener('keydown', onKey)
@@ -576,45 +836,153 @@ export default function VideoEditor() {
 
   /* ── timeline dragging (trim edges, move titles and music) ────────── */
 
-  const dragStart = (event: ReactPointerEvent, apply: (dx: number) => void) => {
+  /** Snaps a time to the playhead and clip, title and music edges within a few pixels. */
+  const snap = (value: number, ignore?: string) => {
+    const points = [0, time, ...placed.flatMap(item => [item.start, item.end]), ...project.titles.filter(title => title.id !== ignore).flatMap(title => [title.start, title.start + title.duration]), ...project.audio.filter(item => item.id !== ignore).flatMap(item => [item.start, item.start + item.out - item.in])]
+    let best = value
+    let distance = 8 / zoom
+    for (const point of points) if (Math.abs(point - value) < distance) { best = point; distance = Math.abs(point - value) }
+    return best
+  }
+
+  const dragStart = (event: ReactPointerEvent, apply: (dx: number) => void, key: string) => {
     event.preventDefault()
     event.stopPropagation()
     const x0 = event.clientX
-    const move = (moveEvent: PointerEvent) => apply((moveEvent.clientX - x0) / zoom)
-    const up = () => { window.removeEventListener('pointermove', move); window.removeEventListener('pointerup', up) }
+    history.current.key = ''
+    const move = (moveEvent: PointerEvent) => apply((moveEvent.clientX - x0) / zoomRef.current)
+    const up = () => {
+      trimming.current = false
+      history.current.key = ''
+      window.removeEventListener('pointermove', move)
+      window.removeEventListener('pointerup', up)
+    }
+    void key
     window.addEventListener('pointermove', move)
     window.addEventListener('pointerup', up)
   }
 
   const trimClip = (event: ReactPointerEvent, clip: Clip, side: 'in' | 'out') => {
+    trimming.current = true
     const info = mediaFor(clip)
     const start = { in: clip.in, out: clip.out }
     const limit = info?.kind === 'image' ? 600 : info?.duration ?? clip.out
     dragStart(event, dx => {
       const delta = dx * clip.speed
-      if (side === 'in') updateClip(clip.id, { in: Math.min(start.out - 0.2, Math.max(0, start.in + delta)) })
-      else updateClip(clip.id, { out: Math.max(start.in + 0.2, Math.min(limit, start.out + delta)) })
-    })
+      if (side === 'in') updateClip(clip.id, { in: Math.min(start.out - 0.2, Math.max(0, start.in + delta)) }, `trim:${clip.id}`)
+      else updateClip(clip.id, { out: Math.max(start.in + 0.2, Math.min(limit, start.out + delta)) }, `trim:${clip.id}`)
+    }, `trim:${clip.id}`)
   }
 
-  const dragIndex = useRef<number | null>(null)
-  const timelineWidth = Math.max(end + 6, 20) * zoom
+  const trimAudio = (event: ReactPointerEvent, track: AudioTrackItem, side: 'in' | 'out') => {
+    const info = media.find(item => item.id === track.mediaId)
+    const start = { in: track.in, out: track.out, at: track.start }
+    dragStart(event, dx => {
+      if (side === 'in') {
+        const next = clamp(start.in + dx, 0, start.out - 0.3)
+        updateAudio(track.id, { in: next, start: Math.max(0, start.at + (next - start.in)) }, `trim:${track.id}`)
+      } else updateAudio(track.id, { out: clamp(start.out + dx, start.in + 0.3, info?.duration ?? start.out) }, `trim:${track.id}`)
+    }, `trim:${track.id}`)
+  }
+
+  /** Where a drop at timeline time `t` lands among the clips. */
+  const insertIndex = (t: number) => placed.filter(item => (item.start + item.end) / 2 < t).length
+
+  const trackTime = (event: ReactDragEvent<HTMLElement>) => {
+    const rect = event.currentTarget.getBoundingClientRect()
+    return Math.max(0, (event.clientX - rect.left) / zoom)
+  }
+
+  const acceptsDrop = (event: ReactDragEvent) => {
+    const types = [...event.dataTransfer.types]
+    return types.includes(MEDIA_MIME) || types.includes(CLIP_MIME) || types.includes('Files')
+  }
+
+  const onTrackDragOver = (track: 'video' | 'music') => (event: ReactDragEvent<HTMLElement>) => {
+    if (!acceptsDrop(event)) return
+    event.preventDefault()
+    event.stopPropagation()
+    event.dataTransfer.dropEffect = [...event.dataTransfer.types].includes(CLIP_MIME) ? 'move' : 'copy'
+    const t = trackTime(event)
+    const x = track === 'video' ? (() => { const index = insertIndex(t); return (index < placed.length ? placed[index].start : total) * zoom })() : t * zoom
+    setDropMarker({ track, x })
+    setDropping(false)
+  }
+
+  const onTrackDrop = (track: 'video' | 'music') => (event: ReactDragEvent<HTMLElement>) => {
+    if (!acceptsDrop(event)) return
+    event.preventDefault()
+    event.stopPropagation()
+    setDropMarker(null)
+    setDropping(false)
+    const t = trackTime(event)
+    const mediaId = event.dataTransfer.getData(MEDIA_MIME)
+    if (mediaId) {
+      const item = mediaRef.current.find(entry => entry.id === mediaId)
+      if (item) placeMedia(item, item.kind === 'audio' ? { at: snap(t) } : { index: insertIndex(t) })
+      return
+    }
+    if (dragIndex.current != null && track === 'video') {
+      const from = dragIndex.current
+      dragIndex.current = null
+      let to = insertIndex(t)
+      if (to > from) to -= 1
+      moveClip(from, to)
+      return
+    }
+    if (event.dataTransfer.files.length) void importFiles([...event.dataTransfer.files], track === 'music' ? { at: t, index: insertIndex(t) } : { index: insertIndex(t), at: t })
+  }
+
+  /* ── dragging titles and clips in the preview ────────────────────── */
+
+  const onPreviewPointerDown = (event: ReactPointerEvent<HTMLCanvasElement>) => {
+    const rect = event.currentTarget.getBoundingClientRect()
+    const x0 = event.clientX, y0 = event.clientY
+    const title = selectedTitle
+    const clip = selection?.kind === 'clip' ? selectedClip : null
+    const origin = title ? { x: title.x, y: title.y } : clip ? { x: clip.transform?.x ?? 0, y: clip.transform?.y ?? 0 } : null
+    let moved = false
+    history.current.key = ''
+    const move = (moveEvent: PointerEvent) => {
+      const dx = (moveEvent.clientX - x0) / rect.width, dy = (moveEvent.clientY - y0) / rect.height
+      if (!moved && Math.hypot(moveEvent.clientX - x0, moveEvent.clientY - y0) < 4) return
+      moved = true
+      if (!origin) return
+      // Snap to the centre lines.
+      const snapTo = (value: number, centre: number) => (Math.abs(value - centre) < 0.012 ? centre : value)
+      if (title) updateTitle(title.id, { x: snapTo(origin.x + dx, 0.5), y: snapTo(origin.y + dy, 0.5) }, `move:${title.id}`)
+      else if (clip) updateTransform(clip, { x: snapTo(origin.x + dx, 0), y: snapTo(origin.y + dy, 0) }, `move:${clip.id}`)
+    }
+    const up = () => {
+      window.removeEventListener('pointermove', move)
+      window.removeEventListener('pointerup', up)
+      history.current.key = ''
+      if (!moved) { if (playing) stop(); else play() }
+    }
+    window.addEventListener('pointermove', move)
+    window.addEventListener('pointerup', up)
+  }
 
   /* ── layout ──────────────────────────────────────────────────────── */
 
+  const timelineWidth = Math.max(viewWidth, (end + Math.max(4, end * 0.15)) * zoom)
+  const step = tickStep(zoom)
   const tabs: Array<{ id: LeftTab; label: string; icon: typeof Layers }> = [
     { id: 'media', label: 'Media', icon: ImagePlus },
     { id: 'effects', label: 'Effects', icon: Sparkles },
     { id: 'transitions', label: 'Transitions', icon: Layers },
     { id: 'titles', label: 'Titles', icon: Type },
   ]
+  const fontOptions = BUNDLED_FAMILIES.map(font => ({ value: font.family, label: font.family, style: { fontFamily: previewFamily(font.family) } }))
+  const canUndo = history.current.past.length > 0
+  const canRedo = history.current.future.length > 0
 
   return (
     <main
       className="flex h-[100dvh] flex-col overflow-hidden bg-[#0b0c0e] text-foreground"
-      onDragOver={event => { event.preventDefault(); setDropping(true) }}
+      onDragOver={event => { if ([...event.dataTransfer.types].includes('Files')) { event.preventDefault(); setDropping(true) } }}
       onDragLeave={event => { if (event.currentTarget === event.target) setDropping(false) }}
-      onDrop={event => { event.preventDefault(); setDropping(false); void importFiles([...event.dataTransfer.files]) }}
+      onDrop={event => { event.preventDefault(); setDropping(false); setDropMarker(null); if (event.dataTransfer.files.length) void importFiles([...event.dataTransfer.files]) }}
     >
       {/* Top bar */}
       <header className="flex h-11 shrink-0 items-center gap-2 border-b border-white/[0.06] bg-[#111214] px-2">
@@ -633,10 +1001,21 @@ export default function VideoEditor() {
             <Clapperboard className="h-3 w-3 text-primary" /> Video
           </button>
         </div>
-        <select value={format.id} onChange={event => setFormat(FORMATS.find(item => item.id === event.target.value) ?? FORMATS[0])} aria-label="Video size" className="ml-3 h-7 rounded-md bg-white/[0.06] px-2 text-[11px] outline-none">
-          {FORMATS.map(item => <option key={item.id} value={item.id}>{item.name}</option>)}
-        </select>
+        <div className="ml-2 flex items-center gap-0.5">
+          <button type="button" onClick={undo} disabled={!canUndo} title="Undo (Ctrl+Z)" aria-label="Undo" className="flex h-8 w-8 items-center justify-center rounded-md hover:bg-white/[0.08] disabled:opacity-30"><Undo2 className="h-4 w-4" /></button>
+          <button type="button" onClick={redo} disabled={!canRedo} title="Redo (Ctrl+Shift+Z)" aria-label="Redo" className="flex h-8 w-8 items-center justify-center rounded-md hover:bg-white/[0.08] disabled:opacity-30"><Redo2 className="h-4 w-4" /></button>
+        </div>
+        <SpydaSelect
+          ariaLabel="Video size"
+          value={format.id as string}
+          onChange={value => setFormat(FORMATS.find(item => item.id === value) ?? FORMATS[0])}
+          options={FORMATS.map(item => ({ value: item.id as string, label: item.name }))}
+          menuWidth={200}
+          className="ml-1 h-7 rounded-md bg-white/[0.06] px-2.5 text-[11px] hover:bg-white/[0.1]"
+        />
         <div className="ml-auto flex items-center gap-1.5">
+          <SpydaSelect ariaLabel="Frame rate" value={fps} onChange={setFps} options={FRAME_RATES.map(rate => ({ value: rate, label: `${rate} fps` }))} className="hidden h-8 rounded-md bg-white/[0.06] px-2.5 text-[11px] hover:bg-white/[0.1] md:inline-flex" />
+          <SpydaSelect ariaLabel="Export quality" value={quality} onChange={setQuality} options={QUALITIES.map(item => ({ value: item.value, label: `${item.label} quality` }))} menuWidth={170} className="hidden h-8 rounded-md bg-white/[0.06] px-2.5 text-[11px] hover:bg-white/[0.1] md:inline-flex" />
           <button type="button" onClick={() => navigate('/workspace')} className="inline-flex h-8 items-center gap-1.5 rounded-md border border-white/[0.1] px-3 text-[11px] font-semibold hover:bg-white/[0.08]">
             <LogOut className="h-3.5 w-3.5" /> Done
           </button>
@@ -668,9 +1047,18 @@ export default function VideoEditor() {
                 </button>
                 <div className="grid grid-cols-2 gap-2">
                   {media.map(item => (
-                    <button key={item.id} type="button" onClick={() => addToTimeline(item)} title={`Add ${item.name} to the timeline`} className="group overflow-hidden rounded-lg border border-white/[0.08] bg-black/30 text-left hover:border-primary/50">
+                    <button
+                      key={item.id}
+                      type="button"
+                      draggable
+                      onDragStart={event => { event.dataTransfer.setData(MEDIA_MIME, item.id); event.dataTransfer.effectAllowed = 'copy' }}
+                      onDragEnd={() => setDropMarker(null)}
+                      onClick={() => placeMedia(item, item.kind === 'audio' ? { at: time } : {})}
+                      title={`Drag onto the timeline, or click to add ${item.name}`}
+                      className="group cursor-grab overflow-hidden rounded-lg border border-white/[0.08] bg-black/30 text-left hover:border-primary/50 active:cursor-grabbing"
+                    >
                       <span className="relative block aspect-video bg-[#16171a]">
-                        {item.thumbnail ? <img src={item.thumbnail} alt="" className="h-full w-full object-cover" /> : <span className="flex h-full items-center justify-center text-[10px] text-muted-foreground">♪ Audio</span>}
+                        {item.thumbnail ? <img src={item.thumbnail} alt="" draggable={false} className="h-full w-full object-contain" /> : <span className="flex h-full items-center justify-center text-[10px] text-muted-foreground">♪ Audio</span>}
                         <span className="absolute bottom-1 right-1 rounded bg-black/70 px-1 font-mono text-[9px]">{item.kind === 'image' ? 'Image' : formatTime(item.duration)}</span>
                         <span className="absolute inset-0 hidden items-center justify-center bg-black/40 group-hover:flex"><Plus className="h-5 w-5" /></span>
                       </span>
@@ -678,7 +1066,7 @@ export default function VideoEditor() {
                     </button>
                   ))}
                 </div>
-                {!media.length ? <p className="text-[10px] leading-4 text-muted-foreground">Imported files stay on this device. Click one to add it to the end of the timeline.</p> : null}
+                <p className="text-[10px] leading-4 text-muted-foreground">{media.length ? 'Drag a file onto the video or music track to place it, or click it to add it to the end.' : 'Imported files stay on this device.'}</p>
               </div>
             ) : tab === 'effects' ? (
               <div>
@@ -701,17 +1089,18 @@ export default function VideoEditor() {
                     </button>
                   ))}
                 </div>
-                <button type="button" disabled={project.clips.length < 2 || !target} onClick={() => target && setProject(current => ({ ...current, clips: current.clips.map(clip => ({ ...clip, transition: { ...target.transition } })) }))} className="mt-2 h-8 w-full rounded-md bg-white/[0.06] text-[11px] font-semibold hover:bg-white/[0.1] disabled:opacity-40">Use on every cut</button>
+                <button type="button" disabled={project.clips.length < 2 || !target} onClick={() => target && change(current => ({ ...current, clips: current.clips.map(clip => ({ ...clip, transition: { ...target.transition } })) }))} className="mt-2 h-8 w-full rounded-md bg-white/[0.06] text-[11px] font-semibold hover:bg-white/[0.1] disabled:opacity-40">Use on every cut</button>
               </div>
             ) : (
               <div className="space-y-1.5">
                 <button type="button" onClick={() => addTitle()} className="inline-flex h-9 w-full items-center justify-center gap-1.5 rounded-md bg-primary text-[12px] font-semibold text-primary-foreground"><Plus className="h-3.5 w-3.5" /> Add title at playhead</button>
                 {TITLE_PRESETS.map(preset => (
                   <button key={preset.name} type="button" onClick={() => addTitle(preset.patch)} className="block w-full rounded-lg border border-white/[0.08] bg-white/[0.02] px-3 py-2.5 text-left hover:border-primary/40">
-                    <span className="block text-[12px] font-semibold" style={{ fontFamily: preset.patch.font }}>{preset.name}</span>
+                    <span className="block text-[12px] font-semibold" style={{ fontFamily: preset.patch.font, WebkitTextStroke: preset.patch.outlineWidth ? `1px ${preset.patch.outlineColor}` : undefined }}>{preset.name}</span>
                     <span className="block text-[10px] capitalize text-muted-foreground">{preset.patch.animation} in</span>
                   </button>
                 ))}
+                <p className="pt-1 text-[10px] leading-4 text-muted-foreground">Select a title, then drag it in the preview to place it.</p>
               </div>
             )}
           </div>
@@ -719,15 +1108,15 @@ export default function VideoEditor() {
 
         {/* Centre: preview and transport */}
         <section className="flex min-w-0 flex-1 flex-col">
-          <div className="relative flex min-h-0 flex-1 items-center justify-center bg-[#16171a] p-4">
+          <div ref={previewRef} className="relative flex min-h-0 flex-1 items-center justify-center bg-[#16171a] p-4">
             <canvas
               ref={node => {
                 outputRef.current = node
                 if (node && node.width !== format.width) { node.width = format.width; node.height = format.height }
               }}
-              className="max-h-full max-w-full rounded-md bg-black shadow-[0_20px_60px_rgba(0,0,0,0.5)]"
+              className={`max-h-full max-w-full rounded-md bg-black shadow-[0_20px_60px_rgba(0,0,0,0.5)] ${selectedTitle || selection?.kind === 'clip' ? 'cursor-move' : 'cursor-pointer'}`}
               style={{ aspectRatio: `${format.width} / ${format.height}` }}
-              onClick={() => (playing ? stop() : play())}
+              onPointerDown={onPreviewPointerDown}
             />
             {!project.clips.length ? (
               <button type="button" onClick={() => fileRef.current?.click()} className="absolute inset-0 m-auto flex h-40 w-72 flex-col items-center justify-center gap-2 rounded-2xl border border-dashed border-white/[0.18] bg-black/40 text-center backdrop-blur">
@@ -751,21 +1140,27 @@ export default function VideoEditor() {
               </div>
             ) : null}
           </div>
-          <div className="flex h-11 shrink-0 items-center gap-2 border-t border-white/[0.06] bg-[#111214] px-3">
-            <button type="button" onClick={() => seek(0)} aria-label="Go to start" className="h-8 w-8 rounded-md text-muted-foreground hover:bg-white/[0.08] hover:text-foreground">⏮</button>
+          <div className="flex h-11 shrink-0 items-center gap-1.5 border-t border-white/[0.06] bg-[#111214] px-3">
+            <button type="button" onClick={() => seek(0)} aria-label="Go to start" title="Go to start (Home)" className="h-8 w-8 rounded-md text-muted-foreground hover:bg-white/[0.08] hover:text-foreground">⏮</button>
+            <button type="button" onClick={() => seek(time - 1 / 30)} aria-label="Back one frame" title="Back one frame (←)" className="h-8 w-7 rounded-md text-muted-foreground hover:bg-white/[0.08] hover:text-foreground">‹</button>
             <button type="button" onClick={() => (playing ? stop() : play())} disabled={!placed.length} aria-label={playing ? 'Pause' : 'Play'} className="flex h-9 w-9 items-center justify-center rounded-full bg-primary text-primary-foreground disabled:opacity-40">
               {playing ? <Pause className="h-4 w-4" /> : <Play className="ml-0.5 h-4 w-4" />}
             </button>
-            <button type="button" onClick={() => seek(end)} aria-label="Go to end" className="h-8 w-8 rounded-md text-muted-foreground hover:bg-white/[0.08] hover:text-foreground">⏭</button>
+            <button type="button" onClick={() => seek(time + 1 / 30)} aria-label="Forward one frame" title="Forward one frame (→)" className="h-8 w-7 rounded-md text-muted-foreground hover:bg-white/[0.08] hover:text-foreground">›</button>
+            <button type="button" onClick={() => seek(end)} aria-label="Go to end" title="Go to end (End)" className="h-8 w-8 rounded-md text-muted-foreground hover:bg-white/[0.08] hover:text-foreground">⏭</button>
             <span className="ml-1 font-mono text-[11px]"><span className="text-foreground">{formatTime(time)}</span><span className="text-muted-foreground"> / {formatTime(end)}</span></span>
-            <span className="mx-2 h-5 w-px bg-white/10" />
-            <button type="button" onClick={split} disabled={!placed.length} title="Split at playhead (S)" className="inline-flex h-8 items-center gap-1.5 rounded-md px-2.5 text-[11px] font-medium hover:bg-white/[0.08] disabled:opacity-40"><ScissorsGlyph /> Split</button>
-            <button type="button" onClick={() => addTitle()} className="inline-flex h-8 items-center gap-1.5 rounded-md px-2.5 text-[11px] font-medium hover:bg-white/[0.08]"><Type className="h-3.5 w-3.5" /> Title</button>
-            <button type="button" onClick={() => fileRef.current?.click()} className="inline-flex h-8 items-center gap-1.5 rounded-md px-2.5 text-[11px] font-medium hover:bg-white/[0.08]"><Plus className="h-3.5 w-3.5" /> Media</button>
-            <label className="ml-auto flex items-center gap-2 text-[10px] text-muted-foreground">
-              Zoom
-              <input type="range" min={20} max={240} value={zoom} onChange={event => setZoom(Number(event.target.value))} className="w-28 accent-[#9dfab0]" aria-label="Timeline zoom" />
-            </label>
+            <span className="mx-1.5 h-5 w-px bg-white/10" />
+            <button type="button" onClick={split} disabled={!placed.length} title="Split at playhead (S)" className="inline-flex h-8 items-center gap-1.5 rounded-md px-2 text-[11px] font-medium hover:bg-white/[0.08] disabled:opacity-40"><ScissorsGlyph /> Split</button>
+            <button type="button" onClick={() => addTitle()} title="Add a title at the playhead" className="inline-flex h-8 items-center gap-1.5 rounded-md px-2 text-[11px] font-medium hover:bg-white/[0.08]"><Type className="h-3.5 w-3.5" /> Title</button>
+            <button type="button" onClick={() => fileRef.current?.click()} className="inline-flex h-8 items-center gap-1.5 rounded-md px-2 text-[11px] font-medium hover:bg-white/[0.08]"><Plus className="h-3.5 w-3.5" /> Media</button>
+            <button type="button" onClick={saveFrame} disabled={!placed.length} title="Save this frame as a PNG" className="hidden h-8 items-center gap-1.5 rounded-md px-2 text-[11px] font-medium hover:bg-white/[0.08] disabled:opacity-40 lg:inline-flex"><ImagePlus className="h-3.5 w-3.5" /> Save frame</button>
+            <button type="button" onClick={() => { void previewRef.current?.requestFullscreen?.() }} title="Full-screen preview" aria-label="Full-screen preview" className="hidden h-8 w-8 items-center justify-center rounded-md hover:bg-white/[0.08] lg:flex"><Maximize2 className="h-3.5 w-3.5" /></button>
+            <div className="ml-auto flex items-center gap-1.5 text-[10px] text-muted-foreground">
+              <button type="button" onClick={() => zoomBy(1 / 1.4)} aria-label="Zoom timeline out" title="Zoom out (−)" className="h-7 w-7 rounded-md text-[13px] hover:bg-white/[0.08] hover:text-foreground">−</button>
+              <input type="range" min={Math.log(MIN_ZOOM)} max={Math.log(MAX_ZOOM)} step={0.01} value={Math.log(zoom)} onChange={event => setZoomState({ fit: false, value: Math.exp(Number(event.target.value)) })} className="w-24 accent-[#9dfab0]" aria-label="Timeline zoom" title="Shift or Ctrl + mouse wheel also zooms" />
+              <button type="button" onClick={() => zoomBy(1.4)} aria-label="Zoom timeline in" title="Zoom in (+)" className="h-7 w-7 rounded-md text-[13px] hover:bg-white/[0.08] hover:text-foreground">+</button>
+              <button type="button" onClick={() => setZoomState(current => ({ ...current, fit: true }))} title="Fit the whole edit (\)" className={`h-7 rounded-md px-2 text-[10px] font-semibold ${zoomState.fit ? 'bg-primary/15 text-primary' : 'hover:bg-white/[0.08] hover:text-foreground'}`}>Fit</button>
+            </div>
           </div>
         </section>
 
@@ -775,10 +1170,11 @@ export default function VideoEditor() {
             const clip = selectedClip
             const info = mediaFor(clip)
             const index = project.clips.findIndex(item => item.id === clip.id)
+            const move = { ...IDENTITY_TRANSFORM, ...clip.transform }
             return (
               <>
                 <div className="flex items-center gap-2 border-b border-white/[0.06] px-3 py-3">
-                  {info?.thumbnail ? <img src={info.thumbnail} alt="" className="h-9 w-14 rounded object-cover" /> : null}
+                  {info?.thumbnail ? <img src={info.thumbnail} alt="" className="h-9 w-14 rounded bg-black object-contain" /> : null}
                   <div className="min-w-0">
                     <p className="truncate text-[12px] font-semibold">{info?.name ?? 'Clip'}</p>
                     <p className="text-[10px] text-muted-foreground">{formatTime(clipLength(clip))} on the timeline · clip {index + 1} of {project.clips.length}</p>
@@ -794,50 +1190,64 @@ export default function VideoEditor() {
                     </label>
                   </div>
                   <div className="flex items-center gap-2 text-[10px] text-muted-foreground">
-                    <span className="w-[68px]">Speed</span>
+                    <span className="w-[72px] shrink-0">Speed</span>
                     <div className="flex flex-1 flex-wrap gap-1">
                       {SPEEDS.map(speed => <button key={speed} type="button" onClick={() => updateClip(clip.id, { speed })} className={`h-6 rounded px-1.5 text-[10px] ${clip.speed === speed ? 'bg-primary text-primary-foreground' : 'bg-white/[0.05] hover:bg-white/[0.1]'}`}>{speed}×</button>)}
                     </div>
                   </div>
                   {info?.kind === 'video' ? (
                     <>
-                      <Slider label="Volume" value={clip.volume} min={0} max={2} step={0.01} onChange={volume => updateClip(clip.id, { volume })} format={value => `${Math.round(value * 100)}%`} />
+                      <Slider label="Volume" value={clip.volume} min={0} max={2} step={0.01} reset={1} onChange={volume => updateClip(clip.id, { volume })} format={value => `${Math.round(value * 100)}%`} />
                       <label className="flex items-center gap-2 text-[10px] text-muted-foreground"><input type="checkbox" checked={clip.muted} onChange={event => updateClip(clip.id, { muted: event.target.checked })} className="accent-[#9dfab0]" /> Mute this clip</label>
                     </>
                   ) : null}
-                  <div className="flex items-center gap-2 text-[10px] text-muted-foreground">
-                    <span className="w-[68px]">Framing</span>
-                    {(['cover', 'contain'] as const).map(fit => <button key={fit} type="button" onClick={() => updateClip(clip.id, { fit })} className={`h-6 flex-1 rounded text-[10px] ${clip.fit === fit ? 'bg-primary text-primary-foreground' : 'bg-white/[0.05] hover:bg-white/[0.1]'}`}>{fit === 'cover' ? 'Fill frame' : 'Fit inside'}</button>)}
+                  <Slider label="Fade in" value={clip.fadeIn ?? 0} min={0} max={Math.min(5, clipLength(clip) / 2)} step={0.05} onChange={fadeIn => updateClip(clip.id, { fadeIn })} format={value => `${value.toFixed(1)}s`} />
+                  <Slider label="Fade out" value={clip.fadeOut ?? 0} min={0} max={Math.min(5, clipLength(clip) / 2)} step={0.05} onChange={fadeOut => updateClip(clip.id, { fadeOut })} format={value => `${value.toFixed(1)}s`} />
+                </Section>
+                <Section title="Framing & transform" action={<button type="button" onClick={() => updateClip(clip.id, { transform: { ...IDENTITY_TRANSFORM }, motion: 'none' })} className="text-[10px] text-muted-foreground hover:text-foreground">Reset</button>}>
+                  <div className="flex gap-1">
+                    {FITS.map(fit => <button key={fit.id} type="button" onClick={() => updateClip(clip.id, { fit: fit.id })} className={`h-7 flex-1 rounded text-[10px] ${clip.fit === fit.id ? 'bg-primary text-primary-foreground' : 'bg-white/[0.05] hover:bg-white/[0.1]'}`}>{fit.name}</button>)}
                   </div>
+                  <Slider label="Scale" value={move.scale} min={0.2} max={4} step={0.01} reset={1} onChange={scale => updateTransform(clip, { scale })} format={value => `${Math.round(value * 100)}%`} />
+                  <Slider label="Position X" value={move.x} min={-1} max={1} step={0.005} onChange={x => updateTransform(clip, { x })} format={value => `${Math.round(value * 100)}`} />
+                  <Slider label="Position Y" value={move.y} min={-1} max={1} step={0.005} onChange={y => updateTransform(clip, { y })} format={value => `${Math.round(value * 100)}`} />
+                  <Slider label="Rotate" value={move.rotate} min={-180} max={180} step={1} onChange={rotate => updateTransform(clip, { rotate })} format={value => `${Math.round(value)}°`} />
+                  <div className="flex gap-1">
+                    <Toggle label="Flip horizontally" active={move.flipX} onClick={() => updateTransform(clip, { flipX: !move.flipX })}>⇋ Flip H</Toggle>
+                    <Toggle label="Flip vertically" active={move.flipY} onClick={() => updateTransform(clip, { flipY: !move.flipY })}>⇵ Flip V</Toggle>
+                    <Toggle label="Rotate 90 degrees" active={false} onClick={() => updateTransform(clip, { rotate: ((move.rotate + 90 + 180) % 360) - 180 })}>↻ 90°</Toggle>
+                  </div>
+                  <div className="flex items-center gap-2 text-[10px] text-muted-foreground">
+                    <span className="w-[72px] shrink-0">Motion</span>
+                    <SpydaSelect ariaLabel="Clip motion" value={clip.motion ?? 'none'} onChange={(motion: ClipMotion) => updateClip(clip.id, { motion })} options={CLIP_MOTIONS.map(item => ({ value: item.id, label: item.name }))} className="flex h-7 flex-1 rounded-md bg-white/[0.05] px-2 text-[11px] hover:bg-white/[0.08]" />
+                  </div>
+                  <p className="text-[9px] leading-3 text-muted-foreground">Tip: with the clip selected, drag it in the preview to move it.</p>
                 </Section>
                 <Section title="Colour" action={<button type="button" onClick={() => updateClip(clip.id, { grade: { ...NEUTRAL_GRADE } })} className="text-[10px] text-muted-foreground hover:text-foreground">Reset</button>}>
                   <div className="mb-1.5 grid grid-cols-4 gap-1">
                     {GRADE_PRESETS.map(preset => <button key={preset.name} type="button" onClick={() => updateClip(clip.id, { grade: { ...NEUTRAL_GRADE, ...preset.grade } })} className="h-7 rounded bg-white/[0.05] px-1 text-[9px] font-medium hover:bg-white/[0.1]">{preset.name}</button>)}
                   </div>
                   {GRADE_CONTROLS.map(control => (
-                    <Slider key={control.key} label={control.label} value={clip.grade[control.key]} min={control.min} max={control.max} step={control.step} onChange={value => updateClip(clip.id, current => ({ grade: { ...current.grade, [control.key]: value } }))} />
+                    <Slider key={control.key} label={control.label} value={clip.grade[control.key]} min={control.min} max={control.max} step={control.step} onChange={value => updateClip(clip.id, current => ({ grade: { ...current.grade, [control.key]: value } }), `grade:${clip.id}:${control.key}`)} />
                   ))}
+                  <button type="button" disabled={project.clips.length < 2} onClick={() => change(current => ({ ...current, clips: current.clips.map(item => ({ ...item, grade: { ...clip.grade } })) }))} className="mt-1 h-7 w-full rounded-md bg-white/[0.05] text-[10px] font-semibold hover:bg-white/[0.1] disabled:opacity-40">Apply this colour to every clip</button>
                   <p className="text-[9px] text-muted-foreground">Double-click a slider to reset it.</p>
                 </Section>
                 <Section title="Effect">
-                  <select value={clip.effect} onChange={event => updateClip(clip.id, { effect: event.target.value as EffectId })} className="h-7 w-full rounded-md bg-white/[0.05] px-2 text-[11px] outline-none">
-                    {EFFECTS.map(effect => <option key={effect.id} value={effect.id}>{effect.name}</option>)}
-                  </select>
-                  {clip.effect !== 'none' ? <Slider label="Intensity" value={clip.amount} min={0} max={1} step={0.01} onChange={amount => updateClip(clip.id, { amount })} format={value => `${Math.round(value * 100)}%`} /> : null}
+                  <SpydaSelect ariaLabel="Effect" value={clip.effect} onChange={(effect: EffectId) => updateClip(clip.id, { effect })} options={EFFECTS.map(effect => ({ value: effect.id as EffectId, label: effect.name }))} className="flex h-7 w-full rounded-md bg-white/[0.05] px-2 text-[11px] hover:bg-white/[0.08]" />
+                  {clip.effect !== 'none' ? <Slider label="Intensity" value={clip.amount} min={0} max={1} step={0.01} reset={0.7} onChange={amount => updateClip(clip.id, { amount })} format={value => `${Math.round(value * 100)}%`} /> : null}
                 </Section>
                 {index < project.clips.length - 1 ? (
                   <Section title="Transition to next">
-                    <select value={clip.transition.type} onChange={event => updateClip(clip.id, current => ({ transition: { type: event.target.value as TransitionId, duration: event.target.value === 'cut' ? 0 : current.transition.duration || 0.6 } }))} className="h-7 w-full rounded-md bg-white/[0.05] px-2 text-[11px] outline-none">
-                      {TRANSITIONS.map(transition => <option key={transition.id} value={transition.id}>{transition.name}</option>)}
-                    </select>
-                    {clip.transition.type !== 'cut' ? <Slider label="Duration" value={clip.transition.duration} min={0.1} max={2.5} step={0.05} onChange={duration => updateClip(clip.id, current => ({ transition: { ...current.transition, duration } }))} format={value => `${value.toFixed(2)}s`} /> : null}
+                    <SpydaSelect ariaLabel="Transition" value={clip.transition.type} onChange={(type: TransitionId) => updateClip(clip.id, current => ({ transition: { type, duration: type === 'cut' ? 0 : current.transition.duration || 0.6 } }))} options={TRANSITIONS.map(transition => ({ value: transition.id as TransitionId, label: transition.name }))} className="flex h-7 w-full rounded-md bg-white/[0.05] px-2 text-[11px] hover:bg-white/[0.08]" />
+                    {clip.transition.type !== 'cut' ? <Slider label="Duration" value={clip.transition.duration} min={0.1} max={2.5} step={0.05} reset={0.6} onChange={duration => updateClip(clip.id, current => ({ transition: { ...current.transition, duration } }), `transition:${clip.id}`)} format={value => `${value.toFixed(2)}s`} /> : null}
                   </Section>
                 ) : null}
                 <Section title="Arrange">
                   <div className="grid grid-cols-4 gap-1">
                     <button type="button" onClick={() => moveClip(index, index - 1)} disabled={index === 0} title="Move earlier" className="h-8 rounded bg-white/[0.05] text-[11px] hover:bg-white/[0.1] disabled:opacity-30">◀</button>
                     <button type="button" onClick={() => moveClip(index, index + 1)} disabled={index === project.clips.length - 1} title="Move later" className="h-8 rounded bg-white/[0.05] text-[11px] hover:bg-white/[0.1] disabled:opacity-30">▶</button>
-                    <button type="button" onClick={() => duplicateClip(clip.id)} title="Duplicate" aria-label="Duplicate clip" className="flex h-8 items-center justify-center rounded bg-white/[0.05] hover:bg-white/[0.1]"><Copy className="h-3.5 w-3.5" /></button>
+                    <button type="button" onClick={duplicateSelected} title="Duplicate (Ctrl+D)" aria-label="Duplicate clip" className="flex h-8 items-center justify-center rounded bg-white/[0.05] hover:bg-white/[0.1]"><Copy className="h-3.5 w-3.5" /></button>
                     <button type="button" onClick={removeSelected} title="Delete (Del)" aria-label="Delete clip" className="flex h-8 items-center justify-center rounded bg-white/[0.05] hover:bg-red-500/20"><Trash2 className="h-3.5 w-3.5" /></button>
                   </div>
                 </Section>
@@ -851,50 +1261,92 @@ export default function VideoEditor() {
                   <button key={transition.id} type="button" onClick={() => updateClip(selectedClip.id, current => ({ transition: { type: transition.id as TransitionId, duration: transition.id === 'cut' ? 0 : current.transition.duration || 0.6 } }))} className={`h-9 rounded-lg border text-[11px] ${selectedClip.transition.type === transition.id ? 'border-primary bg-primary/15 text-primary' : 'border-white/[0.08] hover:border-white/25'}`}>{transition.name}</button>
                 ))}
               </div>
-              {selectedClip.transition.type !== 'cut' ? <Slider label="Duration" value={selectedClip.transition.duration} min={0.1} max={2.5} step={0.05} onChange={duration => updateClip(selectedClip.id, current => ({ transition: { ...current.transition, duration } }))} format={value => `${value.toFixed(2)}s`} /> : null}
+              {selectedClip.transition.type !== 'cut' ? <Slider label="Duration" value={selectedClip.transition.duration} min={0.1} max={2.5} step={0.05} reset={0.6} onChange={duration => updateClip(selectedClip.id, current => ({ transition: { ...current.transition, duration } }), `transition:${selectedClip.id}`)} format={value => `${value.toFixed(2)}s`} /> : null}
             </Section>
-          ) : selectedTitle ? (
-            <>
-              <Section title="Title">
-                <textarea value={selectedTitle.text} onChange={event => updateTitle(selectedTitle.id, { text: event.target.value })} rows={2} className="w-full rounded-md bg-white/[0.05] px-2 py-1.5 text-[12px] outline-none focus:ring-1 focus:ring-primary/60" />
-                <div className="grid grid-cols-2 gap-1.5">
-                  <select value={selectedTitle.font} onChange={event => updateTitle(selectedTitle.id, { font: event.target.value })} className="h-7 rounded-md bg-white/[0.05] px-2 text-[11px] outline-none">
-                    {BUNDLED_FAMILIES.map(font => <option key={font.family} value={font.family}>{font.family}</option>)}
-                  </select>
-                  <select value={selectedTitle.weight} onChange={event => updateTitle(selectedTitle.id, { weight: Number(event.target.value) })} className="h-7 rounded-md bg-white/[0.05] px-2 text-[11px] outline-none">
-                    {[400, 500, 600, 700, 800].map(weight => <option key={weight} value={weight}>{weight}</option>)}
-                  </select>
-                </div>
-                <label className="flex items-center gap-2 text-[10px] text-muted-foreground"><span className="w-[68px]">Colour</span><input type="color" value={selectedTitle.color} onChange={event => updateTitle(selectedTitle.id, { color: event.target.value.toUpperCase() })} className="h-7 w-10 cursor-pointer rounded border border-white/10 bg-transparent" /><span className="font-mono text-foreground/80">{selectedTitle.color}</span></label>
-                <Slider label="Size" value={selectedTitle.size} min={0.02} max={0.25} step={0.005} onChange={size => updateTitle(selectedTitle.id, { size })} format={value => `${Math.round(value * 100)}%`} />
-                <Slider label="Across" value={selectedTitle.x} min={0} max={1} step={0.01} onChange={x => updateTitle(selectedTitle.id, { x })} format={value => `${Math.round(value * 100)}%`} />
-                <Slider label="Down" value={selectedTitle.y} min={0} max={1} step={0.01} onChange={y => updateTitle(selectedTitle.id, { y })} format={value => `${Math.round(value * 100)}%`} />
-                <label className="flex items-center gap-2 text-[10px] text-muted-foreground"><input type="checkbox" checked={selectedTitle.background} onChange={event => updateTitle(selectedTitle.id, { background: event.target.checked })} className="accent-[#9dfab0]" /> Background pill</label>
+          ) : selectedTitle ? (() => {
+            const title = { ...TITLE_DEFAULTS, ...selectedTitle }
+            const set = (patch: Partial<Title>) => updateTitle(title.id, patch)
+            return (
+              <>
+                <Section title="Title">
+                  <textarea value={title.text} onChange={event => set({ text: event.target.value })} rows={3} className="w-full resize-y rounded-md bg-white/[0.05] px-2 py-1.5 text-[12px] outline-none focus:ring-1 focus:ring-primary/60" aria-label="Title text" />
+                  <div className="grid grid-cols-[1fr_96px] gap-1.5">
+                    <SpydaSelect ariaLabel="Font" onOpen={loadFontPreviews} value={title.font} onChange={font => set({ font })} options={fontOptions} menuWidth={220} className="flex h-7 rounded-md bg-white/[0.05] px-2 text-[11px] hover:bg-white/[0.08]" />
+                    <SpydaSelect ariaLabel="Font weight" value={title.weight} onChange={weight => set({ weight })} options={[300, 400, 500, 600, 700, 800].map(weight => ({ value: weight, label: ({ 300: 'Light', 400: 'Regular', 500: 'Medium', 600: 'Semibold', 700: 'Bold', 800: 'Extra bold' } as Record<number, string>)[weight], style: { fontWeight: weight } }))} className="flex h-7 rounded-md bg-white/[0.05] px-2 text-[11px] hover:bg-white/[0.08]" />
+                  </div>
+                  <div className="flex gap-1">
+                    <Toggle label="Bold" active={title.weight >= 600} onClick={() => set({ weight: title.weight >= 600 ? 400 : 700 })}><b>B</b></Toggle>
+                    <Toggle label="Italic" active={title.italic} onClick={() => set({ italic: !title.italic })}><i className="font-serif">I</i></Toggle>
+                    <Toggle label="Uppercase" active={title.uppercase} onClick={() => set({ uppercase: !title.uppercase })}>AA</Toggle>
+                    {(['left', 'center', 'right'] as const).map(align => (
+                      <Toggle key={align} label={`Align ${align}`} active={title.align === align} onClick={() => set({ align })}>
+                        <svg viewBox="0 0 16 16" className="h-3.5 w-3.5" fill="none" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" aria-hidden="true">
+                          {align === 'left' ? <path d="M2 4h12M2 8h8M2 12h10" /> : align === 'center' ? <path d="M2 4h12M4 8h8M3 12h10" /> : <path d="M2 4h12M6 8h8M4 12h10" />}
+                        </svg>
+                      </Toggle>
+                    ))}
+                  </div>
+                  <label className="flex items-center gap-2 text-[10px] text-muted-foreground"><span className="w-[72px]">Colour</span><input type="color" value={title.color} onChange={event => set({ color: event.target.value.toUpperCase() })} className="h-7 w-10 cursor-pointer rounded border border-white/10 bg-transparent" /><span className="font-mono text-foreground/80">{title.color}</span></label>
+                  <Slider label="Size" value={title.size} min={0.02} max={0.25} step={0.005} reset={0.085} onChange={size => set({ size })} format={value => `${Math.round(value * 100)}%`} />
+                </Section>
+                <Section title="Spacing">
+                  <Slider label="Line spacing" value={title.lineHeight} min={0.7} max={3} step={0.05} reset={1.2} onChange={lineHeight => set({ lineHeight })} format={value => `${value.toFixed(2)}×`} />
+                  <Slider label="Paragraph" value={title.paragraphSpacing} min={0} max={2} step={0.05} reset={0} onChange={paragraphSpacing => set({ paragraphSpacing })} format={value => `${value.toFixed(2)}×`} />
+                  <Slider label="Letters" value={title.letterSpacing} min={-0.1} max={0.5} step={0.005} reset={0} onChange={letterSpacing => set({ letterSpacing })} format={value => `${Math.round(value * 100)}`} />
+                  <Slider label="Wrap width" value={title.maxWidth} min={0.2} max={1} step={0.01} reset={0.86} onChange={maxWidth => set({ maxWidth })} format={value => `${Math.round(value * 100)}%`} />
+                  <p className="text-[9px] leading-3 text-muted-foreground">Paragraph spacing adds room after each line break (Enter).</p>
+                </Section>
+                <Section title="Style & position">
+                  <Slider label="Outline" value={title.outlineWidth} min={0} max={0.15} step={0.005} reset={0} onChange={outlineWidth => set({ outlineWidth })} format={value => `${Math.round(value * 100)}`} />
+                  {title.outlineWidth > 0 ? <label className="flex items-center gap-2 text-[10px] text-muted-foreground"><span className="w-[72px]">Outline colour</span><input type="color" value={title.outlineColor} onChange={event => set({ outlineColor: event.target.value.toUpperCase() })} className="h-7 w-10 cursor-pointer rounded border border-white/10 bg-transparent" /></label> : null}
+                  <div className="flex gap-1">
+                    <Toggle label="Drop shadow" active={title.shadow} onClick={() => set({ shadow: !title.shadow })}>Shadow</Toggle>
+                    <Toggle label="Background pill" active={title.background} onClick={() => set({ background: !title.background })}>Background</Toggle>
+                    {title.background ? <input type="color" value={title.backgroundColor} onChange={event => set({ backgroundColor: event.target.value.toUpperCase() })} aria-label="Background colour" className="h-7 w-9 cursor-pointer rounded border border-white/10 bg-transparent" /> : null}
+                  </div>
+                  <Slider label="Across" value={title.x} min={0} max={1} step={0.005} reset={0.5} onChange={x => set({ x })} format={value => `${Math.round(value * 100)}%`} />
+                  <Slider label="Down" value={title.y} min={0} max={1} step={0.005} reset={0.5} onChange={y => set({ y })} format={value => `${Math.round(value * 100)}%`} />
+                  <p className="text-[9px] leading-3 text-muted-foreground">Or drag the title in the preview.</p>
+                </Section>
+                <Section title="Timing & animation">
+                  <div className="grid grid-cols-3 gap-1">
+                    {TITLE_ANIMATIONS.map(animation => <button key={animation} type="button" onClick={() => set({ animation })} className={`h-7 rounded text-[10px] capitalize ${title.animation === animation ? 'bg-primary text-primary-foreground' : 'bg-white/[0.05] hover:bg-white/[0.1]'}`}>{animation}</button>)}
+                  </div>
+                  <Slider label="Starts at" value={title.start} min={0} max={Math.max(1, end)} step={0.05} onChange={start => set({ start })} format={formatTime} />
+                  <Slider label="Lasts" value={title.duration} min={0.5} max={30} step={0.1} reset={3} onChange={duration => set({ duration })} format={value => `${value.toFixed(1)}s`} />
+                  <div className="grid grid-cols-2 gap-1.5 pt-1">
+                    <button type="button" onClick={duplicateSelected} className="inline-flex h-8 items-center justify-center gap-1.5 rounded-md bg-white/[0.05] text-[11px] hover:bg-white/[0.1]"><Copy className="h-3.5 w-3.5" /> Duplicate</button>
+                    <button type="button" onClick={removeSelected} className="inline-flex h-8 items-center justify-center gap-1.5 rounded-md bg-white/[0.05] text-[11px] hover:bg-red-500/20"><Trash2 className="h-3.5 w-3.5" /> Delete</button>
+                  </div>
+                </Section>
+              </>
+            )
+          })() : selectedAudio ? (() => {
+            const info = media.find(item => item.id === selectedAudio.mediaId)
+            const length = selectedAudio.out - selectedAudio.in
+            return (
+              <Section title="Music">
+                <p className="truncate text-[12px] font-semibold">{info?.name}</p>
+                <Slider label="Volume" value={selectedAudio.volume} min={0} max={1.5} step={0.01} reset={0.8} onChange={volume => updateAudio(selectedAudio.id, { volume })} format={value => `${Math.round(value * 100)}%`} />
+                <Slider label="Starts at" value={selectedAudio.start} min={0} max={Math.max(1, end)} step={0.05} onChange={start => updateAudio(selectedAudio.id, { start })} format={formatTime} />
+                <Slider label="Trim start" value={selectedAudio.in} min={0} max={Math.max(0, selectedAudio.out - 0.3)} step={0.05} onChange={value => updateAudio(selectedAudio.id, { in: value })} format={formatTime} />
+                <Slider label="Trim end" value={selectedAudio.out} min={selectedAudio.in + 0.3} max={info?.duration ?? selectedAudio.out} step={0.05} reset={info?.duration ?? selectedAudio.out} onChange={value => updateAudio(selectedAudio.id, { out: value })} format={formatTime} />
+                <Slider label="Fade in" value={selectedAudio.fadeIn} min={0} max={Math.min(10, length / 2)} step={0.1} onChange={fadeIn => updateAudio(selectedAudio.id, { fadeIn })} format={value => `${value.toFixed(1)}s`} />
+                <Slider label="Fade out" value={selectedAudio.fadeOut} min={0} max={Math.min(10, length / 2)} step={0.1} onChange={fadeOut => updateAudio(selectedAudio.id, { fadeOut })} format={value => `${value.toFixed(1)}s`} />
+                <button type="button" onClick={() => end > 0 && updateAudio(selectedAudio.id, { start: 0, out: Math.min(info?.duration ?? selectedAudio.out, selectedAudio.in + total), fadeOut: Math.max(selectedAudio.fadeOut, 1.5) })} disabled={!total} className="h-7 w-full rounded-md bg-white/[0.05] text-[10px] font-semibold hover:bg-white/[0.1] disabled:opacity-40">Fit to the video, with a fade out</button>
+                <button type="button" onClick={removeSelected} className="mt-1 inline-flex h-8 w-full items-center justify-center gap-1.5 rounded-md bg-white/[0.05] text-[11px] hover:bg-red-500/20"><Trash2 className="h-3.5 w-3.5" /> Remove music</button>
               </Section>
-              <Section title="Timing & animation">
-                <div className="grid grid-cols-3 gap-1">
-                  {TITLE_ANIMATIONS.map(animation => <button key={animation} type="button" onClick={() => updateTitle(selectedTitle.id, { animation })} className={`h-7 rounded text-[10px] capitalize ${selectedTitle.animation === animation ? 'bg-primary text-primary-foreground' : 'bg-white/[0.05] hover:bg-white/[0.1]'}`}>{animation}</button>)}
-                </div>
-                <Slider label="Starts at" value={selectedTitle.start} min={0} max={Math.max(1, end)} step={0.05} onChange={start => updateTitle(selectedTitle.id, { start })} format={formatTime} />
-                <Slider label="Lasts" value={selectedTitle.duration} min={0.5} max={20} step={0.1} onChange={duration => updateTitle(selectedTitle.id, { duration })} format={value => `${value.toFixed(1)}s`} />
-                <button type="button" onClick={removeSelected} className="mt-1 inline-flex h-8 w-full items-center justify-center gap-1.5 rounded-md bg-white/[0.05] text-[11px] hover:bg-red-500/20"><Trash2 className="h-3.5 w-3.5" /> Delete title</button>
-              </Section>
-            </>
-          ) : selectedAudio ? (
-            <Section title="Music">
-              <p className="truncate text-[12px] font-semibold">{media.find(item => item.id === selectedAudio.mediaId)?.name}</p>
-              <Slider label="Volume" value={selectedAudio.volume} min={0} max={1.5} step={0.01} onChange={volume => updateAudio(selectedAudio.id, { volume })} format={value => `${Math.round(value * 100)}%`} />
-              <Slider label="Starts at" value={selectedAudio.start} min={0} max={Math.max(1, end)} step={0.05} onChange={start => updateAudio(selectedAudio.id, { start })} format={formatTime} />
-              <button type="button" onClick={removeSelected} className="mt-1 inline-flex h-8 w-full items-center justify-center gap-1.5 rounded-md bg-white/[0.05] text-[11px] hover:bg-red-500/20"><Trash2 className="h-3.5 w-3.5" /> Remove music</button>
-            </Section>
-          ) : (
+            )
+          })() : (
             <div className="space-y-3 p-4 text-[11px] leading-5 text-muted-foreground">
               <p className="flex items-center gap-2 text-[12px] font-semibold text-foreground"><Wand2 className="h-4 w-4 text-primary" /> Edit like a pro</p>
-              <p>Select a clip to trim it, change its speed and sound, grade its colour and give it an effect. Click a ◆ between clips to choose the transition.</p>
+              <p>Select a clip to trim it, frame and move it, change its speed and sound, grade its colour and give it an effect. Click a ◆ between clips to choose the transition.</p>
               <ul className="space-y-1 text-[10px]">
                 <li><b className="text-foreground">Space</b> play · <b className="text-foreground">S</b> split · <b className="text-foreground">Del</b> delete</li>
+                <li><b className="text-foreground">Ctrl+Z</b> undo · <b className="text-foreground">Ctrl+Shift+Z</b> redo · <b className="text-foreground">Ctrl+D</b> duplicate</li>
                 <li><b className="text-foreground">← →</b> one frame · <b className="text-foreground">Shift</b> one second</li>
-                <li>Drag a clip's edges to trim, drag clips to reorder</li>
+                <li><b className="text-foreground">Shift/Ctrl + wheel</b> zoom the timeline · <b className="text-foreground">\</b> fit</li>
+                <li>Drag media onto a track · drag a clip&apos;s edges to trim · drag clips to reorder</li>
               </ul>
             </div>
           )}
@@ -904,48 +1356,67 @@ export default function VideoEditor() {
       {/* Timeline */}
       <div className="h-[208px] shrink-0 border-t border-white/[0.06] bg-[#0f1012]">
         <div className="flex h-full">
-          <div className="w-[92px] shrink-0 border-r border-white/[0.06] pt-6 text-[10px] text-muted-foreground">
+          <div className="shrink-0 border-r border-white/[0.06] pt-6 text-[10px] text-muted-foreground" style={{ width: TRACK_HEAD }}>
             <p className="flex h-[78px] items-center gap-1.5 px-3"><Clapperboard className="h-3.5 w-3.5" /> Video</p>
             <p className="flex h-[44px] items-center gap-1.5 px-3"><Type className="h-3.5 w-3.5" /> Titles</p>
             <p className="flex h-[44px] items-center gap-1.5 px-3">♪ Music</p>
           </div>
-          <div className="relative min-w-0 flex-1 overflow-x-auto overflow-y-hidden">
+          <div ref={scrollerRef} className="relative min-w-0 flex-1 overflow-x-auto overflow-y-hidden [scrollbar-width:thin]">
             <div className="relative h-full" style={{ width: timelineWidth }}>
               {/* Ruler: click or drag to move the playhead. */}
               <div
                 className="sticky top-0 h-6 cursor-pointer border-b border-white/[0.06] bg-[#111214]"
                 onPointerDown={event => {
                   const rect = event.currentTarget.getBoundingClientRect()
-                  seek((event.clientX - rect.left) / zoom)
-                  dragStart(event, dx => seek((event.clientX - rect.left) / zoom + dx))
+                  const at = (event.clientX - rect.left) / zoom
+                  seek(at)
+                  dragStart(event, dx => seek(at + dx), 'seek')
                 }}
               >
-                {Array.from({ length: Math.ceil(timelineWidth / zoom) + 1 }, (_, second) => (
-                  <span key={second} className="absolute top-0 h-full border-l border-white/[0.08] pl-1 font-mono text-[9px] text-muted-foreground" style={{ left: second * zoom }}>
-                    {second % (zoom < 40 ? 5 : zoom < 90 ? 2 : 1) === 0 ? formatTime(second).replace(/\.0$/, '') : ''}
-                  </span>
-                ))}
+                {Array.from({ length: Math.ceil(timelineWidth / zoom / step) + 1 }, (_, index) => {
+                  const second = index * step
+                  return (
+                    <span key={index} className="absolute top-0 h-full border-l border-white/[0.1] pl-1 font-mono text-[9px] text-muted-foreground" style={{ left: second * zoom }}>
+                      {step < 1 ? formatTime(second) : formatTime(second).replace(/\.0$/, '')}
+                      {[1, 2, 3].map(minor => <span key={minor} className="absolute bottom-0 h-1.5 border-l border-white/[0.07]" style={{ left: (minor * step * zoom) / 4 - 4 }} />)}
+                    </span>
+                  )
+                })}
               </div>
 
               {/* Video track */}
-              <div className="relative h-[78px] border-b border-white/[0.04]" onPointerDown={event => { if (event.target === event.currentTarget) setSelection(null) }}>
+              <div
+                className="relative h-[78px] border-b border-white/[0.04]"
+                onPointerDown={event => { if (event.target === event.currentTarget) setSelection(null) }}
+                onDragOver={onTrackDragOver('video')}
+                onDragLeave={event => { if (event.currentTarget === event.target) setDropMarker(null) }}
+                onDrop={onTrackDrop('video')}
+              >
+                {!placed.length ? <p className="pointer-events-none absolute inset-y-0 left-3 flex items-center text-[10px] text-muted-foreground">Drag video or pictures here</p> : null}
                 {placed.map(item => {
                   const info = mediaFor(item.clip)
                   const selected = selection?.kind === 'clip' && selection.id === item.clip.id
+                  const tileWidth = info?.width && info.height ? Math.max(24, 58 * info.width / info.height) : 100
                   return (
                     <div
                       key={item.clip.id}
                       draggable
-                      onDragStart={() => { dragIndex.current = item.index }}
-                      onDragOver={event => event.preventDefault()}
-                      onDrop={event => { event.preventDefault(); event.stopPropagation(); if (dragIndex.current != null) moveClip(dragIndex.current, item.index); dragIndex.current = null }}
+                      onDragStart={event => {
+                        if (trimming.current) { event.preventDefault(); return }
+                        dragIndex.current = item.index
+                        event.dataTransfer.setData(CLIP_MIME, item.clip.id)
+                        event.dataTransfer.effectAllowed = 'move'
+                      }}
+                      onDragEnd={() => { dragIndex.current = null; setDropMarker(null) }}
                       onClick={() => setSelection({ kind: 'clip', id: item.clip.id })}
                       className={`absolute top-2 h-[62px] cursor-pointer overflow-hidden rounded-md border-2 ${selected ? 'border-primary' : 'border-white/[0.12] hover:border-white/30'}`}
-                      style={{ left: item.start * zoom, width: Math.max(8, item.length * zoom), backgroundImage: info?.thumbnail ? `url(${info.thumbnail})` : undefined, backgroundSize: 'auto 100%', backgroundRepeat: 'repeat-x', backgroundColor: '#1f2a26' }}
+                      style={{ left: item.start * zoom, width: Math.max(8, item.length * zoom), backgroundImage: info?.thumbnail ? `url(${info.thumbnail})` : undefined, backgroundSize: `${tileWidth}px 100%`, backgroundRepeat: 'repeat-x', backgroundColor: '#1f2a26' }}
                     >
                       <span className="absolute inset-x-0 bottom-0 truncate bg-black/65 px-1.5 py-0.5 text-[9px]">
                         {info?.name}{item.clip.speed !== 1 ? ` · ${item.clip.speed}×` : ''}{item.clip.effect !== 'none' ? ` · ${EFFECTS.find(effect => effect.id === item.clip.effect)?.name}` : ''}
                       </span>
+                      {item.clip.fadeIn ? <span className="pointer-events-none absolute left-0 top-0 h-full bg-gradient-to-r from-black/60 to-transparent" style={{ width: item.clip.fadeIn * zoom }} /> : null}
+                      {item.clip.fadeOut ? <span className="pointer-events-none absolute right-0 top-0 h-full bg-gradient-to-l from-black/60 to-transparent" style={{ width: item.clip.fadeOut * zoom }} /> : null}
                       <span onPointerDown={event => trimClip(event, item.clip, 'in')} className="absolute inset-y-0 left-0 w-2 cursor-ew-resize bg-white/0 hover:bg-primary/60" title="Drag to trim the start" />
                       <span onPointerDown={event => trimClip(event, item.clip, 'out')} className="absolute inset-y-0 right-0 w-2 cursor-ew-resize bg-white/0 hover:bg-primary/60" title="Drag to trim the end" />
                     </div>
@@ -964,10 +1435,11 @@ export default function VideoEditor() {
                     transition
                   </button>
                 ))}
+                {dropMarker?.track === 'video' ? <span className="pointer-events-none absolute inset-y-1 z-20 w-0.5 -translate-x-1/2 rounded bg-primary shadow-[0_0_10px_#9dfab0]" style={{ left: dropMarker.x }} /> : null}
               </div>
 
               {/* Titles */}
-              <div className="relative h-[44px] border-b border-white/[0.04]">
+              <div className="relative h-[44px] border-b border-white/[0.04]" onPointerDown={event => { if (event.target === event.currentTarget) setSelection(null) }}>
                 {project.titles.map(title => {
                   const selected = selection?.kind === 'title' && selection.id === title.id
                   return (
@@ -976,20 +1448,27 @@ export default function VideoEditor() {
                       onPointerDown={event => {
                         setSelection({ kind: 'title', id: title.id })
                         const start = title.start
-                        dragStart(event, dx => updateTitle(title.id, { start: Math.max(0, start + dx) }))
+                        dragStart(event, dx => updateTitle(title.id, { start: snap(Math.max(0, start + dx), title.id) }, `drag:${title.id}`), `drag:${title.id}`)
                       }}
                       className={`absolute top-2 flex h-7 cursor-grab items-center truncate rounded-md border px-2 text-[10px] font-medium ${selected ? 'border-primary bg-primary/25' : 'border-[#c4a3ff]/40 bg-[#c4a3ff]/15'}`}
                       style={{ left: title.start * zoom, width: Math.max(16, title.duration * zoom) }}
                     >
-                      {title.text}
-                      <span onPointerDown={event => { const duration = title.duration; dragStart(event, dx => updateTitle(title.id, { duration: Math.max(0.5, duration + dx) })) }} className="absolute inset-y-0 right-0 w-2 cursor-ew-resize hover:bg-primary/60" />
+                      {title.text.split('\n')[0]}
+                      <span onPointerDown={event => { const duration = title.duration; dragStart(event, dx => updateTitle(title.id, { duration: Math.max(0.5, snap(title.start + duration + dx, title.id) - title.start) }, `len:${title.id}`), `len:${title.id}`) }} className="absolute inset-y-0 right-0 w-2 cursor-ew-resize hover:bg-primary/60" />
                     </div>
                   )
                 })}
               </div>
 
               {/* Music */}
-              <div className="relative h-[44px]">
+              <div
+                className="relative h-[44px]"
+                onPointerDown={event => { if (event.target === event.currentTarget) setSelection(null) }}
+                onDragOver={onTrackDragOver('music')}
+                onDragLeave={event => { if (event.currentTarget === event.target) setDropMarker(null) }}
+                onDrop={onTrackDrop('music')}
+              >
+                {!project.audio.length ? <p className="pointer-events-none absolute inset-y-0 left-3 flex items-center text-[10px] text-muted-foreground">Drag music here</p> : null}
                 {project.audio.map(track => {
                   const info = media.find(item => item.id === track.mediaId)
                   const selected = selection?.kind === 'audio' && selection.id === track.id
@@ -999,26 +1478,28 @@ export default function VideoEditor() {
                       onPointerDown={event => {
                         setSelection({ kind: 'audio', id: track.id })
                         const start = track.start
-                        dragStart(event, dx => updateAudio(track.id, { start: Math.max(0, start + dx) }))
+                        dragStart(event, dx => updateAudio(track.id, { start: snap(Math.max(0, start + dx), track.id) }, `drag:${track.id}`), `drag:${track.id}`)
                       }}
                       className={`absolute top-2 flex h-7 cursor-grab items-center truncate rounded-md border px-2 text-[10px] ${selected ? 'border-primary bg-primary/25' : 'border-[#ffb36b]/40 bg-[#ffb36b]/15'}`}
-                      style={{ left: track.start * zoom, width: Math.max(16, (info?.duration ?? 1) * zoom) }}
+                      style={{ left: track.start * zoom, width: Math.max(16, (track.out - track.in) * zoom) }}
                     >
                       ♪ {info?.name}
+                      <span onPointerDown={event => trimAudio(event, track, 'in')} className="absolute inset-y-0 left-0 w-2 cursor-ew-resize hover:bg-primary/60" title="Drag to trim the start" />
+                      <span onPointerDown={event => trimAudio(event, track, 'out')} className="absolute inset-y-0 right-0 w-2 cursor-ew-resize hover:bg-primary/60" title="Drag to trim the end" />
                     </div>
                   )
                 })}
+                {dropMarker?.track === 'music' ? <span className="pointer-events-none absolute inset-y-1 z-20 w-0.5 -translate-x-1/2 rounded bg-[#ffb36b] shadow-[0_0_10px_#ffb36b]" style={{ left: dropMarker.x }} /> : null}
               </div>
 
               {/* Playhead */}
-              <div className="pointer-events-none absolute inset-y-0 z-20 w-px bg-[#ff4fd8]" style={{ left: time * zoom }}>
+              <div className="pointer-events-none absolute inset-y-0 z-30 w-px bg-[#ff4fd8]" style={{ left: time * zoom }}>
                 <span className="absolute -left-1.5 top-0 h-3 w-3 rotate-45 bg-[#ff4fd8]" />
               </div>
             </div>
           </div>
         </div>
       </div>
-      <button type="button" onClick={() => navigate('/workspace')} className="sr-only"><ArrowLeft className="h-3 w-3" /> Back</button>
     </main>
   )
 }

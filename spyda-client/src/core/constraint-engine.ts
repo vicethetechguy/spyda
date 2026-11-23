@@ -41,7 +41,7 @@ export type DesignEditIntent = {
     | 'zIndex' | 'duplicate' | 'create'
     | 'borderRadius' | 'strokeWidth' | 'letterSpacing' | 'lineHeight'
     | 'flipX' | 'flipY' | 'lockAspectRatio'
-    | 'fx' | 'groupId'
+    | 'fx' | 'groupId' | 'typography'
   value: unknown
   explicitGeometryChange?: boolean
 }
@@ -55,6 +55,8 @@ const STRUCTURAL_PROPERTIES: ReadonlyArray<DesignEditIntent['property']> = [
   'fx',
   // Grouping only ties layers together for selection; it changes nothing they draw.
   'groupId',
+  // Italic, underline, case and paragraph spacing: a partial patch, like fx.
+  'typography',
 ]
 
 type DuplicateSpec = { id: string; name?: string; zIndex?: number }
@@ -186,6 +188,16 @@ export function applyDesignEdits(referenceInput: DesignDocument, intents: Design
         else next[key] = value
       }
       object.style.fx = next as DesignObject['style']['fx']
+    }
+
+    if (intent.property === 'typography') {
+      const patch = (intent.value && typeof intent.value === 'object' ? intent.value : {}) as Record<string, unknown>
+      const next: Record<string, unknown> = { ...(object.style.typography ?? {}) }
+      for (const [key, value] of Object.entries(patch)) {
+        if (value === undefined || value === null || value === false || value === 0 || value === 'none') delete next[key]
+        else next[key] = value
+      }
+      object.style.typography = next as DesignObject['style']['typography']
     }
 
     if (intent.property === 'duplicate') {

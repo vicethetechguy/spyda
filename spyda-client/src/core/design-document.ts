@@ -107,6 +107,20 @@ export const ObjectEffectsSchema = z.object({
 
 export type ObjectEffects = z.infer<typeof ObjectEffectsSchema>
 
+export const TEXT_CASES = ['none', 'upper', 'lower', 'title'] as const
+
+/** Type settings beyond font, size and spacing; optional for older documents. */
+export const TypographySchema = z.object({
+  /** Extra space after each paragraph (a line break), in document pixels. */
+  paragraphSpacing: z.number().min(0).max(1000).nullable().optional(),
+  italic: z.boolean().nullable().optional(),
+  underline: z.boolean().nullable().optional(),
+  strike: z.boolean().nullable().optional(),
+  case: z.enum(TEXT_CASES).nullable().optional(),
+}).strict()
+
+export type Typography = z.infer<typeof TypographySchema>
+
 const ObjectStyleSchema = z.object({
   description: z.string(),
   fill: z.string().nullable(),
@@ -122,6 +136,7 @@ const ObjectStyleSchema = z.object({
   strokeWidth: z.number().min(0).nullable().optional(),
   effects: z.array(z.string()),
   fx: ObjectEffectsSchema.optional(),
+  typography: TypographySchema.optional(),
 }).strict()
 
 const ObjectConstraintsSchema = z.object({

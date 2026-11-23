@@ -1,9 +1,10 @@
 import { useEffect, useRef, useState, type KeyboardEvent, type ReactNode } from 'react'
 import type { DesignEditIntent } from '../../core/constraint-engine'
 import type { DesignObject, PercentBox } from '../../core/design-document'
-import { BUNDLED_FAMILIES } from '../../lib/fonts'
+import { BUNDLED_FAMILIES, loadFontPreviews, previewFamily } from '../../lib/fonts'
 import { ArrowDown, ArrowUp, Copy, ImagePlus, Layers, Loader2, Lock, Sparkles, Trash2, Wand2 } from '../ui/icons'
 import EffectsPanel from './EffectsPanel'
+import SpydaSelect from '../ui/SpydaSelect'
 
 /**
  * The inspector, laid out like Figma's Design panel: align, position and size
@@ -37,6 +38,32 @@ function normaliseHex(value: string) {
 }
 
 const round = (value: number, digits = 1) => Math.round(value * 10 ** digits) / 10 ** digits
+
+const WEIGHT_NAMES: Record<string, string> = { '300': 'Light', '400': 'Regular', '500': 'Medium', '600': 'Semibold', '700': 'Bold', '800': 'Extra bold' }
+
+/** A labelled slider with its exact value beside it; double-click the slider to reset. */
+function SpacingRow({ label, short, value, min, max, step, reset, suffix, disabled, onChange }: {
+  label: string; short?: string; value: number; min: number; max: number; step: number; reset: number; suffix?: string; disabled?: boolean; onChange: (value: number) => void
+}) {
+  return (
+    <label className="flex items-center gap-2 text-[10px] text-muted-foreground">
+      <span className="w-[54px] shrink-0 whitespace-nowrap" title={label}>{short ?? label}</span>
+      <input type="range" min={min} max={max} step={step} value={value} disabled={disabled} onChange={event => onChange(Number(event.target.value))} onDoubleClick={() => onChange(reset)} aria-label={label} className="min-w-0 flex-1 accent-[#9dfab0] disabled:opacity-40" />
+      <input
+        type="number"
+        min={min}
+        max={max}
+        step={step}
+        value={round(value, 2)}
+        disabled={disabled}
+        onChange={event => { const next = Number(event.target.value); if (Number.isFinite(next)) onChange(Math.min(max, Math.max(min, next))) }}
+        aria-label={`${label} value`}
+        className="h-6 w-12 rounded bg-white/[0.05] px-1 text-right font-mono text-[10px] text-foreground outline-none focus:ring-1 focus:ring-primary/60 disabled:opacity-40"
+      />
+      {suffix ? <span className="-ml-1 w-3 text-[9px]">{suffix}</span> : null}
+    </label>
+  )
+}
 
 function Section({ title, children, action }: { title: string; children: ReactNode; action?: ReactNode }) {
   return (
@@ -199,6 +226,8 @@ export default function PropertiesPanel({
   const fileRef = useRef<HTMLInputElement | null>(null)
   const locked = object.protection.locked
   const can = (property: string) => !locked && object.protection.editableProperties.includes(property)
+  const typography = object.style.typography ?? {}
+  const onTypography = (patch: Record<string, unknown>) => onIntent({ objectId: object.id, property: 'typography', value: patch })
   const bounds = object.transform.bounds ?? { x: 0, y: 0, width: 100, height: 100 }
   const isText = object.kind === 'text' || object.kind === 'action'
   const isPicture = object.kind === 'image' || object.kind === 'logo' || object.kind === 'icon' || object.kind === 'qr-code'
@@ -364,30 +393,51 @@ export default function PropertiesPanel({
               disabled={!can('text')}
               className="w-full resize-y rounded-md bg-white/[0.04] px-2 py-1.5 text-[12px] leading-5 outline-none focus:ring-1 focus:ring-primary/60"
             />
-            <select
+            <SpydaSelect
+              ariaLabel="Font"
+              onOpen={loadFontPreviews}
               value={object.style.fontFamily ?? ''}
-              onChange={event => onIntent({ objectId: object.id, property: 'fontFamily', value: event.target.value })}
+              onChange={value => onIntent({ objectId: object.id, property: 'fontFamily', value })}
               disabled={!can('fontFamily')}
-              className="h-7 w-full rounded-md bg-white/[0.04] px-2 text-[11px] outline-none"
-            >
-              <option value="">Default</option>
-              {BUNDLED_FAMILIES.map(font => <option key={font.family} value={font.family}>{font.family}</option>)}
-              {object.style.fontFamily && !BUNDLED_FAMILIES.some(font => font.family === object.style.fontFamily)
-                ? <option value={object.style.fontFamily}>{object.style.fontFamily}</option>
-                : null}
-            </select>
+              className="flex h-7 w-full rounded-md bg-white/[0.04] px-2 text-[11px] hover:bg-white/[0.08]"
+              options={[
+                { value: '', label: 'Default' },
+                ...BUNDLED_FAMILIES.map(font => ({ value: font.family, label: font.family, style: { fontFamily: previewFamily(font.family) } })),
+                ...(object.style.fontFamily && !BUNDLED_FAMILIES.some(font => font.family === object.style.fontFamily)
+                  ? [{ value: object.style.fontFamily, label: object.style.fontFamily }]
+                  : []),
+              ]}
+            />
             <div className="grid grid-cols-2 gap-1.5">
-              <select
+              <SpydaSelect
+                ariaLabel="Font weight"
                 value={object.style.fontWeight ?? '400'}
-                onChange={event => onIntent({ objectId: object.id, property: 'fontWeight', value: event.target.value })}
+                onChange={value => onIntent({ objectId: object.id, property: 'fontWeight', value })}
                 disabled={!can('fontWeight')}
-                className="h-7 rounded-md bg-white/[0.04] px-2 text-[11px] outline-none"
-              >
-                {['300', '400', '500', '600', '700', '800'].map(weight => <option key={weight} value={weight}>{{ '300': 'Light', '400': 'Regular', '500': 'Medium', '600': 'Semibold', '700': 'Bold', '800': 'Extra bold' }[weight]}</option>)}
-              </select>
+                className="flex h-7 rounded-md bg-white/[0.04] px-2 text-[11px] hover:bg-white/[0.08]"
+                options={['300', '400', '500', '600', '700', '800'].map(weight => ({ value: weight, label: WEIGHT_NAMES[weight], style: { fontWeight: Number(weight) } }))}
+              />
               <NumberField label="S" title="Font size" value={object.style.fontSize ?? 48} min={6} max={600} onCommit={size => onIntent({ objectId: object.id, property: 'fontSize', value: size })} disabled={!can('fontSize')} />
-              <NumberField label="↕" title="Line height" value={object.style.lineHeight ?? 1.2} step={0.05} min={0.6} max={4} onCommit={value => onIntent({ objectId: object.id, property: 'lineHeight', value })} disabled={!can('lineHeight')} />
-              <NumberField label="↔" title="Letter spacing" value={object.style.letterSpacing ?? 0} step={0.5} min={-20} max={100} onCommit={value => onIntent({ objectId: object.id, property: 'letterSpacing', value })} disabled={!can('letterSpacing')} />
+            </div>
+            {/* Type style: bold, italic, underline, strikethrough and letter case. */}
+            <div className="flex items-center gap-1">
+              <div className="flex gap-0.5 rounded-md bg-white/[0.03] p-0.5">
+                <IconButton label="Bold" active={Number(object.style.fontWeight ?? 400) >= 600} disabled={!can('fontWeight')} onClick={() => onIntent({ objectId: object.id, property: 'fontWeight', value: Number(object.style.fontWeight ?? 400) >= 600 ? '400' : '700' })}><span className="text-[12px] font-bold">B</span></IconButton>
+                <IconButton label="Italic" active={Boolean(typography.italic)} disabled={locked} onClick={() => onTypography({ italic: !typography.italic })}><span className="font-serif text-[12px] italic">I</span></IconButton>
+                <IconButton label="Underline" active={Boolean(typography.underline)} disabled={locked} onClick={() => onTypography({ underline: !typography.underline })}><span className="text-[12px] underline">U</span></IconButton>
+                <IconButton label="Strikethrough" active={Boolean(typography.strike)} disabled={locked} onClick={() => onTypography({ strike: !typography.strike })}><span className="text-[12px] line-through">S</span></IconButton>
+              </div>
+              <div className="flex gap-0.5 rounded-md bg-white/[0.03] p-0.5">
+                {([['none', 'Aa', 'As typed'], ['upper', 'AA', 'Uppercase'], ['lower', 'aa', 'Lowercase'], ['title', 'Tt', 'Title Case']] as const).map(([value, glyph, label]) => (
+                  <IconButton key={value} label={label} active={(typography.case ?? 'none') === value} disabled={locked} onClick={() => onTypography({ case: value })}><span className="text-[10px] font-semibold">{glyph}</span></IconButton>
+                ))}
+              </div>
+            </div>
+            <div className="space-y-1 rounded-md bg-white/[0.02] p-1.5">
+              <SpacingRow label="Line spacing" short="Line" value={object.style.lineHeight ?? 1.2} min={0.6} max={3} step={0.05} reset={1.2} suffix="×" disabled={!can('lineHeight')} onChange={value => onIntent({ objectId: object.id, property: 'lineHeight', value })} />
+              <SpacingRow label="Letter spacing" short="Letter" value={object.style.letterSpacing ?? 0} min={-10} max={60} step={0.5} reset={0} disabled={!can('letterSpacing')} onChange={value => onIntent({ objectId: object.id, property: 'letterSpacing', value })} />
+              <SpacingRow label="Paragraph spacing" short="Paragraph" value={typography.paragraphSpacing ?? 0} min={0} max={200} step={1} reset={0} disabled={locked} onChange={value => onTypography({ paragraphSpacing: value })} />
+              <p className="text-[9px] leading-3 text-muted-foreground">Paragraph spacing adds room after each line break (Enter) in the text.</p>
             </div>
             <div className="flex gap-0.5 rounded-md bg-white/[0.03] p-0.5">
               {(['left', 'center', 'right', 'justify'] as const).map(align => (

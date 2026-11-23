@@ -70,12 +70,12 @@ type Notice = { tone: 'info' | 'warn' | 'error'; text: string }
  * layers, however fast they arrive.
  */
 const CONTINUOUS_PROPERTIES: ReadonlySet<DesignEditIntent['property']> = new Set([
-  'text', 'fill', 'stroke', 'opacity', 'fontFamily', 'fontSize', 'fontWeight', 'textAlign', 'bounds', 'rotation', 'fx',
+  'text', 'fill', 'stroke', 'opacity', 'fontFamily', 'fontSize', 'fontWeight', 'textAlign', 'bounds', 'rotation', 'fx', 'typography', 'lineHeight', 'letterSpacing',
 ])
 
 /** Edits that turn a lifted (pixel) text layer into live text. */
 const LIVE_TEXT_EDITS: ReadonlySet<DesignEditIntent['property']> = new Set([
-  'text', 'fontFamily', 'fontSize', 'fontWeight', 'textAlign', 'fill', 'stroke', 'strokeWidth', 'letterSpacing', 'lineHeight',
+  'text', 'fontFamily', 'fontSize', 'fontWeight', 'textAlign', 'fill', 'stroke', 'strokeWidth', 'letterSpacing', 'lineHeight', 'typography',
 ])
 
 /**

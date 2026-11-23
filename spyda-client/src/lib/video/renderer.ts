@@ -73,16 +73,37 @@ export const NEUTRAL_GRADE: Grade = {
 
 const GRADE_KEYS: Array<keyof Grade> = ['exposure', 'brightness', 'contrast', 'saturation', 'vibrance', 'temperature', 'tint', 'highlights', 'shadows', 'vignette', 'fade', 'hue']
 
+/** How a clip sits in the frame: whole with bars, whole over a blurred copy of itself, or filling it. */
+export type ClipFit = 'contain' | 'blur' | 'cover'
+
+/** Position, size and orientation of a clip in the frame. */
+export type ClipTransform = {
+  /** 1 = framed by `fit`; 2 = twice as big. */
+  scale: number
+  /** Offset as a fraction of the frame. */
+  x: number
+  y: number
+  /** Degrees, clockwise. */
+  rotate: number
+  flipX: boolean
+  flipY: boolean
+}
+
+export const IDENTITY_TRANSFORM: ClipTransform = { scale: 1, x: 0, y: 0, rotate: 0, flipX: false, flipY: false }
+
 export type ClipLayer = {
   source: TexImageSource
   width: number
   height: number
-  fit: 'cover' | 'contain'
+  fit: ClipFit
   grade: Grade
   effect: EffectId
   amount: number   // 0..1
   /** Seconds into the clip, for effects that move. */
   time: number
+  transform?: ClipTransform
+  /** 0..1; below 1 fades towards black (clip fade in and out). */
+  opacity?: number
 }
 
 const VERTEX = `#version 300 es
@@ -103,10 +124,15 @@ uniform vec2 uRes;
 
 uniform sampler2D uTex;
 uniform vec4 uFit;      // scale.xy, offset.xy (uv into the source)
+uniform vec4 uCover;    // the same, filling the frame (for the blurred backdrop)
 uniform float uGrade[12];
 uniform int uFx;
 uniform float uAmt;
 uniform float uTime;
+uniform vec4 uXform;    // scale, rotation (radians), x, y
+uniform vec2 uFlip;     // 1 = flipped
+uniform int uBlurBg;
+uniform float uOpacity;
 
 float hash(vec2 p) { return fract(sin(dot(p, vec2(127.1, 311.7))) * 43758.5453); }
 float luma(vec3 c) { return dot(c, vec3(0.2126, 0.7152, 0.0722)); }
@@ -273,9 +299,32 @@ vec3 look(vec3 c, vec2 uv, int fx, float amt, float t) {
   return c;
 }
 
+// A heavily blurred, dimmed copy of the clip filling the frame, from the
+// texture's small mip levels (cheap and smooth at any size).
+vec3 backdrop(vec2 uv) {
+  vec2 s = uv * uCover.xy + uCover.zw;
+  vec3 sum = vec3(0.0);
+  for (int x = -1; x <= 1; x++) for (int y = -1; y <= 1; y++) sum += textureLod(uTex, s + vec2(float(x), float(y)) * 0.03, 6.0).rgb;
+  return sum / 9.0 * 0.62;
+}
+
 void main() {
-  vec3 c = look(grade(spatial(uTex, uFit, vUv, uFx, uAmt, uTime), uGrade, vUv), vUv, uFx, uAmt, uTime);
-  outColor = vec4(clamp(c, 0.0, 1.0), 1.0);
+  // Undo the clip's own move, rotation, size and flip to find where to read it.
+  float aspect = uRes.x / uRes.y;
+  vec2 q = vUv - 0.5 - uXform.zw;
+  q.x *= aspect;
+  float ca = cos(uXform.y), sa = sin(uXform.y);
+  q = mat2(ca, -sa, sa, ca) * q;
+  q /= max(uXform.x, 0.01);
+  q.x /= aspect;
+  q += 0.5;
+  if (uFlip.x > 0.5) q.x = 1.0 - q.x;
+  if (uFlip.y > 0.5) q.y = 1.0 - q.y;
+  vec2 s = q * uFit.xy + uFit.zw;
+  bool inside = s.x >= 0.0 && s.y >= 0.0 && s.x <= 1.0 && s.y <= 1.0;
+  vec3 c = inside ? spatial(uTex, uFit, q, uFx, uAmt, uTime) : (uBlurBg == 1 ? backdrop(vUv) : vec3(0.0));
+  c = look(grade(c, uGrade, vUv), vUv, uFx, uAmt, uTime);
+  outColor = vec4(clamp(c, 0.0, 1.0) * clamp(uOpacity, 0.0, 1.0), 1.0);
 }`
 
 /**
@@ -404,7 +453,7 @@ function compile(gl: WebGL2RenderingContext, type: number, source: string) {
 }
 
 /** Where to sample the source so it covers or fits inside the frame. */
-function fitOf(layer: ClipLayer, frameW: number, frameH: number): [number, number, number, number] {
+function fitOf(layer: Pick<ClipLayer, 'width' | 'height' | 'fit'>, frameW: number, frameH: number): [number, number, number, number] {
   const sourceAspect = layer.width / Math.max(1, layer.height)
   const frameAspect = frameW / frameH
   let sx = 1, sy = 1
@@ -440,6 +489,7 @@ export class VideoRenderer {
     gl.enableVertexAttribArray(0)
     gl.vertexAttribPointer(0, 2, gl.FLOAT, false, 0, 0)
     this.source = this.makeTexture()
+    gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.LINEAR_MIPMAP_LINEAR)
     this.layers = [0, 1].map(() => ({ texture: this.makeTexture(), framebuffer: gl.createFramebuffer()! }))
     gl.useProgram(this.mixProgram)
     gl.uniform1i(this.u(this.mixProgram, 'uA'), 1)
@@ -491,6 +541,7 @@ export class VideoRenderer {
     gl.bindTexture(gl.TEXTURE_2D, this.source)
     try {
       gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA, gl.RGBA, gl.UNSIGNED_BYTE, layer.source)
+      gl.generateMipmap(gl.TEXTURE_2D)
     } catch {
       // A frame not decoded yet keeps the previous one.
     }
@@ -498,6 +549,12 @@ export class VideoRenderer {
     gl.viewport(0, 0, this.canvas.width, this.canvas.height)
     gl.uniform2f(this.u(program, 'uRes'), this.canvas.width, this.canvas.height)
     gl.uniform4fv(this.u(program, 'uFit'), fitOf(layer, this.canvas.width, this.canvas.height))
+    gl.uniform4fv(this.u(program, 'uCover'), fitOf({ ...layer, fit: 'cover' }, this.canvas.width, this.canvas.height))
+    const move = layer.transform ?? IDENTITY_TRANSFORM
+    gl.uniform4f(this.u(program, 'uXform'), move.scale, (move.rotate * Math.PI) / 180, move.x, move.y)
+    gl.uniform2f(this.u(program, 'uFlip'), move.flipX ? 1 : 0, move.flipY ? 1 : 0)
+    gl.uniform1i(this.u(program, 'uBlurBg'), layer.fit === 'blur' ? 1 : 0)
+    gl.uniform1f(this.u(program, 'uOpacity'), layer.opacity ?? 1)
     gl.uniform1fv(this.u(program, 'uGrade'), GRADE_KEYS.map(key => layer.grade[key]))
     gl.uniform1i(this.u(program, 'uFx'), Math.max(0, EFFECTS.findIndex(effect => effect.id === layer.effect)))
     gl.uniform1f(this.u(program, 'uAmt'), layer.amount)

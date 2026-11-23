@@ -847,3 +847,11 @@
 @media (prefers-reduced-motion: reduce) {
   .magic-scan__sweep { animation: none; opacity: 0.5; }
 }
+
+/* Spyda dropdown: grows out of its button. */
+@keyframes spyda-select-in {
+  from { opacity: 0; transform: translateY(-4px) scale(0.97); }
+  to { opacity: 1; transform: none; }
+}
+.spyda-select-menu { animation: spyda-select-in 160ms cubic-bezier(0.2, 0.9, 0.3, 1.1); }
+@media (prefers-reduced-motion: reduce) { .spyda-select-menu { animation: none; } }

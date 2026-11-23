@@ -1,3 +1,4 @@
+import SpydaSelect from '../ui/SpydaSelect'
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { Link } from 'react-router-dom'
 import {
@@ -729,9 +730,7 @@ function ListTemplateDialog({ initialKind, categories, userId, onClose, onListed
             {useCustom ? (
               <input id="tpl-category" value={customCategory} onChange={event => setCustomCategory(event.target.value)} placeholder="Add a new category" className="mt-2 h-10 w-full rounded-lg border border-white/[0.08] bg-background px-3 text-sm outline-none focus:border-primary/50" />
             ) : (
-              <select id="tpl-category" value={category} onChange={event => setCategory(event.target.value)} className="mt-2 h-10 w-full rounded-lg border border-white/[0.08] bg-background px-3 text-sm outline-none focus:border-primary/50">
-                {uniqueCategories.map(value => <option key={value} value={value}>{value}</option>)}
-              </select>
+              <SpydaSelect id="tpl-category" ariaLabel="Category" value={category} onChange={setCategory} options={uniqueCategories.map(value => ({ value, label: value }))} className="mt-2 flex h-10 w-full rounded-lg border border-white/[0.08] bg-background px-3 text-sm hover:border-white/20" />
             )}
             {useCustom && <p className="mt-1.5 text-[11px] text-muted-foreground">New categories are added to the shared list automatically.</p>}
           </div>
