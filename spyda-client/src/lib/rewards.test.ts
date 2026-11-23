@@ -33,3 +33,16 @@ describe('welcome reward helpers', () => {
     }))).toBe(3)
   })
 })
+
+describe('SPYDA early-adopter tiers', () => {
+  it('maps signup numbers to their rate', async () => {
+    const { spydaRate } = await import('./rewards')
+    expect([1, 1000, 1001, 10000, 10001, 100000, 100001, 1000000, 1000001, 0, null].map(spydaRate)).toEqual([10000, 10000, 1000, 1000, 100, 100, 10, 10, 1, 1, 1])
+  })
+  it('accrues in proportion to credits spent', async () => {
+    const { spydaFor } = await import('./rewards')
+    expect(spydaFor(100, 1)).toBe(1000)
+    expect(spydaFor(1000, 2_000_000)).toBe(1)
+    expect(spydaFor(150, 50_000)).toBe(15)
+  })
+})

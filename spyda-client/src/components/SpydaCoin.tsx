@@ -43,9 +43,9 @@ function CoinFace({ side, transform }: { side: 'front' | 'back'; transform: stri
           <>
             <CoinLettering id="spyda-coin-back-text" text="PRE-LAUNCH ALLOCATION · EARNED BY CREATING ·" />
             <div className="spyda-coin__value">
-              <span className="spyda-coin__value-number">1</span>
+              <span className="spyda-coin__value-number">10,000</span>
               <span className="spyda-coin__value-unit">SPYDA</span>
-              <span className="spyda-coin__value-rate">per 1,000 credits</span>
+              <span className="spyda-coin__value-rate">per 1,000 credits · first 1,000 users</span>
             </div>
           </>
         )}
@@ -58,7 +58,7 @@ function CoinFace({ side, transform }: { side: 'front' | 'back'; transform: stri
 export default function SpydaCoin() {
   const half = THICKNESS / 2
   return (
-    <div className="relative mx-auto aspect-square w-full max-w-[430px]" role="img" aria-label="The SPYDA token, a coin earned at 1 SPYDA for every 1,000 credits used">
+    <div className="relative mx-auto aspect-square w-full max-w-[430px]" role="img" aria-label="The SPYDA token, earned by creating: up to 10,000 SPYDA for every 1,000 credits used, the earlier you join">
       {/* Rings and the particles that orbit them */}
       <div className="absolute inset-[3%] rounded-full border border-dashed border-primary/25 motion-safe:animate-[spin_28s_linear_infinite]" />
       <div className="absolute inset-[12%] rounded-full border border-[#88a8ff]/20" />

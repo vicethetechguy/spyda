@@ -144,7 +144,7 @@ function WorkspaceMockup() {
           <div className="shrink-0 px-3 pb-3 pt-2 sm:px-6">
             <div className="rounded-[18px] border border-primary/20 bg-[linear-gradient(180deg,rgba(18,134,111,0.34),rgba(12,91,134,0.22))] p-0.5">
               <div className="flex items-center justify-between gap-2 px-2.5 py-1.5 text-[8px] text-foreground/80">
-                <span className="flex min-w-0 items-center gap-1 truncate"><img src="/assets/spyda-logo.png" alt="" className="h-2.5 w-2.5 object-contain" /> Every 1,000 credits you use earns 1 SPYDA</span>
+                <span className="flex min-w-0 items-center gap-1 truncate"><img src="/assets/spyda-logo.png" alt="" className="h-2.5 w-2.5 object-contain" /> First 1,000 users earn 10,000 SPYDA per 1,000 credits</span>
                 <span className="inline-flex shrink-0 items-center gap-1 rounded-full bg-black/40 px-1.5 py-0.5 font-bold text-primary"><Coins className="h-2 w-2" /> 3,530 credits</span>
               </div>
               <div className="rounded-[15px] border border-white/[0.06] bg-[#08090a] px-2.5 pb-2 pt-2">
@@ -752,15 +752,15 @@ export default function Landing() {
                   <p className="mt-6 max-w-2xl text-base leading-8 text-muted-foreground">Spyda is building a creative economy where eligible product usage becomes proof that you helped grow the network. You get faster, premium design work today and accrue participation in what Spyda can become tomorrow.</p>
 
                   <div className="mt-8 grid gap-3 sm:grid-cols-[1fr_auto_1fr] sm:items-stretch">
-                    <div className="rounded-[20px] border border-white/[0.08] bg-surface p-5"><p className="text-[10px] font-semibold uppercase text-muted-foreground">Eligible usage</p><p className="mt-2 font-heading text-2xl font-semibold">1,000 credits</p><p className="mt-1 text-xs text-muted-foreground">consumed inside Spyda</p></div>
+                    <div className="rounded-[20px] border border-white/[0.08] bg-surface p-5"><p className="text-[10px] font-semibold uppercase text-muted-foreground">Eligible usage</p><p className="mt-2 font-heading text-2xl font-semibold">1,000 credits</p><p className="mt-1 text-xs text-muted-foreground">consumed inside Spyda, as one of the first 1,000 users</p></div>
                     <div className="flex items-center justify-center"><span className="relative flex h-10 w-10 items-center justify-center rounded-full bg-primary text-primary-foreground"><span aria-hidden="true" className="absolute inset-0 rounded-full bg-primary/40 motion-safe:animate-ping" /><ArrowRight className="relative h-4 w-4 rotate-90 sm:rotate-0" /></span></div>
-                    <div className="rounded-[20px] border border-primary/30 bg-surface-raised p-5"><p className="text-[10px] font-semibold uppercase text-muted-foreground">Community reward</p><div className="mt-2 flex items-center gap-2"><img src="/assets/spyda-credit.png" alt="" className="h-7 w-7 object-contain" /><p className="font-heading text-2xl font-semibold">1 SPYDA</p></div><p className="mt-1 text-xs text-primary">pre-launch allocation</p></div>
+                    <div className="rounded-[20px] border border-primary/30 bg-surface-raised p-5"><p className="text-[10px] font-semibold uppercase text-muted-foreground">Community reward</p><div className="mt-2 flex items-center gap-2"><img src="/assets/spyda-credit.png" alt="" className="h-7 w-7 object-contain" /><p className="font-heading text-2xl font-semibold">10,000 SPYDA</p></div><p className="mt-1 text-xs text-primary">pre-launch allocation, down to 1 as Spyda grows</p></div>
                   </div>
 
                   <div className="mt-7 grid gap-3 sm:grid-cols-3">
                     {[
                       [WandSparkles, 'Create', 'Use Spyda for real design work.'],
-                      [Target, 'Accrue', 'Eligible credit spend builds your balance.'],
+                      [Target, 'Accrue', 'The earlier you join, the more each credit earns.'],
                       [Network, 'Launch together', 'The community target is 1B SPYDA.'],
                     ].map(([Icon, title, copy]) => {
                       const StepIcon = Icon as typeof WandSparkles
@@ -831,7 +831,7 @@ export default function Landing() {
               <FAQItem question="Can I talk instead of typing?" answer="Yes. Tap the microphone in the chat box and speak; your words appear in the message for you to check and send. It uses your browser's own speech recognition, so it works in Chrome, Edge and Safari." />
               <FAQItem question="Can I replace logos and product images?" answer="Yes. Upload a replacement on the matching design atom or through Essentials. Spyda also supports exact placement controls for detected image regions before the AI generation step." />
               <FAQItem question="Can I keep my brand fonts and colors?" answer="Yes. Brand Constants lets you set heading and body fonts, HEX colors, and the visual style that should guide the revised design." />
-              <FAQItem question="How do Spyda Token rewards work?" answer="For every 1,000 eligible Spyda Credits consumed on qualifying product actions, your account accrues 1 pre-launch SPYDA allocation. Funding the wallet alone does not create a reward; the credits must be used inside Spyda." />
+              <FAQItem question="How do Spyda Token rewards work?" answer="SPYDA follows an early-adopter schedule set by your signup number: users 1 – 1,000 earn 10,000 SPYDA per 1,000 credits, 1,001 – 10,000 earn 1,000, 10,001 – 100,000 earn 100, 100,001 – 1,000,000 earn 10, and everyone after earns 1. Rewards accrue as you spend credits on qualifying actions such as downloads and AI, and stop once users have earned 1 billion SPYDA in total. Funding the wallet alone does not create a reward." />
               <FAQItem question="When will the Spyda Token launch?" answer="The planned community trigger is reached when users collectively hold 1 billion eligible, accrued SPYDA. Launch also depends on security audits, useful token infrastructure, network selection, claim controls, and legal readiness." />
               <FAQItem question="Is accrued SPYDA the same as cash?" answer="No. Before launch, accrued SPYDA is a non-transferable reward record. It is not cash, a refund, a stablecoin, or a guarantee that a future token will have a specific market price." />
               <FAQItem question="Do I need to be a professional designer?" answer="No. Spyda is built for anyone who can point to a design they like and clearly choose what should stay, what should change, and what should be removed." />

@@ -11,7 +11,7 @@ export const SPYDA_GPT_IMAGE_ONLY_ROUND_CREDITS = 30
 export const SPYDA_BYOK_ROUND_CREDITS = 5
 /** One Claude Opus 5.5 motion design. Priced in the database; shown before sending. */
 export const SPYDA_MOTION_CREDITS = 50
-/** Every 1,000 eligible credits used accrues 1 pre-launch SPYDA. */
+/** SPYDA rates are quoted per 1,000 eligible credits used; the rate itself depends on signup order (see SPYDA_TIERS in rewards.ts). */
 export const CREDITS_PER_SPYDA = 1000
 
 export function getManagedGenerationCredits(provider: string): number {

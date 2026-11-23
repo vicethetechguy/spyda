@@ -61,7 +61,7 @@ import {
   sendCreditsBySpydaId,
   type AdminWalletRecipient,
 } from '../lib/admin'
-import { getWelcomeRewardClaim, type WelcomeRewardClaim } from '../lib/rewards'
+import { SPYDA_LAUNCH_SUPPLY, SPYDA_TIERS, fetchMySpydaRate, getWelcomeRewardClaim, spydaRate, type MySpydaRate, type WelcomeRewardClaim } from '../lib/rewards'
 import { getCommunityTaskBadgeCount } from '../lib/community-tasks'
 import { formatSpydaCouponCode, formatSpydaWalletId } from '../lib/code-format'
 import { parseWalletTransaction, type WalletTransaction } from '../lib/wallet'
@@ -586,6 +586,14 @@ function WalletView({ onFund, onSend }: { onFund: () => void; onSend: () => void
   const [activityTotal, setActivityTotal] = useState(0)
   const [activeAsset, setActiveAsset] = useState<'credits' | 'usd' | 'token'>('credits')
   const [walletNotice, setWalletNotice] = useState('')
+  // The early-adopter schedule: this account's signup number, its SPYDA rate and the community's progress to 1 billion.
+  const [spydaTier, setSpydaTier] = useState<MySpydaRate | null>(null)
+  useEffect(() => {
+    if (!user) return
+    let active = true
+    void fetchMySpydaRate().then(result => { if (active) setSpydaTier(result) })
+    return () => { active = false }
+  }, [user, tokenBalance])
 
   const loadBalance = useCallback(async () => {
     if (!user) {
@@ -703,7 +711,11 @@ function WalletView({ onFund, onSend }: { onFund: () => void; onSend: () => void
   const CREDITS_PER_GENERATION = byokEnabled ? SPYDA_BYOK_ROUND_CREDITS : SPYDA_GROQ_GPT_IMAGE_ROUND_CREDITS
   const generationsRemaining = Math.floor(balance / CREDITS_PER_GENERATION)
   const fiatBalance = Number(user?.user_metadata?.spyda_fiat_balance || 0)
-  const creditsToNextToken = 1000 - (creditsSpent % 1000)
+  // SPYDA accrues in proportion to credits spent, at this account's tier rate.
+  const spydaPer1000 = spydaTier?.rate ?? spydaRate(spydaTier?.signupRank)
+  const creditsToNextToken = Math.max(1, Math.ceil(((Math.floor((creditsSpent * spydaPer1000) / 1000) + 1) * 1000) / spydaPer1000) - creditsSpent)
+  const spydaPerDownload = (100 * spydaPer1000) / 1000
+  const communityShare = Math.min(1, (spydaTier?.communityAccrued ?? 0) / (spydaTier?.communityCap || SPYDA_LAUNCH_SUPPLY))
   const walletId = user?.id ? `SPY-${user.id.slice(0, 4).toUpperCase()}-${user.id.slice(-4).toUpperCase()}` : 'SPY-GUEST'
 
   const assets = {
@@ -734,7 +746,9 @@ function WalletView({ onFund, onSend }: { onFund: () => void; onSend: () => void
       value: tokenBalance.toLocaleString(),
       suffix: 'tokens',
       status: tokenBalance > 0 ? tokenBalance.toLocaleString() : 'Locked',
-      detail: `Earn 1 Spyda Token for every 1,000 credits you spend. ${creditsToNextToken.toLocaleString()} credits until your next token.`,
+      detail: spydaTier
+        ? `You earn ${spydaPer1000.toLocaleString()} SPYDA for every 1,000 credits you spend${spydaTier.signupRank ? ` as user #${spydaTier.signupRank.toLocaleString()}` : ''}. ${creditsToNextToken.toLocaleString()} credit${creditsToNextToken === 1 ? '' : 's'} until your next token.`
+        : 'Earn SPYDA as you spend credits: up to 10,000 per 1,000 credits, the earlier you joined.',
       icon: <SpydaCreditIcon className="h-5 w-5" />,
     },
   }
@@ -830,6 +844,38 @@ function WalletView({ onFund, onSend }: { onFund: () => void; onSend: () => void
                   <p className="mt-1 text-xs leading-5 text-muted-foreground">{asset.detail}</p>
                 </button>
               ))}
+            </div>
+          </div>
+
+          {/* SPYDA rewards: the early-adopter schedule */}
+          <div className="mt-6 overflow-hidden rounded-xl border border-primary/20 bg-[linear-gradient(150deg,rgba(157,250,176,0.07),rgba(136,168,255,0.04)_55%,transparent)] p-5">
+            <div className="flex flex-wrap items-start justify-between gap-3">
+              <div>
+                <p className="text-[10px] font-semibold uppercase tracking-[0.16em] text-primary">SPYDA rewards · early-adopter schedule</p>
+                <h3 className="mt-1.5 font-heading text-lg font-semibold">{spydaTier?.signupRank ? `You are Spyda user #${spydaTier.signupRank.toLocaleString()}` : 'The earlier you join, the more you earn'}</h3>
+                <p className="mt-1 text-xs leading-5 text-muted-foreground">{spydaTier ? <>Every 1,000 credits you spend earns <b className="text-foreground">{spydaPer1000.toLocaleString()} SPYDA</b>, so each 100-credit download earns {spydaPerDownload.toLocaleString(undefined, { maximumFractionDigits: 1 })} SPYDA. Your rate is fixed by your signup number.</> : 'Your SPYDA rate is set by your signup number: the earlier you joined, the more each 1,000 credits you spend earns.'}</p>
+              </div>
+              {spydaTier ? <div className="rounded-lg border border-white/[0.1] bg-black/25 px-4 py-2.5 text-right">
+                <p className="text-[9px] font-semibold uppercase text-muted-foreground">Your rate</p>
+                <p className="font-heading text-xl font-semibold text-primary">{spydaPer1000.toLocaleString()}<span className="ml-1 text-[10px] font-medium text-muted-foreground">/ 1,000 credits</span></p>
+              </div> : null}
+            </div>
+            <div className="mt-4 grid gap-1.5 sm:grid-cols-5">
+              {SPYDA_TIERS.map(tier => {
+                const mine = Boolean(spydaTier) && spydaPer1000 === tier.rate
+                return (
+                  <div key={tier.rate} className={`rounded-lg border px-3 py-2.5 ${mine ? 'border-primary/60 bg-primary/[0.12]' : 'border-white/[0.07] bg-black/20'}`}>
+                    <p className={`font-heading text-sm font-semibold ${mine ? 'text-primary' : ''}`}>{tier.rate.toLocaleString()} SPYDA</p>
+                    <p className="mt-0.5 text-[10px] leading-4 text-muted-foreground">{tier.label}</p>
+                    {mine ? <p className="mt-1 text-[9px] font-semibold uppercase text-primary">Your tier</p> : null}
+                  </div>
+                )
+              })}
+            </div>
+            <div className="mt-4">
+              <div className="flex items-center justify-between text-[11px]"><span className="text-muted-foreground">Community progress to launch</span><span className="font-semibold">{spydaTier ? `${spydaTier.communityAccrued.toLocaleString()} / ${(spydaTier.communityCap || SPYDA_LAUNCH_SUPPLY).toLocaleString()} SPYDA` : '1,000,000,000 SPYDA target'}</span></div>
+              <div className="mt-1.5 h-2 overflow-hidden rounded-full bg-white/[0.07]"><div className="h-full rounded-full bg-[linear-gradient(90deg,#9dfab0,#88a8ff)]" style={{ width: `${Math.max(spydaTier && spydaTier.communityAccrued > 0 ? 0.6 : 0, communityShare * 100)}%` }} /></div>
+              <p className="mt-1.5 text-[10px] text-muted-foreground">Rewards stop when users have earned 1 billion SPYDA in total. That is when the Spyda Token launches.</p>
             </div>
           </div>
         </section>

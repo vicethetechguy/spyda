@@ -419,14 +419,15 @@ const GUIDE_SECTIONS: GuideSection[] = [
       {
         id: 'rewards-tasks',
         title: 'Earn Credits and SPYDA',
-        summary: 'Tasks pay credits, and spending credits accrues SPYDA.',
+        summary: 'Tasks pay credits, and spending credits earns SPYDA: the earlier you joined, the more.',
         minutes: 4,
         xp: 30,
         difficulty: 'Core',
         icon: Trophy,
         steps: [
           'Open Tasks to claim the 60-credit welcome reward and complete community tasks for more credits.',
-          'Every 1,000 Spyda credits you use (downloads included) accrues 1 SPYDA to your account.',
+          'Every 1,000 credits you use (downloads included) earns SPYDA at your signup tier: 10,000 for users 1 – 1,000, 1,000 up to user 10,000, 100 up to 100,000, 10 up to 1,000,000, then 1.',
+          'Your wallet shows your signup number, your rate and the community’s progress toward the 1 billion SPYDA launch.',
           'Before launch, accrued SPYDA is a non-transferable reward record, not cash.',
           'Redeem coupon codes (SPYDA-XXXX-XXXX) under Wallet → Fund for instant credits.',
         ],

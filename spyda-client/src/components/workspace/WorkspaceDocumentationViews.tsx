@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState, type ReactNode } from 'react'
+import { SPYDA_TIERS, spydaFor, spydaRate } from '../../lib/rewards'
 import {
   ArrowDown,
   ArrowRight,
@@ -145,8 +146,11 @@ function WhitepaperChapter({
 export function WhitepaperView() {
   const [activeChapter, setActiveChapter] = useState(0)
   const [creditSpend, setCreditSpend] = useState('1000')
+  const [signupNumber, setSignupNumber] = useState('500')
   const normalizedCredits = Math.max(0, Math.min(1_000_000_000, Number(creditSpend) || 0))
-  const earnedSpyda = normalizedCredits / 1000
+  const normalizedRank = Math.max(1, Math.floor(Number(signupNumber) || 1))
+  const earnedSpyda = spydaFor(normalizedCredits, normalizedRank)
+  const simulatedRate = spydaRate(normalizedRank)
   const articleRef = useRef<HTMLElement>(null)
   const barRef = useRef<HTMLDivElement>(null)
   const [readingProgress, setReadingProgress] = useState(0)
@@ -249,7 +253,7 @@ export function WhitepaperView() {
             <div className="relative overflow-hidden rounded-lg border border-white/10 bg-[linear-gradient(145deg,#121718_0%,#162d29_48%,#315f74_100%)] p-6 shadow-[0_32px_90px_rgba(0,0,0,.36)] sm:p-7">
               <div className="flex items-start justify-between gap-4"><div><p className="text-[10px] font-semibold uppercase tracking-[0.16em] text-white/55">Community launch protocol</p><p className="mt-2 text-sm text-white/80">The billion-SPYDA mission</p></div><div className="flex h-10 w-10 items-center justify-center rounded-full border border-white/15 bg-black/20"><SpydaTokenIcon className="h-7 w-7" /></div></div>
               <div className="my-9"><p className="font-heading text-5xl font-semibold text-white sm:text-6xl">1B</p><p className="mt-2 text-sm font-medium text-[#9dfab0]">user-earned SPYDA target</p></div>
-              <div className="grid grid-cols-[1fr_auto_1fr] items-center gap-3 border-y border-white/10 py-5 text-center"><div><p className="font-heading text-2xl font-semibold text-white">1,000</p><p className="mt-1 text-[10px] uppercase text-white/50">credits spent</p></div><ArrowRight className="h-5 w-5 text-[#9dfab0]" /><div><p className="font-heading text-2xl font-semibold text-white">1</p><p className="mt-1 text-[10px] uppercase text-white/50">SPYDA accrued</p></div></div>
+              <div className="grid grid-cols-[1fr_auto_1fr] items-center gap-3 border-y border-white/10 py-5 text-center"><div><p className="font-heading text-2xl font-semibold text-white">1,000</p><p className="mt-1 text-[10px] uppercase text-white/50">credits spent</p></div><ArrowRight className="h-5 w-5 text-[#9dfab0]" /><div><p className="font-heading text-2xl font-semibold text-white">up to 10,000</p><p className="mt-1 text-[10px] uppercase text-white/50">SPYDA accrued</p></div></div>
               <p className="mt-5 text-xs leading-5 text-white/55">The live community total will appear when the audited reward ledger is activated. Spyda will not display invented progress.</p>
             </div>
           </div>
@@ -312,18 +316,24 @@ export function WhitepaperView() {
               </div>
               <div className="mt-6 rounded-lg border border-primary/20 bg-primary/[0.045] p-5">
                 <div className="flex items-center gap-2 text-sm font-semibold text-primary"><CheckCircle2 className="h-4 w-4" /> Reward rule</div>
-                <p className="mt-3 font-heading text-2xl font-semibold sm:text-3xl">1,000 eligible credits spent = 1 SPYDA accrued</p>
+                <p className="mt-3 font-heading text-2xl font-semibold sm:text-3xl">The earlier you join, the more each 1,000 credits earns</p>
+                <div className="mt-4 grid grid-cols-2 gap-1.5 sm:grid-cols-3 2xl:grid-cols-5">
+                  {SPYDA_TIERS.map(tier => <div key={tier.rate} className="rounded-md border border-white/[0.08] bg-black/20 px-3 py-2.5"><p className="font-heading text-base font-semibold text-primary">{tier.rate.toLocaleString()} SPYDA</p><p className="mt-0.5 text-[10px] leading-4 text-muted-foreground">{tier.label}</p></div>)}
+                </div>
+                <p className="mt-3 text-sm leading-6 text-muted-foreground">Each person&apos;s rate is set by their signup number and never changes. Rewards accrue in proportion to the credits spent, so a 100-credit download earns a tenth of the rate, until users have earned 1 billion SPYDA in total.</p>
                 <p className="mt-3 text-sm leading-6 text-muted-foreground">Funding a wallet alone does not create a reward. Credits must be consumed by eligible Spyda product actions. Refunded, reversed, promotional, fraudulent, or administratively granted credits may be excluded under the published reward policy.</p>
               </div>
             </div>
 
             <div className="rounded-lg border border-white/[0.1] bg-surface p-5 sm:p-6">
               <div className="flex items-center justify-between gap-4"><div><p className="text-[10px] font-semibold uppercase tracking-[0.15em] text-primary">Reward simulator</p><h3 className="mt-2 font-heading text-lg font-semibold">See what your usage builds</h3></div><Coins className="h-6 w-6 text-primary" /></div>
-              <label className="mt-6 block text-xs font-medium text-muted-foreground" htmlFor="whitepaper-credit-spend">Eligible credits spent</label>
+              <label className="mt-6 block text-xs font-medium text-muted-foreground" htmlFor="whitepaper-signup-number">Your signup number</label>
+              <div className="mt-2 flex h-12 items-center rounded-lg border border-white/[0.1] bg-black/20 px-3 focus-within:border-primary/50"><span className="text-sm font-semibold text-muted-foreground">#</span><input id="whitepaper-signup-number" type="number" min="1" step="1" value={signupNumber} onChange={event => setSignupNumber(event.target.value)} className="min-w-0 flex-1 bg-transparent px-3 font-heading text-lg font-semibold outline-none" /><span className="text-xs text-primary">{simulatedRate.toLocaleString()} / 1,000</span></div>
+              <label className="mt-4 block text-xs font-medium text-muted-foreground" htmlFor="whitepaper-credit-spend">Eligible credits spent</label>
               <div className="mt-2 flex h-12 items-center rounded-lg border border-white/[0.1] bg-black/20 px-3 focus-within:border-primary/50"><SpydaTokenIcon className="h-5 w-5" /><input id="whitepaper-credit-spend" type="number" min="0" max="1000000000" step="100" value={creditSpend} onChange={event => setCreditSpend(event.target.value)} className="min-w-0 flex-1 bg-transparent px-3 font-heading text-lg font-semibold outline-none" /><span className="text-xs text-muted-foreground">credits</span></div>
               <div className="my-4 flex justify-center"><ArrowDown className="h-4 w-4 animate-bounce text-primary" /></div>
               <div className="rounded-lg border border-primary/20 bg-primary/[0.055] p-5 text-center"><p className="text-[10px] font-semibold uppercase text-muted-foreground">Pre-launch allocation</p><div className="mt-3 flex items-center justify-center gap-2"><SpydaTokenIcon className="h-8 w-8" /><p className="font-heading text-4xl font-semibold">{earnedSpyda.toLocaleString(undefined, { maximumFractionDigits: 3 })}</p></div><p className="mt-2 text-xs font-semibold text-primary">SPYDA accrued</p></div>
-              <p className="mt-4 text-xs leading-5 text-muted-foreground">At current rates, a download costs 100 credits and accrues 0.1 SPYDA (0.15 with the compressor). A Groq + GPT-Image 2 generation costs 20 credits (0.02 SPYDA), GPT-Image 2 alone 30, a motion design 50, and a BYOK generation 5.</p>
+              <p className="mt-4 text-xs leading-5 text-muted-foreground">At this signup number, a 100-credit download earns {spydaFor(100, normalizedRank).toLocaleString(undefined, { maximumFractionDigits: 3 })} SPYDA ({spydaFor(150, normalizedRank).toLocaleString(undefined, { maximumFractionDigits: 3 })} with the compressor), a 20-credit generation {spydaFor(20, normalizedRank).toLocaleString(undefined, { maximumFractionDigits: 3 })}, and a 50-credit motion design {spydaFor(50, normalizedRank).toLocaleString(undefined, { maximumFractionDigits: 3 })}.</p>
             </div>
           </div>
         </WhitepaperChapter>
@@ -360,7 +370,7 @@ export function WhitepaperView() {
               </div>
             </div>
             <div className="space-y-3">
-              {[['Name', 'Spyda Token'], ['Working symbol', 'SPYDA'], ['Earn rate', '1 per 1,000 credits'], ['Launch trigger', '1B user-earned'], ['Pre-launch transfer', 'Disabled'], ['Token withdrawal', 'Locked']].map(([label, value]) => <div key={label} className="flex items-center justify-between gap-4 border-b border-white/[0.08] px-1 py-3"><span className="text-xs text-muted-foreground">{label}</span><span className="text-right text-sm font-semibold">{value}</span></div>)}
+              {[['Name', 'Spyda Token'], ['Working symbol', 'SPYDA'], ['Earn rate', '10,000 to 1 per 1,000 credits, by signup order'], ['Launch trigger', '1B user-earned'], ['Pre-launch transfer', 'Disabled'], ['Token withdrawal', 'Locked']].map(([label, value]) => <div key={label} className="flex items-center justify-between gap-4 border-b border-white/[0.08] px-1 py-3"><span className="text-xs text-muted-foreground">{label}</span><span className="text-right text-sm font-semibold">{value}</span></div>)}
             </div>
           </div>
         </WhitepaperChapter>

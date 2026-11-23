@@ -151,7 +151,7 @@ function RewardsStrip({ standing, onOpenWallet, mode }: { standing: RewardStandi
       <BrandMark size={18} animated />
       <span className="min-w-0 flex-1 truncate">
         {mode === 'motion' ? `Motion by Claude Opus 5.5 · ${SPYDA_MOTION_CREDITS} credits a video · ` : ''}
-        Every 1,000 credits you use earns 1 SPYDA
+        Join early: the first 1,000 users earn 10,000 SPYDA per 1,000 credits
         {standing ? <span className="text-white/50"> · {standing.toNextSpyda.toLocaleString()} credits to your next</span> : null}
       </span>
       {standing ? (

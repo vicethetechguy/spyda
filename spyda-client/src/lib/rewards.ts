@@ -167,3 +167,47 @@ export async function adminReviewWelcomeRewardClaim(
     payout_id: row.payout_id ? String(row.payout_id) : null,
   }
 }
+
+/**
+ * SPYDA rewards by signup order (the early-adopter schedule): the earlier you
+ * joined, the more SPYDA each 1,000 Spyda credits you spend earns. Rewards
+ * accrue in proportion to credits spent, until users have earned 1 billion
+ * SPYDA in total, the launch trigger. Mirrors public.spyda_reward_rate.
+ */
+export const SPYDA_TIERS = [
+  { from: 1, to: 1_000, rate: 10_000, label: 'Users 1 – 1,000' },
+  { from: 1_001, to: 10_000, rate: 1_000, label: 'Users 1,001 – 10,000' },
+  { from: 10_001, to: 100_000, rate: 100, label: 'Users 10,001 – 100,000' },
+  { from: 100_001, to: 1_000_000, rate: 10, label: 'Users 100,001 – 1,000,000' },
+  { from: 1_000_001, to: Infinity, rate: 1, label: 'Users 1,000,001 onward' },
+] as const
+
+export const SPYDA_LAUNCH_SUPPLY = 1_000_000_000
+
+/** SPYDA earned per 1,000 Spyda credits spent, for a signup number. */
+export function spydaRate(rank: number | null | undefined) {
+  if (!rank || rank < 1) return 1
+  return SPYDA_TIERS.find(tier => rank <= tier.to)?.rate ?? 1
+}
+
+/** SPYDA earned for spending `credits` at a signup number's rate. */
+export function spydaFor(credits: number, rank: number | null | undefined) {
+  return (Math.max(0, credits) * spydaRate(rank)) / 1000
+}
+
+export type MySpydaRate = { signupRank: number | null; rate: number; communityAccrued: number; communityCap: number }
+
+/** The signed-in user's signup number, rate and the community's progress to 1 billion. Null before the tiers are live. */
+export async function fetchMySpydaRate(): Promise<MySpydaRate | null> {
+  const { data, error } = await supabase.rpc('my_spyda_rate')
+  if (error) return null
+  const row = (Array.isArray(data) ? data[0] : data) as { signup_rank?: number | string | null; spyda_per_1000_credits?: number; community_accrued?: number | string; community_cap?: number | string } | null
+  if (!row) return null
+  const signupRank = row.signup_rank == null ? null : Number(row.signup_rank)
+  return {
+    signupRank,
+    rate: Number(row.spyda_per_1000_credits ?? spydaRate(signupRank)),
+    communityAccrued: Number(row.community_accrued ?? 0),
+    communityCap: Number(row.community_cap ?? SPYDA_LAUNCH_SUPPLY),
+  }
+}

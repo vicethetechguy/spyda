@@ -23,7 +23,7 @@ const STRENGTH_COLORS = ['bg-white/10', 'bg-red-400', 'bg-amber-300', 'bg-[#8bd3
 
 const SHOWCASE_CHIPS = [
   { icon: Coins, label: 'Free to use · no subscription' },
-  { icon: Coins, label: '1,000 credits used = 1 SPYDA' },
+  { icon: Coins, label: 'Early users earn up to 10,000 SPYDA' },
   { icon: Clapperboard, label: 'Motion videos by Claude' },
   { icon: ShieldCheck, label: 'Two-factor sign-in' },
 ]
@@ -208,7 +208,7 @@ export default function Auth() {
     : isMfa
       ? 'Enter the current code from the authenticator app connected to your Spyda account.'
       : isSignUp
-        ? 'Save your chats and versions, and earn 1 SPYDA for every 1,000 credits you use.'
+        ? 'Save your chats and versions, and earn SPYDA as you create: the earlier you join, the more you earn.'
         : 'Your chats, flyers and SPYDA rewards are waiting.'
 
   return (
