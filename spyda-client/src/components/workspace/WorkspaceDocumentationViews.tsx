@@ -303,7 +303,7 @@ export function WhitepaperView() {
         <WhitepaperChapter id="reward-loop" number="04" eyebrow="Proof of use" title="Spend credits on real creative work. Accrue SPYDA as proof that you helped build the network.">
           <div className="grid gap-6 lg:grid-cols-[minmax(0,1fr)_360px]">
             <div>
-              <div className="grid gap-px overflow-hidden rounded-lg border border-white/[0.08] bg-white/[0.08] sm:grid-cols-4">
+              <div className="grid grid-cols-2 gap-2 2xl:grid-cols-4">
                 {[
                   [Wallet, 'Fund', 'Recharge from $1'],
                   [Sparkles, 'Create', 'Download and use AI'],
@@ -311,7 +311,7 @@ export function WhitepaperView() {
                   [Gift, 'Accrue', 'Earn SPYDA allocation'],
                 ].map(([Icon, title, copy], index) => {
                   const StepIcon = Icon as typeof Wallet
-                  return <div key={String(title)} className="relative bg-[#0b0d0d] p-5"><IconTile icon={StepIcon} /><p className="mt-5 text-[10px] font-semibold uppercase text-muted-foreground">Step {index + 1}</p><p className="mt-1 text-sm font-semibold">{String(title)}</p><p className="mt-1 text-xs leading-5 text-muted-foreground">{String(copy)}</p></div>
+                  return <div key={String(title)} className="relative rounded-lg border border-white/[0.08] bg-[#0b0d0d] p-4"><IconTile icon={StepIcon} /><p className="mt-5 text-[10px] font-semibold uppercase text-muted-foreground">Step {index + 1}</p><p className="mt-1 text-sm font-semibold">{String(title)}</p><p className="mt-1 text-xs leading-5 text-muted-foreground">{String(copy)}</p></div>
                 })}
               </div>
               <div className="mt-6 rounded-lg border border-primary/20 bg-primary/[0.045] p-5">

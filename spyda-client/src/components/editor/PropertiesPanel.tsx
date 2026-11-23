@@ -195,7 +195,7 @@ function IconButton({ label, onClick, children, active, disabled }: { label: str
       aria-pressed={active}
       onClick={onClick}
       disabled={disabled}
-      className={`flex h-7 flex-1 items-center justify-center rounded-md transition-colors disabled:opacity-30 ${active ? 'bg-primary/20 text-primary' : 'text-muted-foreground hover:bg-white/[0.07] hover:text-foreground'}`}
+      className={`flex h-8 min-w-0 flex-1 items-center justify-center rounded-md border transition-colors disabled:opacity-30 ${active ? 'border-primary/50 bg-primary/15 text-primary' : 'border-white/[0.08] bg-white/[0.04] text-muted-foreground hover:border-white/20 hover:bg-white/[0.08] hover:text-foreground'}`}
     >
       {children}
     </button>
@@ -282,7 +282,7 @@ export default function PropertiesPanel({
 
       {!isBackground ? (
         <Section title="Align to frame">
-          <div className="flex gap-0.5 rounded-md bg-white/[0.03] p-0.5">
+          <div className="flex gap-1.5">
             {(['left', 'center', 'right', 'top', 'middle', 'bottom'] as const).map(where => (
               <IconButton key={where} label={`Align ${where}`} onClick={() => align(where)} disabled={!movable}>
                 <Glyph name={`align-${where}`} />
@@ -322,7 +322,7 @@ export default function PropertiesPanel({
             onCommit={degrees => movable && onIntent({ objectId: object.id, property: 'rotation', value: degrees, explicitGeometryChange: true })}
             disabled={!movable || object.constraints.lockRotation}
           />
-          <div className="flex gap-0.5 rounded-md bg-white/[0.03] p-0.5">
+          <div className="flex gap-1.5">
             <IconButton label="Flip horizontal" active={object.transform.flipX} disabled={!movable} onClick={() => onIntent({ objectId: object.id, property: 'flipX', value: !object.transform.flipX })}>
               <Glyph name="flip-x" />
             </IconButton>
@@ -423,14 +423,14 @@ export default function PropertiesPanel({
               <NumberField label="S" title="Font size" value={object.style.fontSize ?? 48} min={6} max={600} onCommit={size => onIntent({ objectId: object.id, property: 'fontSize', value: size })} disabled={!can('fontSize')} />
             </div>
             {/* Type style: bold, italic, underline, strikethrough and letter case. */}
-            <div className="flex items-center gap-1">
-              <div className="flex gap-0.5 rounded-md bg-white/[0.03] p-0.5">
+            <div className="space-y-1.5">
+              <div className="flex gap-1.5">
                 <IconButton label="Bold" active={Number(object.style.fontWeight ?? 400) >= 600} disabled={!can('fontWeight')} onClick={() => onIntent({ objectId: object.id, property: 'fontWeight', value: Number(object.style.fontWeight ?? 400) >= 600 ? '400' : '700' })}><span className="text-[12px] font-bold">B</span></IconButton>
                 <IconButton label="Italic" active={Boolean(typography.italic)} disabled={locked} onClick={() => onTypography({ italic: !typography.italic })}><span className="font-serif text-[12px] italic">I</span></IconButton>
                 <IconButton label="Underline" active={Boolean(typography.underline)} disabled={locked} onClick={() => onTypography({ underline: !typography.underline })}><span className="text-[12px] underline">U</span></IconButton>
                 <IconButton label="Strikethrough" active={Boolean(typography.strike)} disabled={locked} onClick={() => onTypography({ strike: !typography.strike })}><span className="text-[12px] line-through">S</span></IconButton>
               </div>
-              <div className="flex gap-0.5 rounded-md bg-white/[0.03] p-0.5">
+              <div className="flex gap-1.5">
                 {([['none', 'Aa', 'As typed'], ['upper', 'AA', 'Uppercase'], ['lower', 'aa', 'Lowercase'], ['title', 'Tt', 'Title Case']] as const).map(([value, glyph, label]) => (
                   <IconButton key={value} label={label} active={(typography.case ?? 'none') === value} disabled={locked} onClick={() => onTypography({ case: value })}><span className="text-[10px] font-semibold">{glyph}</span></IconButton>
                 ))}
@@ -442,7 +442,7 @@ export default function PropertiesPanel({
               <SpacingRow label="Paragraph spacing" short="Paragraph" value={typography.paragraphSpacing ?? 0} min={0} max={200} step={1} reset={0} disabled={locked} onChange={value => onTypography({ paragraphSpacing: value })} />
               <p className="text-[9px] leading-3 text-muted-foreground">Paragraph spacing adds room after each line break (Enter) in the text.</p>
             </div>
-            <div className="flex gap-0.5 rounded-md bg-white/[0.03] p-0.5">
+            <div className="flex gap-1.5">
               {(['left', 'center', 'right', 'justify'] as const).map(align => (
                 <IconButton key={align} label={`Align text ${align}`} active={(object.style.textAlign ?? 'left') === align} disabled={!can('textAlign')} onClick={() => onIntent({ objectId: object.id, property: 'textAlign', value: align })}>
                   <span className="text-[10px] capitalize">{align === 'justify' ? 'Just' : align}</span>
@@ -483,7 +483,7 @@ export default function PropertiesPanel({
 
       {!isBackground ? (
         <Section title="Arrange">
-          <div className="flex gap-0.5 rounded-md bg-white/[0.03] p-0.5">
+          <div className="flex gap-1.5">
             <IconButton label="Bring forward" onClick={() => onReorder('up')} disabled={locked}><ArrowUp className="h-3.5 w-3.5" /></IconButton>
             <IconButton label="Send backward" onClick={() => onReorder('down')} disabled={locked}><ArrowDown className="h-3.5 w-3.5" /></IconButton>
             <IconButton label="Duplicate" onClick={onDuplicate} disabled={locked}><Copy className="h-3.5 w-3.5" /></IconButton>

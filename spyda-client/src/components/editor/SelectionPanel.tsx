@@ -24,7 +24,7 @@ function Glyph({ children }: { children: ReactElement }) {
   return <svg viewBox="0 0 24 24" className="h-3.5 w-3.5" fill="none" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">{children}</svg>
 }
 
-const button = 'flex h-7 flex-1 items-center justify-center rounded text-muted-foreground transition-colors hover:bg-white/[0.08] hover:text-foreground disabled:pointer-events-none disabled:opacity-30'
+const button = 'flex h-8 min-w-0 flex-1 items-center justify-center rounded-md border border-white/[0.08] bg-white/[0.04] text-muted-foreground hover:border-white/20 hover:bg-white/[0.08] hover:text-foreground transition-colors disabled:pointer-events-none disabled:opacity-30'
 
 export default function SelectionPanel({
   objects, onAlign, onDistribute, onGroup, onUngroup, onDuplicate, onDelete, onOpacity, onFx, onPreview, alignTo, onAlignTo,
@@ -60,15 +60,15 @@ export default function SelectionPanel({
       <section className="border-b border-white/[0.06] px-0.5 py-2.5">
         <div className="mb-2 flex items-center justify-between">
           <h3 className="text-[10px] font-semibold text-foreground/90">Align</h3>
-          <div className="flex rounded-md bg-white/[0.04] p-0.5 text-[9px]">
+          <div className="flex gap-1 text-[9px]">
             {(['selection', 'frame'] as const).map(value => (
-              <button key={value} type="button" onClick={() => onAlignTo(value)} aria-pressed={alignTo === value} className={`rounded px-1.5 py-0.5 capitalize ${alignTo === value ? 'bg-white/[0.12] text-foreground' : 'text-muted-foreground'}`}>
+              <button key={value} type="button" onClick={() => onAlignTo(value)} aria-pressed={alignTo === value} className={`rounded-md border px-2 py-1 capitalize transition-colors ${alignTo === value ? 'border-primary/50 bg-primary/15 text-primary' : 'border-white/[0.08] bg-white/[0.04] text-muted-foreground hover:text-foreground'}`}>
                 {value === 'selection' ? 'To each other' : 'To frame'}
               </button>
             ))}
           </div>
         </div>
-        <div className="flex gap-0.5 rounded-md bg-white/[0.03] p-0.5">
+        <div className="flex gap-1.5">
           {(Object.keys(ALIGN_GLYPHS) as AlignMode[]).map(mode => (
             <button key={mode} type="button" onClick={() => onAlign(mode)} title={`Align ${mode}`} aria-label={`Align ${mode}`} className={button}>
               <Glyph>{ALIGN_GLYPHS[mode]}</Glyph>
@@ -102,7 +102,7 @@ export default function SelectionPanel({
       <EffectsPanel object={objects[0]} onFx={onFx} onPreview={onPreview} />
 
       <section className="px-0.5 py-2.5">
-        <div className="flex gap-0.5 rounded-md bg-white/[0.03] p-0.5">
+        <div className="flex gap-1.5">
           <button type="button" onClick={onDuplicate} title="Duplicate all (Ctrl+D)" aria-label="Duplicate selection" className={button}><Copy className="h-3.5 w-3.5" /></button>
           <button type="button" onClick={onDelete} title="Delete all (Del)" aria-label="Delete selection" className={button}><Trash2 className="h-3.5 w-3.5" /></button>
         </div>
