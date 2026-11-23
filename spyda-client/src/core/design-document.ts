@@ -68,6 +68,45 @@ const ObjectContentSchema = z.object({
   altText: z.string().nullable(),
 }).strict()
 
+/** Effects and motion a layer carries on top of its style. Every field is optional. */
+export const ENTER_ANIMATIONS = ['fade', 'rise', 'drop', 'slide-left', 'slide-right', 'zoom', 'pop', 'spin', 'blur', 'typewriter', 'bounce', 'flip'] as const
+export const LOOP_ANIMATIONS = ['float', 'pulse', 'wiggle', 'breathe', 'spin', 'swing'] as const
+export const BLEND_MODES = ['normal', 'multiply', 'screen', 'overlay', 'darken', 'lighten', 'color-dodge', 'color-burn', 'hard-light', 'soft-light', 'difference', 'exclusion', 'hue', 'saturation', 'color', 'luminosity'] as const
+
+export const ObjectEffectsSchema = z.object({
+  /** One shadow slot: a drop shadow (offset) or a glow (no offset), in document pixels. */
+  shadow: z.object({
+    color: z.string(),
+    blur: z.number().min(0).max(400),
+    x: z.number().finite(),
+    y: z.number().finite(),
+    opacity: z.number().min(0).max(1),
+  }).strict().nullable().optional(),
+  /** Linear gradient fill for shapes and text. */
+  gradient: z.object({
+    from: z.string(),
+    to: z.string(),
+    angle: z.number().finite(),
+  }).strict().nullable().optional(),
+  blend: z.enum(BLEND_MODES).optional(),
+  /** Layer blur in document pixels. */
+  blur: z.number().min(0).max(200).optional(),
+  brightness: z.number().min(-1).max(1).optional(),
+  contrast: z.number().min(-100).max(100).optional(),
+  saturation: z.number().min(-2).max(10).optional(),
+  grayscale: z.boolean().optional(),
+  /** How the layer arrives when the design plays, in seconds. */
+  enter: z.object({
+    type: z.enum(ENTER_ANIMATIONS),
+    duration: z.number().min(0.05).max(20),
+    delay: z.number().min(0).max(60),
+  }).strict().nullable().optional(),
+  /** What it keeps doing once it has arrived. */
+  loop: z.enum(LOOP_ANIMATIONS).nullable().optional(),
+}).strict()
+
+export type ObjectEffects = z.infer<typeof ObjectEffectsSchema>
+
 const ObjectStyleSchema = z.object({
   description: z.string(),
   fill: z.string().nullable(),
@@ -82,6 +121,7 @@ const ObjectStyleSchema = z.object({
   /** Stroke width in document pixels; optional for older documents. */
   strokeWidth: z.number().min(0).nullable().optional(),
   effects: z.array(z.string()),
+  fx: ObjectEffectsSchema.optional(),
 }).strict()
 
 const ObjectConstraintsSchema = z.object({

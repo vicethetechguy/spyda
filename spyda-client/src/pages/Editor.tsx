@@ -1,8 +1,8 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { Link, useNavigate, useParams } from 'react-router-dom'
 import {
-  ArrowLeft, ChevronDown, Clock, Copy, Download, Eye, Image as ImageIcon, Layers, Loader2, LogOut, Maximize2, Move, Palette, Plus,
-  Redo2, Sparkles, Trash2, Type, Undo2, Wand2, X, type LucideIcon,
+  ArrowLeft, ChevronDown, Clapperboard, Clock, Copy, Download, Eye, Image as ImageIcon, Layers, Loader2, LogOut, Maximize2, Move, Palette, Play, Plus,
+  Redo2, Sparkles, Square, Trash2, Type, Undo2, Wand2, X, type LucideIcon,
 } from '../components/ui/icons'
 import type Konva from 'konva'
 import {
@@ -46,6 +46,7 @@ import { useAssetImages } from '../components/editor/useAssetImages'
 import AssistPanel, { type AssistEntry } from '../components/editor/AssistPanel'
 import CanvasToolbar from '../components/editor/CanvasToolbar'
 import EditorMenuBar, { type EditorMenu } from '../components/editor/EditorMenuBar'
+import { hasMotion, magicAnimation, playLength } from '../lib/canvas-fx'
 
 /**
  * The layer editor.
@@ -68,7 +69,7 @@ type Notice = { tone: 'info' | 'warn' | 'error'; text: string }
  * layers, however fast they arrive.
  */
 const CONTINUOUS_PROPERTIES: ReadonlySet<DesignEditIntent['property']> = new Set([
-  'text', 'fill', 'stroke', 'opacity', 'fontFamily', 'fontSize', 'fontWeight', 'textAlign', 'bounds', 'rotation',
+  'text', 'fill', 'stroke', 'opacity', 'fontFamily', 'fontSize', 'fontWeight', 'textAlign', 'bounds', 'rotation', 'fx',
 ])
 
 /** Edits that turn a lifted (pixel) text layer into live text. */
@@ -100,8 +101,8 @@ function streamKey(intent: DesignEditIntent) {
 type BootState = { project: StoredProject | null; history: IntentHistory | null }
 
 /** The editor's pages, like a video editor's: one job each, the canvas always in the middle. */
-type EditorPage = 'design' | 'text' | 'colour' | 'media' | 'ai' | 'deliver' | 'history'
-const PAGE_ORDER: EditorPage[] = ['design', 'text', 'colour', 'media', 'ai', 'deliver', 'history']
+type EditorPage = 'design' | 'text' | 'colour' | 'media' | 'animate' | 'ai' | 'deliver' | 'history'
+const PAGE_ORDER: EditorPage[] = ['design', 'text', 'colour', 'media', 'animate', 'ai', 'deliver', 'history']
 type Delivery = { format: 'png' | 'jpeg'; scale: number; name: string }
 type LayerFilter = 'all' | 'text' | 'pictures' | 'logos' | 'shapes'
 
@@ -215,6 +216,11 @@ export default function Editor() {
   const [lowerTab, setLowerTab] = useState<'navigator' | 'history'>('navigator')
   const [thumbnail, setThumbnail] = useState('')
   const [showShortcuts, setShowShortcuts] = useState(false)
+  const [playing, setPlaying] = useState<number | null>(null)
+  const [recording, setRecording] = useState(false)
+  const [contextMenu, setContextMenu] = useState<{ id: string; x: number; y: number } | null>(null)
+  const clipboard = useRef<DesignObject | null>(null)
+  const styleClipboard = useRef<DesignObject['style'] | null>(null)
   const navigate = useNavigate()
   const edited = useRef(false)
 
@@ -723,6 +729,17 @@ export default function Editor() {
         if (event.key === '0') { event.preventDefault(); setZoom(1); return }
         if (event.key === '1') { event.preventDefault(); zoomActual(); return }
       }
+      if (event.metaKey || event.ctrlKey) {
+        const key = event.key.toLowerCase()
+        if (key === 'c' && event.shiftKey) { event.preventDefault(); copyStyle(); return }
+        if (key === 'v' && event.shiftKey) { event.preventDefault(); pasteStyle(); return }
+        if (key === 'c') { if (copySelected()) event.preventDefault(); return }
+        if (key === 'x' && selectedId) { event.preventDefault(); if (copySelected()) applyIntent({ objectId: selectedId, property: 'removed', value: true }); return }
+        if (key === 'v' && clipboard.current) { event.preventDefault(); pasteClipboard(); return }
+        if (event.key === ']' && selectedId) { event.preventDefault(); if (event.shiftKey) moveToEdge(selectedId, 'front'); else handleReorder(selectedId, 'up'); return }
+        if (event.key === '[' && selectedId) { event.preventDefault(); if (event.shiftKey) moveToEdge(selectedId, 'back'); else handleReorder(selectedId, 'down'); return }
+        if (event.key === 'Enter') { event.preventDefault(); if (playing != null) setPlaying(null); else play(); return }
+      }
       if (event.metaKey || event.ctrlKey || event.altKey) return
       if (event.key === '?') { setShowShortcuts(value => !value); return }
       const pageIndex = event.shiftKey ? Number(event.code.replace('Digit', '')) - 1 : -1
@@ -731,7 +748,7 @@ export default function Editor() {
         setPage(PAGE_ORDER[pageIndex])
         return
       }
-      if (event.key === 'Escape') setSelectedId(null)
+      if (event.key === 'Escape') { setSelectedId(null); setContextMenu(null); setPlaying(null) }
       if ((event.key === 'Delete' || event.key === 'Backspace') && selectedId) {
         event.preventDefault()
         applyIntent({ objectId: selectedId, property: 'removed', value: true })
@@ -767,22 +784,179 @@ export default function Editor() {
 
     window.addEventListener('keydown', onKeyDown)
     return () => window.removeEventListener('keydown', onKeyDown)
-  }, [addLayer, applyIntent, applyStep, design?.objects, finishPen, handleDuplicate, penPoints, selectedId, zoomActual, zoomBy])
+  })
 
   const selectLayer = (objectId: string | null) => {
     setSelectedId(objectId)
+    setContextMenu(null)
+  }
+
+  /* ── arrange, clipboard and style ─────────────────────────────────── */
+
+  const moveToEdge = (objectId: string, edge: 'front' | 'back') => {
+    if (!design) return
+    const others = design.objects.filter(object => object.id !== objectId && object.kind !== 'background' && !object.status.removed)
+    const z = edge === 'front'
+      ? Math.max(0, ...others.map(object => object.zIndex)) + 1
+      : Math.min(...others.map(object => object.zIndex), 1) - 1
+    applyIntent({ objectId, property: 'zIndex', value: z })
+  }
+
+  const copySelected = () => {
+    const object = design?.objects.find(item => item.id === selectedId)
+    if (object && object.kind !== 'background') clipboard.current = structuredClone(object)
+    return object
+  }
+
+  const pasteClipboard = () => {
+    const source = clipboard.current
+    if (!design || !source) return
+    const bounds = source.transform.bounds
+    const copy: DesignObject = structuredClone(source)
+    copy.id = newObjectId()
+    copy.name = `${source.name} copy`.slice(0, 60)
+    copy.zIndex = Math.max(0, ...design.objects.map(object => object.zIndex)) + 1
+    copy.status = { visible: true, removed: false, consumed: false }
+    copy.protection = { ...copy.protection, locked: false }
+    if (bounds) {
+      copy.transform.bounds = {
+        ...bounds,
+        x: Math.min(Math.max(0, bounds.x + 2), Math.max(0, 100 - bounds.width)),
+        y: Math.min(Math.max(0, bounds.y + 2), Math.max(0, 100 - bounds.height)),
+      }
+    }
+    applyStep([{ objectId: copy.id, property: 'create', value: copy }], 'Paste')
+    setSelectedId(copy.id)
+    // The next paste lands a step further on.
+    clipboard.current = copy
+  }
+
+  const copyStyle = () => {
+    const object = design?.objects.find(item => item.id === selectedId)
+    if (object) {
+      styleClipboard.current = structuredClone(object.style)
+      setNotice({ tone: 'info', text: `Copied the style of ${object.name}. Select a layer and paste it with Ctrl+Shift+V.` })
+    }
+  }
+
+  const pasteStyle = () => {
+    const style = styleClipboard.current
+    const target = design?.objects.find(item => item.id === selectedId)
+    if (!style || !target || target.protection.locked) return
+    const can = (property: string) => target.protection.editableProperties.includes(property)
+    const isText = target.kind === 'text' || target.kind === 'action'
+    const intents: DesignEditIntent[] = [{ objectId: target.id, property: 'fx', value: { ...(style.fx ?? {}) } }]
+    if (can('fill') && style.fill) intents.push({ objectId: target.id, property: 'fill', value: style.fill })
+    if (can('stroke')) intents.push({ objectId: target.id, property: 'stroke', value: style.stroke ?? '' })
+    if (can('strokeWidth') && style.strokeWidth != null) intents.push({ objectId: target.id, property: 'strokeWidth', value: style.strokeWidth })
+    if (can('borderRadius') && style.borderRadius != null) intents.push({ objectId: target.id, property: 'borderRadius', value: style.borderRadius })
+    if (isText) {
+      if (can('fontFamily') && style.fontFamily) intents.push({ objectId: target.id, property: 'fontFamily', value: style.fontFamily })
+      if (can('fontWeight') && style.fontWeight) intents.push({ objectId: target.id, property: 'fontWeight', value: style.fontWeight })
+      if (can('letterSpacing') && style.letterSpacing != null) intents.push({ objectId: target.id, property: 'letterSpacing', value: style.letterSpacing })
+      if (can('lineHeight') && style.lineHeight != null) intents.push({ objectId: target.id, property: 'lineHeight', value: style.lineHeight })
+    }
+    applyStep(intents, 'Paste style')
+  }
+
+  /* ── motion ───────────────────────────────────────────────────────── */
+
+  const play = () => {
+    if (!design) return
+    setSelectedId(null)
+    setContextMenu(null)
+    setPlaying(performance.now())
+  }
+  const stopPlaying = useCallback(() => setPlaying(null), [])
+
+  const magicAnimate = () => {
+    if (!design) return
+    const plan = magicAnimation(design.objects)
+    const intents: DesignEditIntent[] = []
+    for (const [objectId, motion] of plan) {
+      const object = design.objects.find(item => item.id === objectId)
+      if (!object || object.protection.locked) continue
+      intents.push({ objectId, property: 'fx', value: motion })
+    }
+    if (!intents.length) return
+    applyStep(intents, 'Magic Animate')
+    window.setTimeout(() => { setSelectedId(null); setPlaying(performance.now()) }, 60)
+  }
+
+  const clearAnimations = () => {
+    if (!design) return
+    const intents = design.objects
+      .filter(object => !object.protection.locked && (object.style.fx?.enter || object.style.fx?.loop))
+      .map(object => ({ objectId: object.id, property: 'fx' as const, value: { enter: null, loop: null } }))
+    if (intents.length) applyStep(intents, 'Remove animations')
+    setPlaying(null)
+  }
+
+  /**
+   * The design as a video: playback drawn frame by frame into a recorder at up
+   * to 1920 px wide. MP4 where the browser can write it, otherwise WebM.
+   */
+  const exportVideo = async () => {
+    const stage = stageRef.current
+    if (!stage || !design || recording) return
+    if (typeof MediaRecorder === 'undefined') {
+      setNotice({ tone: 'error', text: 'This browser cannot record video. Try Chrome or Edge.' })
+      return
+    }
+    const type = ['video/mp4;codecs=avc1.42E01E', 'video/mp4', 'video/webm;codecs=vp9', 'video/webm'].find(candidate => MediaRecorder.isTypeSupported(candidate))
+    if (!type) { setNotice({ tone: 'error', text: 'This browser cannot record video.' }); return }
+    const layer = stage.getLayers()[0]
+    if (!layer) return
+    setSelectedId(null)
+    setRecording(true)
+    setNotice({ tone: 'info', text: 'Recording the animation…' })
+    await new Promise(resolve => window.setTimeout(resolve, 120))
+    const length = playLength(design.objects)
+    const width = Math.min(1920, design.canvas.width || 1080)
+    const ratio = width / stage.width()
+    const out = document.createElement('canvas')
+    out.width = Math.round((stage.width() * ratio) / 2) * 2
+    out.height = Math.round((stage.height() * ratio) / 2) * 2
+    const context = out.getContext('2d')!
+    const previous = layer.getCanvas().getPixelRatio()
+    layer.getCanvas().setPixelRatio(ratio)
+    layer.draw()
+    const stream = out.captureStream(30)
+    const recorder = new MediaRecorder(stream, { mimeType: type, videoBitsPerSecond: 14_000_000 })
+    const chunks: Blob[] = []
+    recorder.ondataavailable = event => { if (event.data.size) chunks.push(event.data) }
+    const done = new Promise<void>(resolve => { recorder.onstop = () => resolve() })
+    const start = performance.now()
+    setPlaying(start)
+    recorder.start()
+    const frame = () => {
+      context.fillStyle = '#ffffff'
+      context.fillRect(0, 0, out.width, out.height)
+      context.drawImage(layer.getNativeCanvasElement(), 0, 0, out.width, out.height)
+      if (performance.now() - start < length * 1000 + 250) requestAnimationFrame(frame)
+      else recorder.stop()
+    }
+    requestAnimationFrame(frame)
+    await done
+    layer.getCanvas().setPixelRatio(previous)
+    layer.draw()
+    setPlaying(null)
+    setRecording(false)
+    const blob = new Blob(chunks, { type: type.split(';')[0] })
+    const link = document.createElement('a')
+    link.href = URL.createObjectURL(blob)
+    const base = (delivery.name.trim() || project?.name || 'spyda-motion').replace(/[^a-z0-9]+/gi, '-').replace(/^-|-$/g, '').toLowerCase() || 'spyda-motion'
+    link.download = `${base}.${type.includes('mp4') ? 'mp4' : 'webm'}`
+    link.click()
+    window.setTimeout(() => URL.revokeObjectURL(link.href), 20_000)
+    setNotice({ tone: 'info', text: `Exported a ${Math.round(length * 10) / 10}s ${type.includes('mp4') ? 'MP4' : 'WebM'} video.` })
   }
 
   const editText = (objectId: string) => {
     const object = design?.objects.find(item => item.id === objectId)
     if (!object || !matchesFilter(object, 'text')) return
     setSelectedId(objectId)
-    setPage('design')
-    window.setTimeout(() => {
-      const field = document.getElementById('spyda-layer-text') as HTMLTextAreaElement | null
-      field?.focus()
-      field?.select()
-    }, 60)
+    setPage(current => (current === 'animate' ? current : 'design'))
   }
 
   if (!project) {
@@ -828,6 +1002,7 @@ export default function Editor() {
     { id: 'text', label: 'Text', icon: Type },
     { id: 'colour', label: 'Colour', icon: Palette },
     { id: 'media', label: 'Media', icon: ImageIcon },
+    { id: 'animate', label: 'Animate', icon: Clapperboard },
     { id: 'ai', label: 'Spyda AI', icon: Sparkles },
     { id: 'deliver', label: 'Deliver', icon: Download },
     { id: 'history', label: 'History', icon: Clock },
@@ -845,6 +1020,7 @@ export default function Editor() {
       onDelete={() => applyIntent({ objectId: selectedObject.id, property: 'removed', value: true })}
       onReorder={direction => handleReorder(selectedObject.id, direction)}
       pictureBusy={pictureBusy}
+      onPreview={play}
     />
   ) : null
 
@@ -1042,6 +1218,46 @@ export default function Editor() {
     ai: (
       <AssistPanel entries={assistEntries} draft={assistDraft} setDraft={setAssistDraft} onSend={runAssist} busy={assistBusy} blank={blankCanvas} />
     ),
+    animate: (
+      <div className="space-y-3">
+        <div className="rounded-lg border border-primary/25 bg-[linear-gradient(140deg,rgba(157,250,176,0.12),rgba(18,134,111,0.05))] p-3">
+          <p className="text-[12px] font-semibold">Magic Animate</p>
+          <p className="mt-0.5 text-[10px] leading-4 text-muted-foreground">One click choreographs the whole design: the background settles, the subject rises, the headline pops, small print fades in, top to bottom.</p>
+          <button type="button" onClick={magicAnimate} disabled={!design} className="mt-2.5 inline-flex h-8 w-full items-center justify-center gap-1.5 rounded-md bg-primary text-[11px] font-semibold text-primary-foreground disabled:opacity-50">
+            <Sparkles className="h-3.5 w-3.5" /> Animate everything
+          </button>
+        </div>
+        <div className="grid grid-cols-2 gap-1.5">
+          <button type="button" onClick={() => (playing != null ? setPlaying(null) : play())} className="inline-flex h-8 items-center justify-center gap-1.5 rounded-md bg-white/[0.06] text-[11px] font-semibold hover:bg-white/[0.12]">
+            {playing != null ? <Square className="h-3 w-3" /> : <Play className="h-3 w-3" />} {playing != null ? 'Stop' : 'Play'}
+          </button>
+          <button type="button" onClick={clearAnimations} disabled={!hasMotion(objects)} className="inline-flex h-8 items-center justify-center rounded-md bg-white/[0.06] text-[11px] font-semibold hover:bg-white/[0.12] disabled:opacity-40">Remove all</button>
+        </div>
+        <div>
+          {sectionLabel('Timeline')}
+          <div className="space-y-1">
+            {[...live].filter(object => object.kind !== 'background').sort((a, b) => (a.style.fx?.enter?.delay ?? 99) - (b.style.fx?.enter?.delay ?? 99)).map(object => {
+              const enter = object.style.fx?.enter
+              const total = Math.max(1, playLength(objects))
+              return (
+                <button key={object.id} type="button" onClick={() => selectLayer(object.id)} className={`block w-full rounded-md px-2 py-1.5 text-left transition-colors ${object.id === selectedId ? 'bg-primary/15' : 'bg-white/[0.03] hover:bg-white/[0.06]'}`}>
+                  <span className="flex items-center justify-between gap-2 text-[11px]"><span className="truncate">{object.name}</span><span className="shrink-0 text-[9px] capitalize text-muted-foreground">{enter ? enter.type.replace('-', ' ') : 'still'}{object.style.fx?.loop ? ` · ${object.style.fx.loop}` : ''}</span></span>
+                  <span className="relative mt-1 block h-1 rounded-full bg-white/[0.06]">
+                    {enter ? <span className="absolute inset-y-0 rounded-full bg-primary" style={{ left: `${(enter.delay / total) * 100}%`, width: `${Math.max(2, (enter.duration / total) * 100)}%` }} /> : null}
+                  </span>
+                </button>
+              )
+            })}
+          </div>
+          <p className="mt-1.5 text-[10px] leading-4 text-muted-foreground">Select a layer to choose its entrance, timing and loop in Properties.</p>
+        </div>
+        {selectedObject && selectedObject.kind !== 'background' ? <div className="border-t border-white/[0.06] pt-2">{inspector}</div> : null}
+        <button type="button" onClick={() => { void exportVideo() }} disabled={recording || !hasMotion(objects)} className="inline-flex h-9 w-full items-center justify-center gap-2 rounded-md bg-white text-[12px] font-semibold text-[#0b1210] disabled:opacity-40">
+          {recording ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Clapperboard className="h-3.5 w-3.5" />}
+          {recording ? 'Recording…' : 'Export video'}
+        </button>
+      </div>
+    ),
     history: steps.length ? (
       <ol className="space-y-0.5">
         <li>
@@ -1125,6 +1341,14 @@ export default function Editor() {
           Export {delivery.format.toUpperCase()}
         </button>
         <p className="text-[10px] leading-4 text-muted-foreground">Exports exactly what is on the canvas, at the size you pick.</p>
+        <div className="border-t border-white/[0.06] pt-3">
+          {sectionLabel('Video')}
+          <button type="button" onClick={() => { void exportVideo() }} disabled={recording || !hasMotion(objects)} className="inline-flex h-9 w-full items-center justify-center gap-2 rounded-md bg-white/[0.08] text-[12px] font-semibold disabled:opacity-40">
+            {recording ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Clapperboard className="h-3.5 w-3.5" />}
+            {recording ? 'Recording…' : 'Export animated video'}
+          </button>
+          <p className="mt-1.5 text-[10px] leading-4 text-muted-foreground">{hasMotion(objects) ? `Plays every animation into an MP4 (or WebM), ${Math.round(playLength(objects) * 10) / 10}s long.` : 'Add animation on the Animate page first, or use Magic Animate.'}</p>
+        </div>
       </div>
     ),
   }
@@ -1175,6 +1399,12 @@ export default function Editor() {
         { label: history && canUndo(history) ? `Undo ${nextUndoLabel(history) ?? ''}`.trim() : 'Undo', shortcut: 'Ctrl+Z', onSelect: () => setHistory(current => (current ? undo(current) : current)), disabled: !history || !canUndo(history) },
         { label: history && canRedo(history) ? `Redo ${nextRedoLabel(history) ?? ''}`.trim() : 'Redo', shortcut: 'Ctrl+Shift+Z', onSelect: () => setHistory(current => (current ? redo(current) : current)), disabled: !history || !canRedo(history) },
         { separator: true },
+        { label: 'Cut', shortcut: 'Ctrl+X', onSelect: () => { if (selectedObject && copySelected()) applyIntent({ objectId: selectedObject.id, property: 'removed', value: true }) }, disabled: noSelection },
+        { label: 'Copy', shortcut: 'Ctrl+C', onSelect: () => { copySelected() }, disabled: noSelection },
+        { label: 'Paste', shortcut: 'Ctrl+V', onSelect: pasteClipboard, disabled: !clipboard.current },
+        { label: 'Copy style', shortcut: 'Ctrl+Shift+C', onSelect: copyStyle, disabled: noSelection },
+        { label: 'Paste style', shortcut: 'Ctrl+Shift+V', onSelect: pasteStyle, disabled: noSelection || !styleClipboard.current },
+        { separator: true },
         { label: 'Duplicate', shortcut: 'Ctrl+D', onSelect: () => selectedObject && handleDuplicate(selectedObject.id), disabled: noSelection },
         { label: 'Delete', shortcut: 'Del', onSelect: () => selectedObject && applyIntent({ objectId: selectedObject.id, property: 'removed', value: true }), disabled: noSelection },
         { label: 'Deselect', shortcut: 'Esc', onSelect: () => setSelectedId(null), disabled: noSelection },
@@ -1183,8 +1413,10 @@ export default function Editor() {
     {
       label: 'Layer',
       items: [
-        { label: 'Bring forward', onSelect: () => selectedObject && handleReorder(selectedObject.id, 'up'), disabled: noSelection },
-        { label: 'Send backward', onSelect: () => selectedObject && handleReorder(selectedObject.id, 'down'), disabled: noSelection },
+        { label: 'Bring to front', shortcut: 'Ctrl+Shift+]', onSelect: () => selectedObject && moveToEdge(selectedObject.id, 'front'), disabled: noSelection },
+        { label: 'Bring forward', shortcut: 'Ctrl+]', onSelect: () => selectedObject && handleReorder(selectedObject.id, 'up'), disabled: noSelection },
+        { label: 'Send backward', shortcut: 'Ctrl+[', onSelect: () => selectedObject && handleReorder(selectedObject.id, 'down'), disabled: noSelection },
+        { label: 'Send to back', shortcut: 'Ctrl+Shift+[', onSelect: () => selectedObject && moveToEdge(selectedObject.id, 'back'), disabled: noSelection },
         { separator: true },
         { label: 'Flip horizontal', onSelect: () => flipSelected('flipX'), disabled: noSelection, checked: selectedObject ? Boolean(selectedObject.transform.flipX) : undefined },
         { label: 'Flip vertical', onSelect: () => flipSelected('flipY'), disabled: noSelection, checked: selectedObject ? Boolean(selectedObject.transform.flipY) : undefined },
@@ -1226,6 +1458,7 @@ export default function Editor() {
         { label: 'Zoom in', shortcut: 'Ctrl++', onSelect: () => zoomBy(1.25) },
         { label: 'Zoom out', shortcut: 'Ctrl+-', onSelect: () => zoomBy(0.8) },
         { label: 'Fit artboard', shortcut: 'Ctrl+0', onSelect: () => setZoom(1) },
+        { label: playing != null ? 'Stop animation' : 'Play animation', shortcut: 'Ctrl+Enter', onSelect: () => (playing != null ? setPlaying(null) : play()) },
         { label: 'Actual pixels (100%)', shortcut: 'Ctrl+1', onSelect: zoomActual },
         { separator: true },
         { label: 'Layers panel', onSelect: () => setDock(current => ({ ...current, layers: !current.layers })), checked: dock.layers },
@@ -1368,6 +1601,16 @@ export default function Editor() {
           <button type="button" onClick={() => setHistory(current => (current ? redo(current) : current))} disabled={!history || !canRedo(history)} title={(history && nextRedoLabel(history)) || 'Nothing to redo'} aria-label="Redo" className={iconButton}>
             <Redo2 className="h-3.5 w-3.5" aria-hidden />
           </button>
+          <button
+            type="button"
+            onClick={() => (playing != null ? setPlaying(null) : play())}
+            title={playing != null ? 'Stop (Ctrl+Enter)' : hasMotion(objects) ? 'Play the animation (Ctrl+Enter)' : 'Play (add animation on the Animate page)'}
+            aria-label={playing != null ? 'Stop animation' : 'Play animation'}
+            className={`ml-1 inline-flex h-7 items-center gap-1.5 rounded-md px-2.5 text-[11px] font-semibold transition-colors ${playing != null ? 'bg-primary text-primary-foreground' : 'bg-white/[0.06] text-foreground/90 hover:bg-white/[0.12]'}`}
+          >
+            {playing != null ? <Square className="h-3 w-3" /> : <Play className="h-3 w-3" />}
+            {playing != null ? 'Stop' : 'Play'}
+          </button>
           <span className="mx-1 h-5 w-px bg-white/10" />
           <button type="button" onClick={() => zoomBy(0.8)} aria-label="Zoom out" title="Zoom out (Ctrl -)" className={iconButton}><span className="text-[14px] leading-none">−</span></button>
           <button type="button" onClick={zoomActual} title="Actual pixels (Ctrl 1)" className="h-7 min-w-[46px] rounded-md bg-black/30 px-1.5 font-mono text-[10px] text-foreground/90 hover:bg-white/[0.08]">{zoomPercent}%</button>
@@ -1445,10 +1688,23 @@ export default function Editor() {
                 penActive={penPoints !== null}
                 penPoints={penPoints ?? []}
                 onPenPoint={addPenPoint}
-                onGeometryChange={(objectId, bounds, rotation) => applyStep([
-                  { objectId, property: 'bounds', value: bounds, explicitGeometryChange: true },
-                  { objectId, property: 'rotation', value: rotation, explicitGeometryChange: true },
-                ], 'Move layer', `move:${objectId}`)}
+                onGeometryChange={(objectId, bounds, rotation, fontScale) => {
+                  const object = design.objects.find(item => item.id === objectId)
+                  const intents: DesignEditIntent[] = [
+                    { objectId, property: 'bounds', value: bounds, explicitGeometryChange: true },
+                    { objectId, property: 'rotation', value: rotation, explicitGeometryChange: true },
+                  ]
+                  // A text layer pulled from a corner grows or shrinks its type with the box.
+                  if (fontScale && object && object.style.fontSize && object.protection.editableProperties.includes('fontSize')) {
+                    intents.push({ objectId, property: 'fontSize', value: Math.round(object.style.fontSize * fontScale * 10) / 10 })
+                    if (object.style.letterSpacing) intents.push({ objectId, property: 'letterSpacing', value: Math.round(object.style.letterSpacing * fontScale * 100) / 100 })
+                  }
+                  applyStep(intents, fontScale ? 'Resize text' : 'Move layer', fontScale ? undefined : `move:${objectId}`)
+                }}
+                playing={playing}
+                onPlaybackEnd={stopPlaying}
+                onTextChange={(objectId, text) => applyIntent({ objectId, property: 'text', value: text })}
+                onContextMenu={(id, x, y) => setContextMenu({ id, x, y })}
                 missingFonts={missingFonts}
                 stageRef={stageRef}
                 zoom={zoom}
@@ -1591,6 +1847,54 @@ export default function Editor() {
         <span className={`shrink-0 ${saved ? 'text-primary' : ''}`}>{saved ? 'Saved' : 'Not saved yet'}</span>
       </footer>
 
+      {contextMenu ? (() => {
+        const target = objects.find(object => object.id === contextMenu.id)
+        if (!target) return null
+        const picture = ['image', 'logo', 'icon'].includes(target.kind)
+        const items: Array<[string, string, () => void, boolean?] | null> = [
+          ['Copy', 'Ctrl+C', () => { copySelected() }],
+          ['Paste', 'Ctrl+V', pasteClipboard, !clipboard.current],
+          ['Duplicate', 'Ctrl+D', () => handleDuplicate(target.id)],
+          ['Delete', 'Del', () => applyIntent({ objectId: target.id, property: 'removed', value: true })],
+          null,
+          ['Bring to front', 'Ctrl+Shift+]', () => moveToEdge(target.id, 'front')],
+          ['Bring forward', 'Ctrl+]', () => handleReorder(target.id, 'up')],
+          ['Send backward', 'Ctrl+[', () => handleReorder(target.id, 'down')],
+          ['Send to back', 'Ctrl+Shift+[', () => moveToEdge(target.id, 'back')],
+          null,
+          ['Copy style', 'Ctrl+Shift+C', copyStyle],
+          ['Paste style', 'Ctrl+Shift+V', pasteStyle, !styleClipboard.current],
+          ['Flip horizontal', '', () => applyIntent({ objectId: target.id, property: 'flipX', value: !target.transform.flipX })],
+          ['Animate…', '', () => setPage('animate')],
+          ...(picture ? [null, ['Remove background', '', () => handleRemoveBackground(target)], ['Magic layers', '', () => handleMagicLayers(target)]] as Array<[string, string, () => void] | null> : []),
+        ]
+        return (
+          <div className="fixed inset-0 z-[70]" onPointerDown={() => setContextMenu(null)} onContextMenu={event => { event.preventDefault(); setContextMenu(null) }}>
+            <div
+              role="menu"
+              aria-label={`${target.name} actions`}
+              onPointerDown={event => event.stopPropagation()}
+              className="absolute min-w-[210px] rounded-lg border border-white/[0.1] bg-[#1b1c1f] p-1 shadow-[0_18px_50px_rgba(0,0,0,0.6)]"
+              style={{ left: Math.min(contextMenu.x, window.innerWidth - 230), top: Math.min(contextMenu.y, window.innerHeight - 420) }}
+            >
+              {items.map((item, index) => item ? (
+                <button
+                  key={item[0]}
+                  type="button"
+                  role="menuitem"
+                  disabled={item[3]}
+                  onClick={() => { setContextMenu(null); item[2]() }}
+                  className="flex h-7 w-full items-center justify-between gap-4 rounded-md px-2 text-left text-[12px] text-foreground/90 hover:bg-primary hover:text-primary-foreground disabled:pointer-events-none disabled:opacity-40"
+                >
+                  <span>{item[0]}</span>
+                  <span className="font-mono text-[10px] opacity-60">{item[1]}</span>
+                </button>
+              ) : <div key={`sep-${index}`} role="separator" className="my-1 h-px bg-white/[0.07]" />)}
+            </div>
+          </div>
+        )
+      })() : null}
+
       {showShortcuts ? (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 p-4" role="dialog" aria-modal="true" aria-label="Keyboard shortcuts" onClick={() => setShowShortcuts(false)}>
           <div className="w-full max-w-md rounded-xl border border-white/[0.1] bg-[#16171a] p-4 shadow-2xl" onClick={event => event.stopPropagation()}>
@@ -1602,6 +1906,8 @@ export default function Editor() {
               {[
                 ['Select', 'V'], ['Text', 'T'], ['Rectangle', 'R'], ['Ellipse', 'O'], ['Line', 'L'], ['Pen', 'P'], ['Place image', 'I'],
                 ['Undo / redo', 'Ctrl+Z / Ctrl+Shift+Z'], ['Duplicate', 'Ctrl+D'], ['Delete', 'Del'], ['Nudge', 'Arrows (Shift: further)'],
+                ['Cut / copy / paste', 'Ctrl+X / C / V'], ['Copy / paste style', 'Ctrl+Shift+C / V'], ['Forward / backward', 'Ctrl+] / Ctrl+['], ['Play animation', 'Ctrl+Enter'],
+                ['Edit text on the canvas', 'Double-click'], ['Snap to guides', 'Drag (magenta lines)'],
                 ['Zoom in / out', 'Ctrl+ / Ctrl−, Ctrl + scroll'], ['Fit / 100%', 'Ctrl+0 / Ctrl+1'], ['Studio pages', 'Shift+1 … Shift+7'], ['Deselect', 'Esc'],
               ].map(([label, keys]) => (
                 <div key={label} className="contents">

@@ -41,6 +41,7 @@ export type DesignEditIntent = {
     | 'zIndex' | 'duplicate' | 'create'
     | 'borderRadius' | 'strokeWidth' | 'letterSpacing' | 'lineHeight'
     | 'flipX' | 'flipY' | 'lockAspectRatio'
+    | 'fx'
   value: unknown
   explicitGeometryChange?: boolean
 }
@@ -50,6 +51,8 @@ const STRUCTURAL_PROPERTIES: ReadonlyArray<DesignEditIntent['property']> = [
   'removed', 'visible', 'bounds', 'rotation', 'zIndex', 'duplicate', 'create',
   // Orientation and the proportion lock are transform settings, like rotation.
   'flipX', 'flipY', 'lockAspectRatio',
+  // Effects and motion sit on top of a layer's content, so every unlocked layer takes them.
+  'fx',
 ]
 
 type DuplicateSpec = { id: string; name?: string; zIndex?: number }
@@ -171,6 +174,16 @@ export function applyDesignEdits(referenceInput: DesignDocument, intents: Design
     if (intent.property === 'flipX') object.transform.flipX = Boolean(intent.value)
     if (intent.property === 'flipY') object.transform.flipY = Boolean(intent.value)
     if (intent.property === 'lockAspectRatio') object.constraints.lockAspectRatio = Boolean(intent.value)
+    if (intent.property === 'fx') {
+      // A partial patch: keys set to undefined are dropped, null switches an effect off.
+      const patch = (intent.value && typeof intent.value === 'object' ? intent.value : {}) as Record<string, unknown>
+      const next: Record<string, unknown> = { ...(object.style.fx ?? {}) }
+      for (const [key, value] of Object.entries(patch)) {
+        if (value === undefined) delete next[key]
+        else next[key] = value
+      }
+      object.style.fx = next as DesignObject['style']['fx']
+    }
 
     if (intent.property === 'duplicate') {
       const spec = readDuplicateSpec(intent.value)

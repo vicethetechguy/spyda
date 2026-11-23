@@ -3,6 +3,7 @@ import type { DesignEditIntent } from '../../core/constraint-engine'
 import type { DesignObject, PercentBox } from '../../core/design-document'
 import { BUNDLED_FAMILIES } from '../../lib/fonts'
 import { ArrowDown, ArrowUp, Copy, ImagePlus, Layers, Loader2, Lock, Sparkles, Trash2, Wand2 } from '../ui/icons'
+import EffectsPanel from './EffectsPanel'
 
 /**
  * The inspector, laid out like Figma's Design panel: align, position and size
@@ -22,6 +23,8 @@ type PropertiesPanelProps = {
   onDelete: () => void
   onReorder: (direction: 'up' | 'down') => void
   pictureBusy: 'background' | 'magic' | null
+  /** Plays the design, to see this layer's animation. */
+  onPreview?: () => void
 }
 
 const HEX = /^#?([0-9a-f]{3}|[0-9a-f]{6}|[0-9a-f]{8})$/i
@@ -191,7 +194,7 @@ function Glyph({ name }: { name: string }) {
 }
 
 export default function PropertiesPanel({
-  object, canvas, onIntent, onReplaceImage, onRemoveBackground, onMagicLayers, onDuplicate, onDelete, onReorder, pictureBusy,
+  object, canvas, onIntent, onReplaceImage, onRemoveBackground, onMagicLayers, onDuplicate, onDelete, onReorder, pictureBusy, onPreview,
 }: PropertiesPanelProps) {
   const fileRef = useRef<HTMLInputElement | null>(null)
   const locked = object.protection.locked
@@ -412,9 +415,13 @@ export default function PropertiesPanel({
               {pictureBusy === 'magic' ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Sparkles className="h-3.5 w-3.5" />}
               {pictureBusy === 'magic' ? 'Finding the layers…' : 'Magic layers'}
             </button>
-            <p className="text-[10px] leading-4 text-muted-foreground">Magic layers breaks this picture into text, image and shape layers in a new canvas.</p>
+            <p className="text-[10px] leading-4 text-muted-foreground">Magic layers splits this picture, right here, into live text, its subject, its logos and a filled-in background. Undo puts it back.</p>
           </div>
         </Section>
+      ) : null}
+
+      {!isBackground ? (
+        <EffectsPanel object={object} disabled={locked} onPreview={onPreview} onFx={patch => onIntent({ objectId: object.id, property: 'fx', value: patch })} />
       ) : null}
 
       {!isBackground ? (

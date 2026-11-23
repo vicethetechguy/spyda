@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
 import { Circle, Ellipse, Group, Image as KonvaImage, Layer, Line, Rect, Stage, Text, Transformer } from 'react-konva'
-import type Konva from 'konva'
+import Konva from 'konva'
+import { compositeOf, gradientProps, motionAt, needsFilters, playLength, shadowProps } from '../../lib/canvas-fx'
 import type { DesignDocument, DesignObject, PercentBox } from '../../core/design-document'
 import { resolveFamily } from '../../lib/fonts'
 import { fitFontSize } from '../../lib/text-fit'
@@ -32,7 +33,8 @@ export type LayerCanvasProps = {
   fallbackImage?: HTMLImageElement | null
   selectedId: string | null
   onSelect: (objectId: string | null) => void
-  onGeometryChange: (objectId: string, bounds: PercentBox, rotation: number) => void
+  /** `fontScale`: a text layer resized from a corner scales its type with it. */
+  onGeometryChange: (objectId: string, bounds: PercentBox, rotation: number, fontScale?: number) => void
   missingFonts: ReadonlySet<string>
   className?: string
   /** Filled with the Konva stage, for exporting the design as an image. */
@@ -54,6 +56,13 @@ export type LayerCanvasProps = {
   artboardLabel?: string
   /** Magic Layers at work: a scanning shimmer over this part of the canvas. */
   scanning?: { frame: PercentBox; label: string; progress: number } | null
+  /** Playback start (performance.now()), or null when the design is still. */
+  playing?: number | null
+  onPlaybackEnd?: () => void
+  /** Typing in a text layer on the canvas. */
+  onTextChange?: (objectId: string, text: string) => void
+  /** Right-click on a layer, at screen coordinates. */
+  onContextMenu?: (objectId: string, x: number, y: number) => void
 }
 
 /** Room around the artboard: the padding on each side and the label above it. */
@@ -135,6 +144,38 @@ function smoothImage(context: Konva.Context, shape: Konva.Shape) {
   ;(shape as unknown as { _sceneFunc: (context: Konva.Context) => void })._sceneFunc(context)
 }
 
+/**
+ * The layer's drawing, with pixel filters (blur, brightness, contrast,
+ * saturation, black and white) when it has any. Filters need a cached bitmap,
+ * so it is re-cached whenever what it draws changes.
+ */
+function FilteredGroup({ object, pixelScale: scale, children, ...rest }: { object: DesignObject; pixelScale: number; children: React.ReactNode } & Konva.ContainerConfig) {
+  const ref = useRef<Konva.Group | null>(null)
+  const fx = object.style.fx
+  const active = needsFilters(fx)
+  useEffect(() => {
+    const node = ref.current
+    if (!node) return
+    if (!active) { node.clearCache(); node.filters([]); node.getLayer()?.batchDraw(); return }
+    const filters: Array<typeof Konva.Filters.Blur> = []
+    if ((fx?.blur ?? 0) > 0) filters.push(Konva.Filters.Blur)
+    if (fx?.brightness) filters.push(Konva.Filters.Brighten)
+    if (fx?.contrast) filters.push(Konva.Filters.Contrast)
+    if (fx?.saturation) filters.push(Konva.Filters.HSL)
+    if (fx?.grayscale) filters.push(Konva.Filters.Grayscale)
+    node.filters(filters)
+    node.blurRadius(Math.round((fx?.blur ?? 0) * scale))
+    node.brightness(fx?.brightness ?? 0)
+    node.contrast(fx?.contrast ?? 0)
+    node.saturation(fx?.saturation ?? 0)
+    // Room around the drawing so a blur or a shadow is not clipped by the cache.
+    const pad = Math.ceil((fx?.blur ?? 0) * scale * 2 + (fx?.shadow ? (fx.shadow.blur + Math.abs(fx.shadow.x) + Math.abs(fx.shadow.y)) * scale : 0)) + 4
+    try { node.cache({ offset: pad, pixelRatio: Math.min(2, window.devicePixelRatio || 1) }) } catch { /* an empty group has nothing to cache */ }
+    node.getLayer()?.batchDraw()
+  })
+  return <Group ref={ref} {...rest}>{children}</Group>
+}
+
 function usesTextMetrics(object: DesignObject) {
   return object.kind === 'text' || object.kind === 'action'
 }
@@ -176,11 +217,20 @@ export default function LayerCanvas({
   onDisplayScale,
   artboardLabel,
   scanning = null,
+  playing = null,
+  onPlaybackEnd,
+  onTextChange,
+  onContextMenu,
 }: LayerCanvasProps) {
   const containerRef = useRef<HTMLDivElement | null>(null)
   const transformerRef = useRef<Konva.Transformer | null>(null)
   const nodeRefs = useRef(new Map<string, Konva.Group>())
+  const motionRefs = useRef(new Map<string, Konva.Group>())
   const [viewport, setViewport] = useState({ width: 0, height: 0 })
+  const [hoveredId, setHoveredId] = useState<string | null>(null)
+  const [editingId, setEditingId] = useState<string | null>(null)
+  const [guides, setGuides] = useState<{ v: number[]; h: number[] }>({ v: [], h: [] })
+  const anchorRef = useRef<string | null>(null)
 
   const backgroundImage = useMemo(() => {
     const background = document.objects.find(object => object.kind === 'background' && isVisible(object))
@@ -293,12 +343,16 @@ export default function LayerCanvas({
     const heightPx = Math.max(1, node.height() * scaleY)
     const rotation = node.rotation()
 
+    // A corner drag on text scales the type (like Canva); a side drag reflows it.
+    const corner = /^(top|bottom)-(left|right)$/.test(anchorRef.current ?? '')
+    const fontScale = usesTextMetrics(object) && corner && Math.abs(scaleX - scaleY) < 0.02 && Math.abs(scaleY - 1) > 0.005 ? scaleY : undefined
+    anchorRef.current = null
     onGeometryChange(object.id, {
       x: toPercent(node.x(), display.width),
       y: toPercent(node.y(), display.height),
       width: Math.min(100, toPercent(widthPx, display.width)),
       height: Math.min(100, toPercent(heightPx, display.height)),
-    }, rotation)
+    }, rotation, fontScale)
 
     // Snap the node back to the document before React re-renders. If the intent is
     // rejected by a constraint the props never change, and the node would
@@ -322,12 +376,101 @@ export default function LayerCanvas({
     }
   }, [display.height, display.width])
 
+  /**
+   * Smart guides: while a layer is dragged, its edges and centre snap to the
+   * canvas's edges and centre and to every other layer's, with a guide line
+   * drawn where they meet.
+   */
+  const snapOnDrag = useCallback((object: DesignObject, node: Konva.Group) => {
+    const threshold = 6
+    const w = node.width(), h = node.height()
+    const xs = [0, display.width / 2, display.width]
+    const ys = [0, display.height / 2, display.height]
+    for (const other of document.objects) {
+      const b = other.transform.bounds
+      if (other.id === object.id || !b || !isVisible(other) || other.kind === 'background') continue
+      const ox = (b.x / 100) * display.width, oy = (b.y / 100) * display.height
+      const ow = (b.width / 100) * display.width, oh = (b.height / 100) * display.height
+      xs.push(ox, ox + ow / 2, ox + ow)
+      ys.push(oy, oy + oh / 2, oy + oh)
+    }
+    const best = (edges: number[], targets: number[]) => {
+      let found: { delta: number; at: number } | null = null
+      for (const edge of edges) for (const target of targets) {
+        const delta = target - edge
+        if (Math.abs(delta) <= threshold && (!found || Math.abs(delta) < Math.abs(found.delta))) found = { delta, at: target }
+      }
+      return found
+    }
+    const x = node.x(), y = node.y()
+    const snapX = node.rotation() ? null : best([x, x + w / 2, x + w], xs)
+    const snapY = node.rotation() ? null : best([y, y + h / 2, y + h], ys)
+    if (snapX) node.x(x + snapX.delta)
+    if (snapY) node.y(y + snapY.delta)
+    setGuides({ v: snapX ? [snapX.at] : [], h: snapY ? [snapY.at] : [] })
+  }, [display.height, display.width, document.objects])
+
+  // Playback: every layer's motion group follows its entrance and loop.
+  useEffect(() => {
+    if (playing == null) {
+      for (const [id, group] of motionRefs.current) {
+        group.setAttrs({ x: group.offsetX(), y: group.offsetY(), scaleX: 1, scaleY: 1, rotation: 0, opacity: 1 })
+        const object = document.objects.find(item => item.id === id)
+        const text = group.findOne('Text') as Konva.Text | undefined
+        if (text && object) text.text(object.content.text || '')
+      }
+      motionRefs.current.values().next().value?.getLayer()?.batchDraw()
+      return
+    }
+    const length = playLength(document.objects)
+    const travel = Math.max(24, display.height * 0.08)
+    let frame = 0
+    const tick = () => {
+      const t = (performance.now() - playing) / 1000
+      for (const object of document.objects) {
+        const group = motionRefs.current.get(object.id)
+        if (!group) continue
+        const m = motionAt(object.style.fx, t, travel)
+        group.setAttrs({ x: group.offsetX() + m.dx, y: group.offsetY() + m.dy, scaleX: m.scaleX, scaleY: m.scaleY, rotation: m.rotation, opacity: m.opacity })
+        if (object.style.fx?.enter?.type === 'typewriter') {
+          const text = group.findOne('Text') as Konva.Text | undefined
+          const full = object.content.text || ''
+          if (text) text.text(full.slice(0, Math.round(full.length * m.reveal)))
+        }
+      }
+      motionRefs.current.values().next().value?.getLayer()?.batchDraw()
+      if (t >= length) { onPlaybackEnd?.(); return }
+      frame = requestAnimationFrame(tick)
+    }
+    frame = requestAnimationFrame(tick)
+    return () => cancelAnimationFrame(frame)
+  }, [display.height, document.objects, onPlaybackEnd, playing])
+
+  // Leaving the layer being typed into ends the editing.
+  useEffect(() => {
+    if (editingId && editingId !== selectedId) setEditingId(null)
+  }, [editingId, selectedId])
+
   if (!display.width || !display.height) {
     return <div ref={containerRef} className={className} aria-busy="true" />
   }
 
+  const editingObject = editingId ? document.objects.find(object => object.id === editingId) ?? null : null
+  const hoveredObject = hoveredId && hoveredId !== selectedId ? document.objects.find(object => object.id === hoveredId && isVisible(object)) ?? null : null
+
   return (
-    <div ref={containerRef} onScroll={rememberCentre} className={`overflow-auto [scrollbar-gutter:stable] ${className ?? ''}`}>
+    <div
+      ref={containerRef}
+      onScroll={rememberCentre}
+      onPointerDown={event => {
+        // The grey workspace around the artboard (anything that is not the canvas
+        // itself or the text being typed) clears the selection, like any design app.
+        const target = event.target as HTMLElement
+        if (target.tagName !== 'CANVAS' && target.tagName !== 'TEXTAREA') { setEditingId(null); onSelect(null) }
+      }}
+      onContextMenu={event => event.preventDefault()}
+      className={`overflow-auto [scrollbar-gutter:stable] ${className ?? ''}`}
+    >
       {/* w-max + m-auto: centred while it fits, scrollable from every edge once zoomed past the viewport. */}
       <div className="flex h-max min-h-full w-max min-w-full" style={{ padding: FRAME_PADDING }}>
       <div className="m-auto">
@@ -346,7 +489,7 @@ export default function LayerCanvas({
             if (pointer) onPenPoint?.([toPercent(pointer.x, display.width), toPercent(pointer.y, display.height)])
             return
           }
-          if (event.target === stage) onSelect(null)
+          if (event.target === stage) { setEditingId(null); onSelect(null) }
         }}
         onTouchStart={event => {
           const stage = event.target.getStage()
@@ -404,11 +547,29 @@ export default function LayerCanvas({
                   if (node) nodeRefs.current.set(object.id, node)
                   else nodeRefs.current.delete(object.id)
                 }}
-                onMouseDown={() => onSelect(object.id)}
+                onMouseDown={event => { if (event.evt.button !== 2) onSelect(object.id) }}
                 onTouchStart={() => onSelect(object.id)}
-                onDblClick={() => onEditText?.(object.id)}
-                onDblTap={() => onEditText?.(object.id)}
+                onMouseEnter={() => { setHoveredId(object.id); const stage = nodeRefs.current.get(object.id)?.getStage(); if (stage) stage.container().style.cursor = movable ? 'move' : 'default' }}
+                onMouseLeave={() => { setHoveredId(current => (current === object.id ? null : current)); const stage = nodeRefs.current.get(object.id)?.getStage(); if (stage) stage.container().style.cursor = 'default' }}
+                onContextMenu={event => {
+                  event.evt.preventDefault()
+                  onSelect(object.id)
+                  onContextMenu?.(object.id, event.evt.clientX, event.evt.clientY)
+                }}
+                onDblClick={() => {
+                  if (usesTextMetrics(object) && !locked) setEditingId(object.id)
+                  onEditText?.(object.id)
+                }}
+                onDblTap={() => {
+                  if (usesTextMetrics(object) && !locked) setEditingId(object.id)
+                  onEditText?.(object.id)
+                }}
+                onDragMove={() => {
+                  const node = nodeRefs.current.get(object.id)
+                  if (node) snapOnDrag(object, node)
+                }}
                 onDragEnd={() => {
+                  setGuides({ v: [], h: [] })
                   const node = nodeRefs.current.get(object.id)
                   if (node) commitGeometry(object, node)
                 }}
@@ -417,15 +578,30 @@ export default function LayerCanvas({
                   if (node) commitGeometry(object, node)
                 }}
               >
+                {/* Motion: playback moves this group about the layer's centre; at rest it changes nothing. */}
                 <Group
+                  ref={node => {
+                    if (node) motionRefs.current.set(object.id, node)
+                    else motionRefs.current.delete(object.id)
+                  }}
+                  x={widthPx / 2}
+                  y={heightPx / 2}
+                  offsetX={widthPx / 2}
+                  offsetY={heightPx / 2}
+                  opacity={editingId === object.id ? 0 : 1}
+                >
+                <FilteredGroup
+                  object={object}
+                  pixelScale={display.scale}
                   x={object.transform.flipX ? widthPx : 0}
                   y={object.transform.flipY ? heightPx : 0}
                   scaleX={object.transform.flipX ? -1 : 1}
                   scaleY={object.transform.flipY ? -1 : 1}
+                  globalCompositeOperation={compositeOf(object.style.fx)}
                 >
                 {usesTextMetrics(object) && image ? (
                   // Text lifted by Magic Layers keeps its own pixels until its words or style are edited.
-                  <KonvaImage image={image} width={widthPx} height={heightPx} sceneFunc={smoothImage} />
+                  <KonvaImage image={image} width={widthPx} height={heightPx} sceneFunc={smoothImage} {...shadowProps(object.style.fx, display.scale)} />
                 ) : usesTextMetrics(object) ? (() => {
                   const fontFamily = resolveFamily(object.style.fontFamily, missingFonts)
                   const bold = Number(object.style.fontWeight) >= 600
@@ -446,6 +622,8 @@ export default function LayerCanvas({
                     stroke={object.style.stroke || undefined}
                     strokeWidth={object.style.stroke ? strokePx : 0}
                     fillAfterStrokeEnabled
+                    {...shadowProps(object.style.fx, display.scale)}
+                    {...gradientProps(object.style.fx, widthPx, heightPx)}
                   />
                   )
                 })() : source ? (
@@ -458,6 +636,7 @@ export default function LayerCanvas({
                     cornerRadius={radiusPx}
                     stroke={object.style.stroke || undefined}
                     strokeWidth={object.style.stroke ? strokePx : 0}
+                    {...shadowProps(object.style.fx, display.scale)}
                   />
                 ) : holdsPixels ? (
                   // Found by the analyser, not cut out yet: keep the region
@@ -481,6 +660,10 @@ export default function LayerCanvas({
                     fill={object.style.fill || undefined}
                     stroke={object.style.stroke || undefined}
                     strokeWidth={object.style.stroke ? strokePx : 0}
+                    {...shadowProps(object.style.fx, display.scale)}
+                    {...gradientProps(object.style.fx, widthPx, heightPx)}
+                    fillLinearGradientStartPoint={object.style.fx?.gradient ? { x: (gradientProps(object.style.fx, widthPx, heightPx).fillLinearGradientStartPoint?.x ?? 0) - widthPx / 2, y: (gradientProps(object.style.fx, widthPx, heightPx).fillLinearGradientStartPoint?.y ?? 0) - heightPx / 2 } : undefined}
+                    fillLinearGradientEndPoint={object.style.fx?.gradient ? { x: (gradientProps(object.style.fx, widthPx, heightPx).fillLinearGradientEndPoint?.x ?? 0) - widthPx / 2, y: (gradientProps(object.style.fx, widthPx, heightPx).fillLinearGradientEndPoint?.y ?? 0) - heightPx / 2 } : undefined}
                   />
                 ) : object.geometry?.type === 'line' || object.geometry?.type === 'path' ? (
                   <Line
@@ -492,6 +675,8 @@ export default function LayerCanvas({
                     lineCap="round"
                     lineJoin="round"
                     hitStrokeWidth={Math.max(18, strokePx)}
+                    {...shadowProps(object.style.fx, display.scale)}
+                    {...gradientProps(object.style.fx, widthPx, heightPx)}
                   />
                 ) : (
                   <Rect
@@ -501,8 +686,11 @@ export default function LayerCanvas({
                     stroke={object.style.stroke || undefined}
                     strokeWidth={object.style.stroke ? strokePx : 0}
                     cornerRadius={radiusPx}
+                    {...shadowProps(object.style.fx, display.scale)}
+                    {...gradientProps(object.style.fx, widthPx, heightPx)}
                   />
                 )}
+                </FilteredGroup>
                 </Group>
               </Group>
             )
@@ -531,12 +719,27 @@ export default function LayerCanvas({
               ))}
             </Group>
           ) : null}
-          {/* Free transform: any anchor, any form. Shift keeps proportions; rotation snaps every 45 degrees. */}
+          {hoveredObject?.transform.bounds ? (
+            <Rect
+              listening={false}
+              x={(hoveredObject.transform.bounds.x / 100) * display.width}
+              y={(hoveredObject.transform.bounds.y / 100) * display.height}
+              width={(hoveredObject.transform.bounds.width / 100) * display.width}
+              height={(hoveredObject.transform.bounds.height / 100) * display.height}
+              rotation={hoveredObject.transform.rotation}
+              stroke="rgba(157, 250, 176, 0.7)"
+              strokeWidth={1.5}
+            />
+          ) : null}
+          {guides.v.map(x => <Line key={`v${x}`} listening={false} points={[x, 0, x, display.height]} stroke="#ff4fd8" strokeWidth={1} dash={[4, 3]} />)}
+          {guides.h.map(y => <Line key={`h${y}`} listening={false} points={[0, y, display.width, y]} stroke="#ff4fd8" strokeWidth={1} dash={[4, 3]} />)}
+          {/* Corners keep text and pictures in proportion (text scales with them); sides reshape freely. Rotation snaps every 45 degrees. */}
           <Transformer
             ref={transformerRef}
             rotateEnabled={!selectedObject?.constraints.lockRotation}
             resizeEnabled={!selectedObject?.constraints.lockSize}
-            keepRatio={Boolean(selectedObject?.constraints.lockAspectRatio)}
+            keepRatio={Boolean(selectedObject?.constraints.lockAspectRatio) || Boolean(selectedObject && (usesTextMetrics(selectedObject) || ['image', 'logo', 'icon', 'qr-code'].includes(selectedObject.kind)))}
+            onTransformStart={() => { anchorRef.current = transformerRef.current?.getActiveAnchor() ?? null }}
             rotationSnaps={[0, 45, 90, 135, 180, 225, 270, 315]}
             rotationSnapTolerance={5}
             flipEnabled={false}
@@ -553,6 +756,48 @@ export default function LayerCanvas({
           />
         </Layer>
       </Stage>
+      {editingObject?.transform.bounds && usesTextMetrics(editingObject) ? (() => {
+        const b = editingObject.transform.bounds
+        const w = (b.width / 100) * display.width, h = (b.height / 100) * display.height
+        const family = resolveFamily(editingObject.style.fontFamily, missingFonts)
+        const bold = Number(editingObject.style.fontWeight) >= 600
+        const size = resolvedFontSize(editingObject, { width: w, height: h }, display.scale, family, bold)
+        const lineHeight = editingObject.style.lineHeight || 1.2
+        const text = editingObject.content.text || ''
+        const lines = Math.max(1, text.split('\n').length)
+        return (
+          <textarea
+            autoFocus
+            spellCheck={false}
+            aria-label={`Edit ${editingObject.name}`}
+            defaultValue={text}
+            onChange={event => onTextChange?.(editingObject.id, event.target.value)}
+            onBlur={() => setEditingId(null)}
+            onKeyDown={event => {
+              event.stopPropagation()
+              if (event.key === 'Escape' || ((event.metaKey || event.ctrlKey) && event.key === 'Enter')) setEditingId(null)
+            }}
+            onFocus={event => event.currentTarget.select()}
+            className="absolute z-10 resize-none overflow-hidden border-0 bg-transparent p-0 outline outline-1 outline-dashed outline-[#9dfab0] [caret-color:#9dfab0]"
+            style={{
+              left: (b.x / 100) * display.width,
+              top: (b.y / 100) * display.height,
+              width: w,
+              height: h,
+              transform: editingObject.transform.rotation ? `rotate(${editingObject.transform.rotation}deg)` : undefined,
+              transformOrigin: 'top left',
+              paddingTop: Math.max(0, (h - lines * size * lineHeight) / 2),
+              fontFamily: family,
+              fontWeight: /^\d{3}$/.test(editingObject.style.fontWeight || '') ? Number(editingObject.style.fontWeight) : bold ? 700 : 400,
+              fontSize: size,
+              lineHeight,
+              letterSpacing: (editingObject.style.letterSpacing ?? 0) * display.scale,
+              textAlign: editingObject.style.textAlign || 'left',
+              color: editingObject.style.fill || '#ffffff',
+            }}
+          />
+        )
+      })() : null}
       {scanning ? (
         <div
           role="status"
