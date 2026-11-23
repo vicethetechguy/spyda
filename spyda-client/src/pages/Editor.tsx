@@ -41,6 +41,7 @@ import {
 import { patchProject, readProject, type StoredProject } from '../lib/project-store'
 import LayerCanvas from '../components/editor/LayerCanvas'
 import PropertiesPanel from '../components/editor/PropertiesPanel'
+import SelectionPanel, { type AlignMode } from '../components/editor/SelectionPanel'
 import LayerList from '../components/editor/LayerList'
 import { useAssetImages } from '../components/editor/useAssetImages'
 import AssistPanel, { type AssistEntry } from '../components/editor/AssistPanel'
@@ -186,7 +187,10 @@ export default function Editor() {
   const { projectId } = useParams<{ projectId: string }>()
   const [{ project }] = useState<BootState>(() => readEditorState(projectId))
   const [history, setHistory] = useState<IntentHistory | null>(() => readEditorState(projectId).history)
-  const [selectedId, setSelectedId] = useState<string | null>(null)
+  const [selection, setSelection] = useState<string[]>([])
+  const selectedId = selection.length ? selection[selection.length - 1] : null
+  const setSelectedId = useCallback((id: string | null) => setSelection(id ? [id] : []), [])
+  const [alignTo, setAlignTo] = useState<'selection' | 'frame'>('selection')
   const [notice, setNotice] = useState<Notice | null>(null)
   const [extracting, setExtracting] = useState<{ done: number; total: number } | null>(null)
   const [fontReport, setFontReport] = useState<FontReport | null>(null)
@@ -197,7 +201,7 @@ export default function Editor() {
   // Deliver shows the design as it will export: no selection handles.
   useEffect(() => {
     if (page === 'deliver') setSelectedId(null)
-  }, [page])
+  }, [page, setSelectedId])
   const [filter, setFilter] = useState<LayerFilter>('all')
   const [assistEntries, setAssistEntries] = useState<AssistEntry[]>([])
   const [assistDraft, setAssistDraft] = useState('')
@@ -219,7 +223,7 @@ export default function Editor() {
   const [playing, setPlaying] = useState<number | null>(null)
   const [recording, setRecording] = useState(false)
   const [contextMenu, setContextMenu] = useState<{ id: string; x: number; y: number } | null>(null)
-  const clipboard = useRef<DesignObject | null>(null)
+  const clipboard = useRef<DesignObject[] | null>(null)
   const styleClipboard = useRef<DesignObject['style'] | null>(null)
   const navigate = useNavigate()
   const edited = useRef(false)
@@ -422,7 +426,7 @@ export default function Editor() {
       setMagic(null)
       setExtracting(null)
     }
-  }, [design, flatFlyer, magic, persist, projectId])
+  }, [design, flatFlyer, magic, persist, projectId, setSelectedId])
 
   // A flyer sent here from Spyda AI is split as soon as it opens, like Canva's Magic Layers.
   useEffect(() => {
@@ -480,7 +484,7 @@ export default function Editor() {
     const layer = makeLayer(design, kind, { ...options, fill: textFill })
     applyStep([{ objectId: layer.id, property: 'create', value: layer }], `Add ${layer.name.toLowerCase()}`)
     setSelectedId(layer.id)
-  }, [applyStep, design])
+  }, [applyStep, design, setSelectedId])
 
   const handleImageFile = useCallback(async (file: File) => {
     if (!design) return
@@ -540,7 +544,7 @@ export default function Editor() {
     } finally {
       setExporting(false)
     }
-  }, [design, project?.name])
+  }, [design, project?.name, setSelectedId])
 
   /** Pen tool: points in canvas percent until the path closes or Enter ends it. */
   const finishPen = useCallback((points: [number, number][], closed: boolean) => {
@@ -550,7 +554,7 @@ export default function Editor() {
     if (!layer) return
     applyStep([{ objectId: layer.id, property: 'create', value: layer }], closed ? 'Draw shape' : 'Draw path')
     setSelectedId(layer.id)
-  }, [applyStep, design])
+  }, [applyStep, design, setSelectedId])
 
   // Decided from the current points, never inside a state updater: updaters
   // must stay pure, and creating the layer there could run it twice.
@@ -670,7 +674,7 @@ export default function Editor() {
       setMagic(null)
       setPictureBusy(null)
     }
-  }, [analysePicture, applyStep, design, handleExtract, magic, pictureBlob])
+  }, [analysePicture, applyStep, design, handleExtract, magic, pictureBlob, setSelectedId])
 
   /** Spyda AI: the canvas as layers out, validated operations back in, one undo step. */
   const runAssist = useCallback(async (instruction: string) => {
@@ -720,9 +724,11 @@ export default function Editor() {
       const selected = selectedId ? design?.objects.find(object => object.id === selectedId) : null
       if ((event.metaKey || event.ctrlKey) && event.key.toLowerCase() === 'd' && selectedId) {
         event.preventDefault()
-        handleDuplicate(selectedId)
+        duplicateSelection()
         return
       }
+      if ((event.metaKey || event.ctrlKey) && event.key.toLowerCase() === 'a') { event.preventDefault(); selectAll(); return }
+      if ((event.metaKey || event.ctrlKey) && event.key.toLowerCase() === 'g') { event.preventDefault(); if (event.shiftKey) ungroupSelection(); else groupSelection(); return }
       if (event.metaKey || event.ctrlKey) {
         if (event.key === '=' || event.key === '+') { event.preventDefault(); zoomBy(1.25); return }
         if (event.key === '-') { event.preventDefault(); zoomBy(0.8); return }
@@ -734,7 +740,7 @@ export default function Editor() {
         if (key === 'c' && event.shiftKey) { event.preventDefault(); copyStyle(); return }
         if (key === 'v' && event.shiftKey) { event.preventDefault(); pasteStyle(); return }
         if (key === 'c') { if (copySelected()) event.preventDefault(); return }
-        if (key === 'x' && selectedId) { event.preventDefault(); if (copySelected()) applyIntent({ objectId: selectedId, property: 'removed', value: true }); return }
+        if (key === 'x' && selectedId) { event.preventDefault(); if (copySelected()) deleteSelection(); return }
         if (key === 'v' && clipboard.current) { event.preventDefault(); pasteClipboard(); return }
         if (event.key === ']' && selectedId) { event.preventDefault(); if (event.shiftKey) moveToEdge(selectedId, 'front'); else handleReorder(selectedId, 'up'); return }
         if (event.key === '[' && selectedId) { event.preventDefault(); if (event.shiftKey) moveToEdge(selectedId, 'back'); else handleReorder(selectedId, 'down'); return }
@@ -751,7 +757,7 @@ export default function Editor() {
       if (event.key === 'Escape') { setSelectedId(null); setContextMenu(null); setPlaying(null) }
       if ((event.key === 'Delete' || event.key === 'Backspace') && selectedId) {
         event.preventDefault()
-        applyIntent({ objectId: selectedId, property: 'removed', value: true })
+        deleteSelection()
         return
       }
       const tool = ({ v: 'select', t: 'text', r: 'rect', o: 'circle', i: 'image', l: 'line', p: 'pen' } as const)[event.key.toLowerCase() as 'v' | 't' | 'r' | 'o' | 'i' | 'l' | 'p']
@@ -765,6 +771,7 @@ export default function Editor() {
       // Arrow keys nudge the selection; shift moves further. One undo per burst.
       const step = event.shiftKey ? 2 : 0.5
       const delta = { ArrowLeft: [-step, 0], ArrowRight: [step, 0], ArrowUp: [0, -step], ArrowDown: [0, step] }[event.key as 'ArrowLeft']
+      if (delta && selection.length > 1) { event.preventDefault(); nudgeSelection(delta[0], delta[1]); return }
       if (delta && selected?.transform.bounds && !selected.protection.locked && !selected.constraints.lockPosition) {
         event.preventDefault()
         const bounds = selected.transform.bounds
@@ -786,9 +793,142 @@ export default function Editor() {
     return () => window.removeEventListener('keydown', onKeyDown)
   })
 
-  const selectLayer = (objectId: string | null) => {
-    setSelectedId(objectId)
+  /** A grouped layer brings its whole group, unless `exact` (Alt-click) picks just it. */
+  const groupOf = (objectId: string) => {
+    const group = design?.objects.find(object => object.id === objectId)?.relationships.groupId
+    return group && design
+      ? design.objects.filter(object => object.relationships.groupId === group && !object.status.removed).map(object => object.id)
+      : [objectId]
+  }
+
+  const selectLayer = (objectId: string | null, mode: 'replace' | 'toggle' = 'replace', exact = false) => {
     setContextMenu(null)
+    if (!objectId) { setSelection([]); return }
+    const members = exact ? [objectId] : groupOf(objectId)
+    const ordered = [...members.filter(id => id !== objectId), objectId]
+    if (mode === 'toggle') {
+      setSelection(current => (members.every(id => current.includes(id))
+        ? current.filter(id => !members.includes(id))
+        : [...current.filter(id => !members.includes(id)), ...ordered]))
+    } else setSelection(ordered)
+  }
+
+  const selectMany = (objectIds: string[], additive: boolean) => {
+    setContextMenu(null)
+    const expanded = [...new Set(objectIds.flatMap(id => groupOf(id)))]
+    setSelection(current => (additive ? [...new Set([...current, ...expanded])] : expanded))
+  }
+
+  const selectAll = () => {
+    if (!design) return
+    setSelection(design.objects.filter(object => !object.status.removed && object.status.visible && object.kind !== 'background' && !object.protection.locked).map(object => object.id))
+  }
+
+  const selectedObjects = (design?.objects ?? []).filter(object => selection.includes(object.id) && !object.status.removed)
+  const editableSelection = selectedObjects.filter(object => !object.protection.locked && object.kind !== 'background')
+  const multi = selectedObjects.length > 1
+
+  /* ── many layers at once ──────────────────────────────────────────── */
+
+  const unionOf = (objects: DesignObject[]) => {
+    const boxes = objects.map(object => object.transform.bounds).filter((box): box is PercentBox => Boolean(box))
+    const x0 = Math.min(...boxes.map(box => box.x)), y0 = Math.min(...boxes.map(box => box.y))
+    const x1 = Math.max(...boxes.map(box => box.x + box.width)), y1 = Math.max(...boxes.map(box => box.y + box.height))
+    return { x: x0, y: y0, width: x1 - x0, height: y1 - y0 }
+  }
+
+  const alignMany = (mode: AlignMode) => {
+    const movable = editableSelection.filter(object => object.transform.bounds && !object.constraints.lockPosition)
+    if (!movable.length) return
+    const frame = alignTo === 'frame' || movable.length === 1 ? { x: 0, y: 0, width: 100, height: 100 } : unionOf(movable)
+    const intents: DesignEditIntent[] = movable.map(object => {
+      const b = object.transform.bounds!
+      const next = {
+        left: { x: frame.x }, center: { x: frame.x + (frame.width - b.width) / 2 }, right: { x: frame.x + frame.width - b.width },
+        top: { y: frame.y }, middle: { y: frame.y + (frame.height - b.height) / 2 }, bottom: { y: frame.y + frame.height - b.height },
+      }[mode]
+      return { objectId: object.id, property: 'bounds', value: { ...b, ...next }, explicitGeometryChange: true }
+    })
+    applyStep(intents, `Align ${mode}`)
+  }
+
+  /** Equal gaps between the layers, keeping the outermost two where they are. */
+  const distribute = (axis: 'x' | 'y') => {
+    const movable = editableSelection.filter(object => object.transform.bounds && !object.constraints.lockPosition)
+    if (movable.length < 3) return
+    const size = (b: PercentBox) => (axis === 'x' ? b.width : b.height)
+    const start = (b: PercentBox) => (axis === 'x' ? b.x : b.y)
+    const sorted = [...movable].sort((a, b) => start(a.transform.bounds!) + size(a.transform.bounds!) / 2 - (start(b.transform.bounds!) + size(b.transform.bounds!) / 2))
+    const first = sorted[0].transform.bounds!, last = sorted[sorted.length - 1].transform.bounds!
+    const span = start(last) + size(last) - start(first)
+    const gap = (span - sorted.reduce((sum, object) => sum + size(object.transform.bounds!), 0)) / (sorted.length - 1)
+    let cursor = start(first)
+    const intents: DesignEditIntent[] = sorted.map(object => {
+      const b = object.transform.bounds!
+      const value = axis === 'x' ? { ...b, x: cursor } : { ...b, y: cursor }
+      cursor += size(b) + gap
+      return { objectId: object.id, property: 'bounds', value, explicitGeometryChange: true }
+    })
+    applyStep(intents, axis === 'x' ? 'Spread across' : 'Spread down')
+  }
+
+  const groupSelection = () => {
+    if (editableSelection.length < 2) return
+    const groupId = `group-${newObjectId().slice(6)}`
+    applyStep(editableSelection.map(object => ({ objectId: object.id, property: 'groupId' as const, value: groupId })), 'Group')
+  }
+
+  const ungroupSelection = () => {
+    const grouped = editableSelection.filter(object => object.relationships.groupId)
+    if (grouped.length) applyStep(grouped.map(object => ({ objectId: object.id, property: 'groupId' as const, value: null })), 'Ungroup')
+  }
+
+  /** Copies of every selected layer; grouped copies form a new group of their own. */
+  const duplicateSelection = () => {
+    if (!editableSelection.length) return
+    const groups = new Map<string, string>()
+    const intents: DesignEditIntent[] = []
+    const created: string[] = []
+    for (const object of editableSelection) {
+      const id = newObjectId()
+      created.push(id)
+      intents.push({ objectId: object.id, property: 'duplicate', value: { id, name: `${object.name} copy`.slice(0, 60) } })
+      const group = object.relationships.groupId
+      if (group) {
+        if (!groups.has(group)) groups.set(group, `group-${newObjectId().slice(6)}`)
+        intents.push({ objectId: id, property: 'groupId', value: groups.get(group) })
+      }
+    }
+    applyStep(intents, editableSelection.length > 1 ? `Duplicate ${editableSelection.length} layers` : 'Duplicate')
+    setSelection(created)
+  }
+
+  const deleteSelection = () => {
+    if (!editableSelection.length) return
+    applyStep(editableSelection.map(object => ({ objectId: object.id, property: 'removed' as const, value: true })), editableSelection.length > 1 ? `Delete ${editableSelection.length} layers` : 'Delete layer')
+    setSelection([])
+  }
+
+  const nudgeSelection = (dx: number, dy: number) => {
+    const movable = editableSelection.filter(object => object.transform.bounds && !object.constraints.lockPosition)
+    if (!movable.length) return
+    // The whole selection stops at the canvas edge together, keeping its shape.
+    const union = unionOf(movable)
+    const sx = Math.min(Math.max(dx, -union.x), 100 - union.x - union.width)
+    const sy = Math.min(Math.max(dy, -union.y), 100 - union.y - union.height)
+    applyStep(movable.map(object => {
+      const b = object.transform.bounds!
+      return {
+        objectId: object.id,
+        property: 'bounds' as const,
+        value: {
+          ...b,
+          x: Math.min(Math.max(0, Math.round((b.x + sx) * 100) / 100), Math.max(0, 100 - b.width)),
+          y: Math.min(Math.max(0, Math.round((b.y + sy) * 100) / 100), Math.max(0, 100 - b.height)),
+        },
+        explicitGeometryChange: true,
+      }
+    }), 'Nudge layers', `move:${movable.map(object => object.id).join(',')}`)
   }
 
   /* ── arrange, clipboard and style ─────────────────────────────────── */
@@ -803,32 +943,42 @@ export default function Editor() {
   }
 
   const copySelected = () => {
-    const object = design?.objects.find(item => item.id === selectedId)
-    if (object && object.kind !== 'background') clipboard.current = structuredClone(object)
-    return object
+    const objects = editableSelection.length ? editableSelection : selectedObjects.filter(object => object.kind !== 'background')
+    if (objects.length) clipboard.current = objects.map(object => structuredClone(object))
+    return objects.length > 0
   }
 
   const pasteClipboard = () => {
-    const source = clipboard.current
-    if (!design || !source) return
-    const bounds = source.transform.bounds
-    const copy: DesignObject = structuredClone(source)
-    copy.id = newObjectId()
-    copy.name = `${source.name} copy`.slice(0, 60)
-    copy.zIndex = Math.max(0, ...design.objects.map(object => object.zIndex)) + 1
-    copy.status = { visible: true, removed: false, consumed: false }
-    copy.protection = { ...copy.protection, locked: false }
-    if (bounds) {
-      copy.transform.bounds = {
-        ...bounds,
-        x: Math.min(Math.max(0, bounds.x + 2), Math.max(0, 100 - bounds.width)),
-        y: Math.min(Math.max(0, bounds.y + 2), Math.max(0, 100 - bounds.height)),
+    const sources = clipboard.current
+    if (!design || !sources?.length) return
+    let z = Math.max(0, ...design.objects.map(object => object.zIndex))
+    const groups = new Map<string, string>()
+    const copies = sources.map(source => {
+      const copy: DesignObject = structuredClone(source)
+      copy.id = newObjectId()
+      copy.name = `${source.name} copy`.slice(0, 60)
+      copy.zIndex = ++z
+      copy.status = { visible: true, removed: false, consumed: false }
+      copy.protection = { ...copy.protection, locked: false }
+      const group = source.relationships.groupId
+      if (group) {
+        if (!groups.has(group)) groups.set(group, `group-${newObjectId().slice(6)}`)
+        copy.relationships = { ...copy.relationships, groupId: groups.get(group)! }
       }
-    }
-    applyStep([{ objectId: copy.id, property: 'create', value: copy }], 'Paste')
-    setSelectedId(copy.id)
+      const bounds = source.transform.bounds
+      if (bounds) {
+        copy.transform.bounds = {
+          ...bounds,
+          x: Math.min(Math.max(0, bounds.x + 2), Math.max(0, 100 - bounds.width)),
+          y: Math.min(Math.max(0, bounds.y + 2), Math.max(0, 100 - bounds.height)),
+        }
+      }
+      return copy
+    })
+    applyStep(copies.map(copy => ({ objectId: copy.id, property: 'create' as const, value: copy })), copies.length > 1 ? `Paste ${copies.length} layers` : 'Paste')
+    setSelection(copies.map(copy => copy.id))
     // The next paste lands a step further on.
-    clipboard.current = copy
+    clipboard.current = copies
   }
 
   const copyStyle = () => {
@@ -1008,6 +1158,23 @@ export default function Editor() {
     { id: 'history', label: 'History', icon: Clock },
   ]
 
+  const selectionPanel = multi ? (
+    <SelectionPanel
+      objects={selectedObjects}
+      onAlign={alignMany}
+      onDistribute={distribute}
+      onGroup={groupSelection}
+      onUngroup={ungroupSelection}
+      onDuplicate={duplicateSelection}
+      onDelete={deleteSelection}
+      onOpacity={value => applyStep(editableSelection.map(object => ({ objectId: object.id, property: 'opacity' as const, value })), 'Opacity', 'opacity:selection')}
+      onFx={patch => applyStep(editableSelection.map(object => ({ objectId: object.id, property: 'fx' as const, value: patch })), 'Effects', `fx:${selection.join(',')}`)}
+      onPreview={play}
+      alignTo={alignTo}
+      onAlignTo={setAlignTo}
+    />
+  ) : null
+
   const inspector = selectedObject ? (
     <PropertiesPanel
       object={selectedObject}
@@ -1059,7 +1226,12 @@ export default function Editor() {
   ) : null
 
   const panels: Record<EditorPage, React.ReactNode> = {
-    design: selectedObject ? (
+    design: multi ? (
+      <div>
+        {sectionLabel('Selection')}
+        {selectionPanel}
+      </div>
+    ) : selectedObject ? (
       <div>
         {sectionLabel('Properties')}
         {inspector}
@@ -1251,7 +1423,7 @@ export default function Editor() {
           </div>
           <p className="mt-1.5 text-[10px] leading-4 text-muted-foreground">Select a layer to choose its entrance, timing and loop in Properties.</p>
         </div>
-        {selectedObject && selectedObject.kind !== 'background' ? <div className="border-t border-white/[0.06] pt-2">{inspector}</div> : null}
+        {multi ? <div className="border-t border-white/[0.06] pt-2">{selectionPanel}</div> : selectedObject && selectedObject.kind !== 'background' ? <div className="border-t border-white/[0.06] pt-2">{inspector}</div> : null}
         <button type="button" onClick={() => { void exportVideo() }} disabled={recording || !hasMotion(objects)} className="inline-flex h-9 w-full items-center justify-center gap-2 rounded-md bg-white text-[12px] font-semibold text-[#0b1210] disabled:opacity-40">
           {recording ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Clapperboard className="h-3.5 w-3.5" />}
           {recording ? 'Recording…' : 'Export video'}
@@ -1399,20 +1571,24 @@ export default function Editor() {
         { label: history && canUndo(history) ? `Undo ${nextUndoLabel(history) ?? ''}`.trim() : 'Undo', shortcut: 'Ctrl+Z', onSelect: () => setHistory(current => (current ? undo(current) : current)), disabled: !history || !canUndo(history) },
         { label: history && canRedo(history) ? `Redo ${nextRedoLabel(history) ?? ''}`.trim() : 'Redo', shortcut: 'Ctrl+Shift+Z', onSelect: () => setHistory(current => (current ? redo(current) : current)), disabled: !history || !canRedo(history) },
         { separator: true },
-        { label: 'Cut', shortcut: 'Ctrl+X', onSelect: () => { if (selectedObject && copySelected()) applyIntent({ objectId: selectedObject.id, property: 'removed', value: true }) }, disabled: noSelection },
+        { label: 'Cut', shortcut: 'Ctrl+X', onSelect: () => { if (copySelected()) deleteSelection() }, disabled: noSelection },
         { label: 'Copy', shortcut: 'Ctrl+C', onSelect: () => { copySelected() }, disabled: noSelection },
+        { label: 'Select all', shortcut: 'Ctrl+A', onSelect: selectAll },
         { label: 'Paste', shortcut: 'Ctrl+V', onSelect: pasteClipboard, disabled: !clipboard.current },
         { label: 'Copy style', shortcut: 'Ctrl+Shift+C', onSelect: copyStyle, disabled: noSelection },
         { label: 'Paste style', shortcut: 'Ctrl+Shift+V', onSelect: pasteStyle, disabled: noSelection || !styleClipboard.current },
         { separator: true },
-        { label: 'Duplicate', shortcut: 'Ctrl+D', onSelect: () => selectedObject && handleDuplicate(selectedObject.id), disabled: noSelection },
-        { label: 'Delete', shortcut: 'Del', onSelect: () => selectedObject && applyIntent({ objectId: selectedObject.id, property: 'removed', value: true }), disabled: noSelection },
+        { label: 'Duplicate', shortcut: 'Ctrl+D', onSelect: duplicateSelection, disabled: noSelection },
+        { label: 'Delete', shortcut: 'Del', onSelect: deleteSelection, disabled: noSelection },
         { label: 'Deselect', shortcut: 'Esc', onSelect: () => setSelectedId(null), disabled: noSelection },
       ],
     },
     {
       label: 'Layer',
       items: [
+        { label: 'Group', shortcut: 'Ctrl+G', onSelect: groupSelection, disabled: editableSelection.length < 2 },
+        { label: 'Ungroup', shortcut: 'Ctrl+Shift+G', onSelect: ungroupSelection, disabled: !editableSelection.some(object => object.relationships.groupId) },
+        { separator: true },
         { label: 'Bring to front', shortcut: 'Ctrl+Shift+]', onSelect: () => selectedObject && moveToEdge(selectedObject.id, 'front'), disabled: noSelection },
         { label: 'Bring forward', shortcut: 'Ctrl+]', onSelect: () => selectedObject && handleReorder(selectedObject.id, 'up'), disabled: noSelection },
         { label: 'Send backward', shortcut: 'Ctrl+[', onSelect: () => selectedObject && handleReorder(selectedObject.id, 'down'), disabled: noSelection },
@@ -1446,11 +1622,16 @@ export default function Editor() {
     },
     {
       label: 'Arrange',
-      items: (['left', 'center', 'right', 'top', 'middle', 'bottom'] as const).map(where => ({
-        label: `Align ${where} to frame`,
-        onSelect: () => alignSelected(where),
-        disabled: !movable,
-      })),
+      items: [
+        ...(['left', 'center', 'right', 'top', 'middle', 'bottom'] as const).map(where => ({
+          label: multi ? `Align ${where}` : `Align ${where} to frame`,
+          onSelect: () => (multi ? alignMany(where) : alignSelected(where)),
+          disabled: multi ? false : !movable,
+        })),
+        { separator: true as const },
+        { label: 'Spread across', onSelect: () => distribute('x'), disabled: editableSelection.length < 3 },
+        { label: 'Spread down', onSelect: () => distribute('y'), disabled: editableSelection.length < 3 },
+      ],
     },
     {
       label: 'View',
@@ -1582,7 +1763,9 @@ export default function Editor() {
         </div>
         <span className="hidden h-5 w-px shrink-0 bg-white/10 md:block" />
         <p className="hidden min-w-0 shrink truncate text-[11px] md:block">
-          {selectedObject ? (
+          {multi ? (
+            <span className="font-semibold">{selectedObjects.length} layers selected{selectedObjects.every(object => object.relationships.groupId && object.relationships.groupId === selectedObjects[0].relationships.groupId) ? ' · Group' : ''}</span>
+          ) : selectedObject ? (
             <>
               <span className="font-semibold">{selectedObject.name}</span>
               {selectedObject.transform.bounds && design?.canvas.width && design.canvas.height ? (
@@ -1683,7 +1866,13 @@ export default function Editor() {
                 images={images}
                 fallbackImage={flatFlyer}
                 selectedId={selectedId}
+                selectedIds={selection}
                 onSelect={selectLayer}
+                onSelectMany={selectMany}
+                onGeometryChangeMany={changes => applyStep(changes.flatMap(change => [
+                  { objectId: change.objectId, property: 'bounds' as const, value: change.bounds, explicitGeometryChange: true },
+                  { objectId: change.objectId, property: 'rotation' as const, value: change.rotation, explicitGeometryChange: true },
+                ]), `Move ${changes.length} layers`)}
                 onEditText={editText}
                 penActive={penPoints !== null}
                 penPoints={penPoints ?? []}
@@ -1781,6 +1970,7 @@ export default function Editor() {
                   <LayerList
                     objects={filtered}
                     selectedId={selectedId}
+                    selectedIds={selection}
                     onSelect={selectLayer}
                     onReorder={handleReorder}
                     onToggleVisibility={handleToggleVisibility}
@@ -1854,8 +2044,9 @@ export default function Editor() {
         const items: Array<[string, string, () => void, boolean?] | null> = [
           ['Copy', 'Ctrl+C', () => { copySelected() }],
           ['Paste', 'Ctrl+V', pasteClipboard, !clipboard.current],
-          ['Duplicate', 'Ctrl+D', () => handleDuplicate(target.id)],
-          ['Delete', 'Del', () => applyIntent({ objectId: target.id, property: 'removed', value: true })],
+          ['Duplicate', 'Ctrl+D', duplicateSelection],
+          ['Delete', 'Del', deleteSelection],
+          ...(multi || target.relationships.groupId ? [null, ['Group', 'Ctrl+G', groupSelection, editableSelection.length < 2], ['Ungroup', 'Ctrl+Shift+G', ungroupSelection, !editableSelection.some(object => object.relationships.groupId)]] as Array<[string, string, () => void, boolean?] | null> : []),
           null,
           ['Bring to front', 'Ctrl+Shift+]', () => moveToEdge(target.id, 'front')],
           ['Bring forward', 'Ctrl+]', () => handleReorder(target.id, 'up')],
@@ -1906,6 +2097,7 @@ export default function Editor() {
               {[
                 ['Select', 'V'], ['Text', 'T'], ['Rectangle', 'R'], ['Ellipse', 'O'], ['Line', 'L'], ['Pen', 'P'], ['Place image', 'I'],
                 ['Undo / redo', 'Ctrl+Z / Ctrl+Shift+Z'], ['Duplicate', 'Ctrl+D'], ['Delete', 'Del'], ['Nudge', 'Arrows (Shift: further)'],
+                ['Select several', 'Shift-click, or drag a box'], ['Select all', 'Ctrl+A'], ['Group / ungroup', 'Ctrl+G / Ctrl+Shift+G'], ['Pick inside a group', 'Alt-click'],
                 ['Cut / copy / paste', 'Ctrl+X / C / V'], ['Copy / paste style', 'Ctrl+Shift+C / V'], ['Forward / backward', 'Ctrl+] / Ctrl+['], ['Play animation', 'Ctrl+Enter'],
                 ['Edit text on the canvas', 'Double-click'], ['Snap to guides', 'Drag (magenta lines)'],
                 ['Zoom in / out', 'Ctrl+ / Ctrl−, Ctrl + scroll'], ['Fit / 100%', 'Ctrl+0 / Ctrl+1'], ['Studio pages', 'Shift+1 … Shift+7'], ['Deselect', 'Esc'],

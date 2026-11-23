@@ -32,7 +32,17 @@ export type LayerCanvasProps = {
    */
   fallbackImage?: HTMLImageElement | null
   selectedId: string | null
-  onSelect: (objectId: string | null) => void
+  /** Every selected layer (the primary one last). */
+  selectedIds?: string[]
+  /**
+   * `toggle` adds or removes (Shift-click); `exact` picks one layer inside a
+   * group (Alt-click) instead of the whole group.
+   */
+  onSelect: (objectId: string | null, mode?: 'replace' | 'toggle', exact?: boolean) => void
+  /** A selection box: every layer it touches (added to the selection with Shift). */
+  onSelectMany?: (objectIds: string[], additive: boolean) => void
+  /** Several layers moved, resized or rotated together: one undo step. */
+  onGeometryChangeMany?: (changes: Array<{ objectId: string; bounds: PercentBox; rotation: number }>) => void
   /** `fontScale`: a text layer resized from a corner scales its type with it. */
   onGeometryChange: (objectId: string, bounds: PercentBox, rotation: number, fontScale?: number) => void
   missingFonts: ReadonlySet<string>
@@ -203,7 +213,10 @@ export default function LayerCanvas({
   images,
   fallbackImage,
   selectedId,
+  selectedIds: selectedIdsProp,
   onSelect,
+  onSelectMany,
+  onGeometryChangeMany,
   onGeometryChange,
   missingFonts,
   className,
@@ -231,6 +244,10 @@ export default function LayerCanvas({
   const [editingId, setEditingId] = useState<string | null>(null)
   const [guides, setGuides] = useState<{ v: number[]; h: number[] }>({ v: [], h: [] })
   const anchorRef = useRef<string | null>(null)
+  const selectedIds = useMemo(() => selectedIdsProp ?? (selectedId ? [selectedId] : []), [selectedId, selectedIdsProp])
+  const many = selectedIds.length > 1
+  const [marquee, setMarquee] = useState<{ x0: number; y0: number; x1: number; y1: number; additive: boolean } | null>(null)
+  const lastGroupCommit = useRef(0)
 
   const backgroundImage = useMemo(() => {
     const background = document.objects.find(object => object.kind === 'background' && isVisible(object))
@@ -325,10 +342,14 @@ export default function LayerCanvas({
   useEffect(() => {
     const transformer = transformerRef.current
     if (!transformer) return
-    const node = selectedObject ? nodeRefs.current.get(selectedObject.id) : null
-    transformer.nodes(node && !isLocked(selectedObject!) ? [node] : [])
+    const nodes = selectedIds
+      .map(id => document.objects.find(object => object.id === id && isVisible(object)))
+      .filter((object): object is DesignObject => Boolean(object) && !isLocked(object!) && object!.kind !== 'background')
+      .map(object => nodeRefs.current.get(object.id))
+      .filter((node): node is Konva.Group => Boolean(node))
+    transformer.nodes(nodes)
     transformer.getLayer()?.batchDraw()
-  }, [selectedId, selectedObject, display.width])
+  }, [selectedIds, document.objects, display.width])
 
   const commitGeometry = useCallback((object: DesignObject, node: Konva.Group) => {
     const bounds = object.transform.bounds
@@ -362,6 +383,38 @@ export default function LayerCanvas({
     node.height((bounds.height / 100) * display.height)
     node.rotation(object.transform.rotation)
   }, [display.height, display.width, onGeometryChange, toPercent])
+
+  /** Several layers changed together (a group drag or a multi-layer transform). */
+  const commitMany = useCallback(() => {
+    // Konva reports the end of a group drag once per layer; record it once.
+    const now = performance.now()
+    if (now - lastGroupCommit.current < 120) return
+    lastGroupCommit.current = now
+    const changes: Array<{ objectId: string; bounds: PercentBox; rotation: number }> = []
+    for (const id of selectedIds) {
+      const object = document.objects.find(item => item.id === id)
+      const node = nodeRefs.current.get(id)
+      const bounds = object?.transform.bounds
+      if (!object || !node || !bounds || isLocked(object) || object.kind === 'background') continue
+      const scaleX = node.scaleX(), scaleY = node.scaleY()
+      node.scaleX(1); node.scaleY(1)
+      changes.push({
+        objectId: id,
+        bounds: {
+          x: toPercent(node.x(), display.width),
+          y: toPercent(node.y(), display.height),
+          width: Math.min(100, toPercent(Math.max(1, node.width() * scaleX), display.width)),
+          height: Math.min(100, toPercent(Math.max(1, node.height() * scaleY), display.height)),
+        },
+        rotation: node.rotation(),
+      })
+      node.position({ x: (bounds.x / 100) * display.width, y: (bounds.y / 100) * display.height })
+      node.width((bounds.width / 100) * display.width)
+      node.height((bounds.height / 100) * display.height)
+      node.rotation(object.transform.rotation)
+    }
+    if (changes.length) onGeometryChangeMany?.(changes)
+  }, [display.height, display.width, document.objects, onGeometryChangeMany, selectedIds, toPercent])
 
   const clampWithinCanvas = useCallback((object: DesignObject) => {
     const bounds = object.transform.bounds
@@ -446,6 +499,14 @@ export default function LayerCanvas({
     return () => cancelAnimationFrame(frame)
   }, [display.height, document.objects, onPlaybackEnd, playing])
 
+  // A selection box released outside the canvas is cancelled, never left hanging.
+  useEffect(() => {
+    if (!marquee) return
+    const up = (event: MouseEvent) => { if ((event.target as HTMLElement | null)?.tagName !== 'CANVAS') setMarquee(null) }
+    window.addEventListener('mouseup', up)
+    return () => window.removeEventListener('mouseup', up)
+  }, [marquee])
+
   // Leaving the layer being typed into ends the editing.
   useEffect(() => {
     if (editingId && editingId !== selectedId) setEditingId(null)
@@ -456,7 +517,7 @@ export default function LayerCanvas({
   }
 
   const editingObject = editingId ? document.objects.find(object => object.id === editingId) ?? null : null
-  const hoveredObject = hoveredId && hoveredId !== selectedId ? document.objects.find(object => object.id === hoveredId && isVisible(object)) ?? null : null
+  const hoveredObject = hoveredId && !selectedIds.includes(hoveredId) ? document.objects.find(object => object.id === hoveredId && isVisible(object)) ?? null : null
 
   return (
     <div
@@ -489,7 +550,32 @@ export default function LayerCanvas({
             if (pointer) onPenPoint?.([toPercent(pointer.x, display.width), toPercent(pointer.y, display.height)])
             return
           }
-          if (event.target === stage) { setEditingId(null); onSelect(null) }
+          if (event.target === stage && stage) {
+            setEditingId(null)
+            const pointer = stage.getPointerPosition()
+            // A press on empty canvas starts a selection box; a plain click (no drag) still deselects.
+            if (pointer && event.evt.button === 0) setMarquee({ x0: pointer.x, y0: pointer.y, x1: pointer.x, y1: pointer.y, additive: event.evt.shiftKey })
+            else onSelect(null)
+          }
+        }}
+        onMouseMove={event => {
+          if (!marquee) return
+          const pointer = event.target.getStage()?.getPointerPosition()
+          if (pointer) setMarquee(current => (current ? { ...current, x1: pointer.x, y1: pointer.y } : current))
+        }}
+        onMouseUp={() => {
+          if (!marquee) return
+          const box = { x0: Math.min(marquee.x0, marquee.x1), y0: Math.min(marquee.y0, marquee.y1), x1: Math.max(marquee.x0, marquee.x1), y1: Math.max(marquee.y0, marquee.y1) }
+          setMarquee(null)
+          if (box.x1 - box.x0 < 4 && box.y1 - box.y0 < 4) { if (!marquee.additive) onSelect(null); return }
+          const hit = document.objects.filter(object => {
+            const b = object.transform.bounds
+            if (!b || !isVisible(object) || object.kind === 'background' || isLocked(object)) return false
+            const x = (b.x / 100) * display.width, y = (b.y / 100) * display.height
+            const w = (b.width / 100) * display.width, h = (b.height / 100) * display.height
+            return x < box.x1 && x + w > box.x0 && y < box.y1 && y + h > box.y0
+          }).map(object => object.id)
+          onSelectMany?.(hit, marquee.additive)
         }}
         onTouchStart={event => {
           const stage = event.target.getStage()
@@ -547,13 +633,22 @@ export default function LayerCanvas({
                   if (node) nodeRefs.current.set(object.id, node)
                   else nodeRefs.current.delete(object.id)
                 }}
-                onMouseDown={event => { if (event.evt.button !== 2) onSelect(object.id) }}
+                onMouseDown={event => {
+                  if (event.evt.button === 2) return
+                  if (event.evt.shiftKey || event.evt.metaKey || event.evt.ctrlKey) { onSelect(object.id, 'toggle'); return }
+                  // Pressing a layer that is already part of the selection keeps the selection, so it drags together.
+                  if (!selectedIds.includes(object.id)) onSelect(object.id, 'replace', event.evt.altKey)
+                }}
+                onClick={event => {
+                  // A click (no drag) on one layer of a multi-selection narrows it to that layer.
+                  if (many && selectedIds.includes(object.id) && !event.evt.shiftKey && !event.evt.metaKey && !event.evt.ctrlKey) onSelect(object.id, 'replace', event.evt.altKey)
+                }}
                 onTouchStart={() => onSelect(object.id)}
                 onMouseEnter={() => { setHoveredId(object.id); const stage = nodeRefs.current.get(object.id)?.getStage(); if (stage) stage.container().style.cursor = movable ? 'move' : 'default' }}
                 onMouseLeave={() => { setHoveredId(current => (current === object.id ? null : current)); const stage = nodeRefs.current.get(object.id)?.getStage(); if (stage) stage.container().style.cursor = 'default' }}
                 onContextMenu={event => {
                   event.evt.preventDefault()
-                  onSelect(object.id)
+                  if (!selectedIds.includes(object.id)) onSelect(object.id)
                   onContextMenu?.(object.id, event.evt.clientX, event.evt.clientY)
                 }}
                 onDblClick={() => {
@@ -565,15 +660,18 @@ export default function LayerCanvas({
                   onEditText?.(object.id)
                 }}
                 onDragMove={() => {
+                  // Snapping follows one layer; a group moves as it is.
                   const node = nodeRefs.current.get(object.id)
-                  if (node) snapOnDrag(object, node)
+                  if (node && !many) snapOnDrag(object, node)
                 }}
                 onDragEnd={() => {
                   setGuides({ v: [], h: [] })
+                  if (many && selectedIds.includes(object.id)) { commitMany(); return }
                   const node = nodeRefs.current.get(object.id)
                   if (node) commitGeometry(object, node)
                 }}
                 onTransformEnd={() => {
+                  if (many) return
                   const node = nodeRefs.current.get(object.id)
                   if (node) commitGeometry(object, node)
                 }}
@@ -731,6 +829,19 @@ export default function LayerCanvas({
               strokeWidth={1.5}
             />
           ) : null}
+          {marquee ? (
+            <Rect
+              listening={false}
+              x={Math.min(marquee.x0, marquee.x1)}
+              y={Math.min(marquee.y0, marquee.y1)}
+              width={Math.abs(marquee.x1 - marquee.x0)}
+              height={Math.abs(marquee.y1 - marquee.y0)}
+              fill="rgba(157, 250, 176, 0.08)"
+              stroke="rgba(157, 250, 176, 0.9)"
+              strokeWidth={1}
+              dash={[4, 3]}
+            />
+          ) : null}
           {guides.v.map(x => <Line key={`v${x}`} listening={false} points={[x, 0, x, display.height]} stroke="#ff4fd8" strokeWidth={1} dash={[4, 3]} />)}
           {guides.h.map(y => <Line key={`h${y}`} listening={false} points={[0, y, display.width, y]} stroke="#ff4fd8" strokeWidth={1} dash={[4, 3]} />)}
           {/* Corners keep text and pictures in proportion (text scales with them); sides reshape freely. Rotation snaps every 45 degrees. */}
@@ -738,8 +849,9 @@ export default function LayerCanvas({
             ref={transformerRef}
             rotateEnabled={!selectedObject?.constraints.lockRotation}
             resizeEnabled={!selectedObject?.constraints.lockSize}
-            keepRatio={Boolean(selectedObject?.constraints.lockAspectRatio) || Boolean(selectedObject && (usesTextMetrics(selectedObject) || ['image', 'logo', 'icon', 'qr-code'].includes(selectedObject.kind)))}
+            keepRatio={many || Boolean(selectedObject?.constraints.lockAspectRatio) || Boolean(selectedObject && (usesTextMetrics(selectedObject) || ['image', 'logo', 'icon', 'qr-code'].includes(selectedObject.kind)))}
             onTransformStart={() => { anchorRef.current = transformerRef.current?.getActiveAnchor() ?? null }}
+            onTransformEnd={() => { if (many) commitMany() }}
             rotationSnaps={[0, 45, 90, 135, 180, 225, 270, 315]}
             rotationSnapTolerance={5}
             flipEnabled={false}
@@ -750,7 +862,7 @@ export default function LayerCanvas({
             anchorSize={8}
             anchorCornerRadius={2}
             rotateAnchorOffset={20}
-            enabledAnchors={selectedObject?.constraints.lockAspectRatio
+            enabledAnchors={many || selectedObject?.constraints.lockAspectRatio
               ? ['top-left', 'top-right', 'bottom-left', 'bottom-right']
               : undefined}
           />

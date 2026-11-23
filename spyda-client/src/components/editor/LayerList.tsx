@@ -16,7 +16,10 @@ import type { DesignObject } from '../../core/design-document'
 export type LayerListProps = {
   objects: DesignObject[]
   selectedId: string | null
-  onSelect: (objectId: string) => void
+  /** Every selected layer, when several are. */
+  selectedIds?: string[]
+  /** Shift- or Ctrl-click toggles a layer in and out of the selection. */
+  onSelect: (objectId: string, mode?: 'replace' | 'toggle') => void
   onReorder: (objectId: string, direction: 'up' | 'down') => void
   onToggleVisibility: (object: DesignObject) => void
   onDuplicate: (objectId: string) => void
@@ -49,6 +52,7 @@ function layerTitle(object: DesignObject) {
 export default function LayerList({
   objects,
   selectedId,
+  selectedIds,
   onSelect,
   onReorder,
   onToggleVisibility,
@@ -71,7 +75,7 @@ export default function LayerList({
   return (
     <ul className="flex flex-col gap-1">
       {ordered.map(object => {
-        const selected = object.id === selectedId
+        const selected = selectedIds ? selectedIds.includes(object.id) : object.id === selectedId
         const movable = !object.constraints.preserveLayerOrder && !object.protection.locked
         const hidden = !object.status.visible
 
@@ -87,7 +91,7 @@ export default function LayerList({
             >
               <button
                 type="button"
-                onClick={() => onSelect(object.id)}
+                onClick={event => onSelect(object.id, event.shiftKey || event.metaKey || event.ctrlKey ? 'toggle' : 'replace')}
                 className="flex min-w-0 flex-1 items-center gap-2 text-left"
                 aria-pressed={selected}
               >
@@ -102,6 +106,7 @@ export default function LayerList({
                   <span className="flex items-center gap-1 text-[10px] uppercase tracking-[0.1em] text-muted-foreground">
                     {object.protection.locked ? <Lock className="h-2.5 w-2.5" aria-hidden /> : null}
                     {kindLabel(object)}
+                    {object.relationships.groupId ? <span className="rounded bg-primary/15 px-1 normal-case tracking-normal text-primary">group</span> : null}
                   </span>
                 </span>
               </button>

@@ -41,7 +41,7 @@ export type DesignEditIntent = {
     | 'zIndex' | 'duplicate' | 'create'
     | 'borderRadius' | 'strokeWidth' | 'letterSpacing' | 'lineHeight'
     | 'flipX' | 'flipY' | 'lockAspectRatio'
-    | 'fx'
+    | 'fx' | 'groupId'
   value: unknown
   explicitGeometryChange?: boolean
 }
@@ -53,6 +53,8 @@ const STRUCTURAL_PROPERTIES: ReadonlyArray<DesignEditIntent['property']> = [
   'flipX', 'flipY', 'lockAspectRatio',
   // Effects and motion sit on top of a layer's content, so every unlocked layer takes them.
   'fx',
+  // Grouping only ties layers together for selection; it changes nothing they draw.
+  'groupId',
 ]
 
 type DuplicateSpec = { id: string; name?: string; zIndex?: number }
@@ -174,6 +176,7 @@ export function applyDesignEdits(referenceInput: DesignDocument, intents: Design
     if (intent.property === 'flipX') object.transform.flipX = Boolean(intent.value)
     if (intent.property === 'flipY') object.transform.flipY = Boolean(intent.value)
     if (intent.property === 'lockAspectRatio') object.constraints.lockAspectRatio = Boolean(intent.value)
+    if (intent.property === 'groupId') object.relationships.groupId = typeof intent.value === 'string' && intent.value ? intent.value : null
     if (intent.property === 'fx') {
       // A partial patch: keys set to undefined are dropped, null switches an effect off.
       const patch = (intent.value && typeof intent.value === 'object' ? intent.value : {}) as Record<string, unknown>
