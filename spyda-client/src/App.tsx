@@ -1,3 +1,4 @@
+import { DownloadProvider } from './components/DownloadProvider'
 import { Suspense, lazy, useEffect, useState } from 'react'
 import { BrowserRouter, Routes, Route, Navigate } from 'react-router-dom'
 import { AuthProvider, useAuth } from './lib/AuthContext'
@@ -115,6 +116,7 @@ function App() {
   return (
     <AuthProvider>
       <BrowserRouter>
+        <DownloadProvider>
         <Suspense fallback={<SpydaSplash message="Loading" />}>
         <Routes>
           <Route path="/" element={<Landing />} />
@@ -155,6 +157,7 @@ function App() {
           <Route path="*" element={<Navigate to="/" replace />} />
         </Routes>
         </Suspense>
+        </DownloadProvider>
       </BrowserRouter>
     </AuthProvider>
   )

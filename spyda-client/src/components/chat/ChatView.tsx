@@ -61,6 +61,7 @@ import {
 import { readProject, saveProject } from '../../lib/project-store'
 import { MOTION_FORMATS, type MotionFormat } from '../../lib/motion-harness'
 import SpydaSelect from '../ui/SpydaSelect'
+import { fetchBlob, useDownload } from '../DownloadProvider'
 
 /**
  * The workspace home: bring a reference design and say what to change. In
@@ -370,6 +371,7 @@ function EditCard({ edit, canAfford, onGenerate, onDecline, onOpenWallet, onOpen
   onOpenWallet: () => void
   onOpenCanvas: (image: string) => void
 }) {
+  const saveFile = useDownload()
   if (edit.status === 'declined') {
     return <p className="mt-3 text-xs text-muted-foreground">Skipped: {edit.summary}</p>
   }
@@ -397,13 +399,13 @@ function EditCard({ edit, canAfford, onGenerate, onDecline, onOpenWallet, onOpen
           <img src={edit.resultImage} alt={edit.summary} className="w-full transition-transform duration-500 group-hover:scale-[1.02]" />
         </div>
         <div className="mt-2.5 flex flex-wrap items-center gap-2">
-          <a
-            href={edit.resultImage}
-            download="spyda-version.jpg"
+          <button
+            type="button"
+            onClick={() => { void saveFile({ name: 'spyda-version.jpg', kind: 'image', title: 'Download this design', produce: () => fetchBlob(edit.resultImage!) }) }}
             className="inline-flex h-9 items-center gap-1.5 rounded-full border border-white/[0.1] bg-surface-raised px-3.5 text-xs font-semibold transition-colors hover:border-primary/30"
           >
             <Download className="h-3.5 w-3.5" /> Download
-          </a>
+          </button>
           <button
             type="button"
             onClick={() => onOpenCanvas(edit.resultImage!)}

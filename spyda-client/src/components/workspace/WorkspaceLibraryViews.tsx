@@ -1,3 +1,4 @@
+import { fetchBlob, useDownload } from '../DownloadProvider'
 import SpydaSelect from '../ui/SpydaSelect'
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { Link } from 'react-router-dom'
@@ -325,6 +326,7 @@ type DisplayTemplate = {
 }
 
 export function TemplatesView({ onUseTemplate }: { onUseTemplate: (source: string, name: string) => Promise<void> }) {
+  const saveFile = useDownload()
   const { user } = useAuth()
   const [search, setSearch] = useState('')
   const [category, setCategory] = useState('All')
@@ -418,11 +420,11 @@ export function TemplatesView({ onUseTemplate }: { onUseTemplate: (source: strin
         setPurchased(prev => new Set(prev).add(item.template!.id))
       }
       if (item.section === 'motion' && item.template) {
-        // Motion designs are delivered as their file: the signed link downloads it.
-        const link = document.createElement('a')
-        link.href = await templateFileUrl(item.template)
-        link.rel = 'noopener'
-        link.click()
+        // Motion designs are delivered as their file, through the download card.
+        const url = await templateFileUrl(item.template)
+        const ext = (item.template.file_path?.split('.').pop() || 'mp4').toLowerCase()
+        const name = `${item.name.replace(/[^a-z0-9]+/gi, '-').replace(/^-|-$/g, '') || 'spyda-motion'}.${ext}`
+        await saveFile({ name, kind: /^(mp4|webm|mov)$/.test(ext) ? 'video' : 'file', title: 'Download this motion design', produce: () => fetchBlob(url) })
         return
       }
       await onUseTemplate(item.source, `${item.name}.jpeg`)
@@ -571,6 +573,12 @@ function ListTemplateDialog({ initialKind, categories, userId, onClose, onListed
   const motionRef = useRef<HTMLInputElement>(null)
   const [preview, setPreview] = useState('')
   const [balance, setBalance] = useState<number | null>(null)
+  // A download (or anything else) that spends credits announces the new balance.
+  useEffect(() => {
+    const onWallet = (event: Event) => { const next = (event as CustomEvent<{ balance?: number }>).detail?.balance; if (typeof next === 'number') setBalance(next) }
+    window.addEventListener('spyda:wallet', onWallet)
+    return () => window.removeEventListener('spyda:wallet', onWallet)
+  }, [])
   const [submitting, setSubmitting] = useState(false)
   const [error, setError] = useState('')
   const fileRef = useRef<HTMLInputElement>(null)

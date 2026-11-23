@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { Link, useNavigate, useParams } from 'react-router-dom'
+import { useDownload } from '../components/DownloadProvider'
 import {
   ArrowLeft, ChevronDown, Clapperboard, Clock, Copy, Download, Eye, Image as ImageIcon, Layers, Loader2, LogOut, Maximize2, Move, Palette, Play, Plus,
   Redo2, Sparkles, Square, Trash2, Type, Undo2, Wand2, X, type LucideIcon,
@@ -226,6 +227,7 @@ export default function Editor() {
   const clipboard = useRef<DesignObject[] | null>(null)
   const styleClipboard = useRef<DesignObject['style'] | null>(null)
   const navigate = useNavigate()
+  const download = useDownload()
   const edited = useRef(false)
 
   // The analysed flat picture, drawn under the layers until they have pixels.
@@ -515,36 +517,40 @@ export default function Editor() {
   const handleExport = useCallback(async (options: Delivery = { format: 'png', scale: 1, name: '' }) => {
     const stage = stageRef.current
     if (!stage || !design) return
+    const base = (options.name.trim() || project?.name || 'spyda-design').replace(/[^a-z0-9]+/gi, '-').replace(/^-|-$/g, '').toLowerCase() || 'spyda-design'
     setExporting(true)
-    setSelectedId(null)
-    // Let the selection handles disappear before the frame is captured.
-    await new Promise(resolve => window.setTimeout(resolve, 80))
     try {
-      // Render a little over size, then draw into a canvas of exactly the
-      // design's pixels: the on-screen stage is rounded, so its ratio is not.
-      const width = Math.round((design.canvas.width || stage.width()) * options.scale)
-      const height = Math.round((design.canvas.height || stage.height()) * options.scale)
-      const rendered = stage.toCanvas({ pixelRatio: Math.max(1, width / stage.width()) })
-      const output = document.createElement('canvas')
-      output.width = width
-      output.height = height
-      const context = output.getContext('2d')
-      if (!context) throw new Error('No canvas context')
-      context.imageSmoothingQuality = 'high'
-      context.drawImage(rendered, 0, 0, width, height)
-      const mimeType = options.format === 'jpeg' ? 'image/jpeg' : 'image/png'
-      const url = output.toDataURL(mimeType, 0.92)
-      const link = document.createElement('a')
-      link.href = url
-      const base = (options.name.trim() || project?.name || 'spyda-design').replace(/[^a-z0-9]+/gi, '-').replace(/^-|-$/g, '').toLowerCase() || 'spyda-design'
-      link.download = `${base}.${options.format === 'jpeg' ? 'jpg' : 'png'}`
-      link.click()
-    } catch {
-      setNotice({ tone: 'error', text: 'This design could not be exported. Remove any picture that failed to load and try again.' })
+      // The download card charges for it once the picture is ready.
+      await download({
+        name: `${base}.${options.format === 'jpeg' ? 'jpg' : 'png'}`,
+        kind: 'image',
+        title: 'Download your design',
+        produce: async () => {
+          setSelectedId(null)
+          // Let the selection handles disappear before the frame is captured.
+          await new Promise(resolve => window.setTimeout(resolve, 80))
+          // Render a little over size, then draw into a canvas of exactly the
+          // design's pixels: the on-screen stage is rounded, so its ratio is not.
+          const width = Math.round((design.canvas.width || stage.width()) * options.scale)
+          const height = Math.round((design.canvas.height || stage.height()) * options.scale)
+          const rendered = stage.toCanvas({ pixelRatio: Math.max(1, width / stage.width()) })
+          const output = document.createElement('canvas')
+          output.width = width
+          output.height = height
+          const context = output.getContext('2d')
+          if (!context) throw new Error('No canvas context')
+          context.imageSmoothingQuality = 'high'
+          context.drawImage(rendered, 0, 0, width, height)
+          const mimeType = options.format === 'jpeg' ? 'image/jpeg' : 'image/png'
+          const blob = await new Promise<Blob | null>(resolve => output.toBlob(resolve, mimeType, 0.92))
+          if (!blob) throw new Error('This design could not be exported. Remove any picture that failed to load and try again.')
+          return blob
+        },
+      })
     } finally {
       setExporting(false)
     }
-  }, [design, project?.name, setSelectedId])
+  }, [design, download, project?.name, setSelectedId])
 
   /** Pen tool: points in canvas percent until the path closes or Enter ends it. */
   const finishPen = useCallback((points: [number, number][], closed: boolean) => {
@@ -1057,49 +1063,56 @@ export default function Editor() {
     if (!type) { setNotice({ tone: 'error', text: 'This browser cannot record video.' }); return }
     const layer = stage.getLayers()[0]
     if (!layer) return
-    setSelectedId(null)
-    setRecording(true)
-    setNotice({ tone: 'info', text: 'Recording the animation…' })
-    await new Promise(resolve => window.setTimeout(resolve, 120))
-    const length = playLength(design.objects)
-    const width = Math.min(1920, design.canvas.width || 1080)
-    const ratio = width / stage.width()
-    const out = document.createElement('canvas')
-    out.width = Math.round((stage.width() * ratio) / 2) * 2
-    out.height = Math.round((stage.height() * ratio) / 2) * 2
-    const context = out.getContext('2d')!
-    const previous = layer.getCanvas().getPixelRatio()
-    layer.getCanvas().setPixelRatio(ratio)
-    layer.draw()
-    const stream = out.captureStream(30)
-    const recorder = new MediaRecorder(stream, { mimeType: type, videoBitsPerSecond: 14_000_000 })
-    const chunks: Blob[] = []
-    recorder.ondataavailable = event => { if (event.data.size) chunks.push(event.data) }
-    const done = new Promise<void>(resolve => { recorder.onstop = () => resolve() })
-    const start = performance.now()
-    setPlaying(start)
-    recorder.start()
-    const frame = () => {
-      context.fillStyle = '#ffffff'
-      context.fillRect(0, 0, out.width, out.height)
-      context.drawImage(layer.getNativeCanvasElement(), 0, 0, out.width, out.height)
-      if (performance.now() - start < length * 1000 + 250) requestAnimationFrame(frame)
-      else recorder.stop()
-    }
-    requestAnimationFrame(frame)
-    await done
-    layer.getCanvas().setPixelRatio(previous)
-    layer.draw()
-    setPlaying(null)
-    setRecording(false)
-    const blob = new Blob(chunks, { type: type.split(';')[0] })
-    const link = document.createElement('a')
-    link.href = URL.createObjectURL(blob)
     const base = (delivery.name.trim() || project?.name || 'spyda-motion').replace(/[^a-z0-9]+/gi, '-').replace(/^-|-$/g, '').toLowerCase() || 'spyda-motion'
-    link.download = `${base}.${type.includes('mp4') ? 'mp4' : 'webm'}`
-    link.click()
-    window.setTimeout(() => URL.revokeObjectURL(link.href), 20_000)
-    setNotice({ tone: 'info', text: `Exported a ${Math.round(length * 10) / 10}s ${type.includes('mp4') ? 'MP4' : 'WebM'} video.` })
+    const length = playLength(design.objects)
+    // The download card records the animation, compresses it when asked, then charges for it.
+    const saved = await download({
+      name: `${base}.${type.includes('mp4') ? 'mp4' : 'webm'}`,
+      kind: 'video',
+      title: 'Download your animation',
+      produce: async report => {
+        setSelectedId(null)
+        setRecording(true)
+        try {
+          await new Promise(resolve => window.setTimeout(resolve, 120))
+          const width = Math.min(1920, design.canvas.width || 1080)
+          const ratio = width / stage.width()
+          const out = document.createElement('canvas')
+          out.width = Math.round((stage.width() * ratio) / 2) * 2
+          out.height = Math.round((stage.height() * ratio) / 2) * 2
+          const context = out.getContext('2d')!
+          const previous = layer.getCanvas().getPixelRatio()
+          layer.getCanvas().setPixelRatio(ratio)
+          layer.draw()
+          const stream = out.captureStream(30)
+          const recorder = new MediaRecorder(stream, { mimeType: type, videoBitsPerSecond: 14_000_000 })
+          const chunks: Blob[] = []
+          recorder.ondataavailable = event => { if (event.data.size) chunks.push(event.data) }
+          const done = new Promise<void>(resolve => { recorder.onstop = () => resolve() })
+          const start = performance.now()
+          setPlaying(start)
+          recorder.start()
+          const frame = () => {
+            context.fillStyle = '#ffffff'
+            context.fillRect(0, 0, out.width, out.height)
+            context.drawImage(layer.getNativeCanvasElement(), 0, 0, out.width, out.height)
+            const elapsed = performance.now() - start
+            report(Math.min(1, elapsed / (length * 1000 + 250)), 'Recording your animation…')
+            if (elapsed < length * 1000 + 250) requestAnimationFrame(frame)
+            else recorder.stop()
+          }
+          requestAnimationFrame(frame)
+          await done
+          layer.getCanvas().setPixelRatio(previous)
+          layer.draw()
+          return new Blob(chunks, { type: type.split(';')[0] })
+        } finally {
+          setPlaying(null)
+          setRecording(false)
+        }
+      },
+    })
+    if (saved) setNotice({ tone: 'info', text: `Exported a ${Math.round(length * 10) / 10}s video.` })
   }
 
   const editText = (objectId: string) => {

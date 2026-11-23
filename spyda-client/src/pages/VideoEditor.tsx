@@ -4,6 +4,7 @@ import {
   Clapperboard, Copy, Download, ImagePlus, Layers, Loader2, LogOut, Maximize2, Palette, Pause, Play, Plus, Redo2, Sparkles, Trash2, Type, Undo2, Upload, Wand2, X,
 } from '../components/ui/icons'
 import SpydaSelect from '../components/ui/SpydaSelect'
+import { useDownload } from '../components/DownloadProvider'
 import {
   EFFECTS, IDENTITY_TRANSFORM, NEUTRAL_GRADE, TRANSITIONS, VideoRenderer,
   type ClipFit, type ClipLayer, type ClipTransform, type EffectId, type Grade, type TransitionId,
@@ -349,6 +350,7 @@ function tickStep(zoom: number) {
 
 export default function VideoEditor() {
   const navigate = useNavigate()
+  const download = useDownload()
   const [format, setFormat] = useState<Format>(FORMATS[0])
   const [project, setProject] = useState<VideoProject>({ width: 1920, height: 1080, clips: [], titles: [], audio: [] })
   const [media, setMedia] = useState<MediaItem[]>([])
@@ -835,14 +837,12 @@ export default function VideoEditor() {
   const saveFrame = () => {
     const output = outputRef.current
     if (!output) return
-    output.toBlob(blob => {
-      if (!blob) return
-      const link = document.createElement('a')
-      link.href = URL.createObjectURL(blob)
-      link.download = `spyda-frame-${formatTime(time).replace(/[:.]/g, '-')}.png`
-      link.click()
-      window.setTimeout(() => URL.revokeObjectURL(link.href), 30_000)
-    }, 'image/png')
+    void download({
+      name: `spyda-frame-${formatTime(time).replace(/[:.]/g, '-')}.png`,
+      kind: 'image',
+      title: 'Download this frame',
+      produce: () => new Promise<Blob>((resolve, reject) => output.toBlob(blob => (blob ? resolve(blob) : reject(new Error('This frame could not be saved.'))), 'image/png')),
+    })
   }
 
   const exportVideo = async () => {
@@ -851,48 +851,55 @@ export default function VideoEditor() {
     if (typeof MediaRecorder === 'undefined') { setNotice('This browser cannot record video. Try Chrome or Edge.'); return }
     const type = ['video/mp4;codecs=avc1.42E01E,mp4a.40.2', 'video/mp4', 'video/webm;codecs=vp9,opus', 'video/webm'].find(candidate => MediaRecorder.isTypeSupported(candidate))
     if (!type) { setNotice('This browser cannot record video.'); return }
-    stop()
-    setSelection(null)
-    setExporting(0)
-    // Make sure the sound graph exists before recording starts.
-    for (const item of placed) { const element = elementFor(item.clip); if (element instanceof HTMLVideoElement) route(element, item.clip.muted ? 0 : item.clip.volume) }
-    await sync(0, false)
-    draw(0)
-    const stream = output.captureStream(fps)
-    const recorderAudio = audio.current?.recorder.stream.getAudioTracks() ?? []
-    for (const track of recorderAudio) stream.addTrack(track)
-    const bits = QUALITIES.find(item => item.value === quality)?.bits ?? 1
-    const recorder = new MediaRecorder(stream, { mimeType: type, videoBitsPerSecond: Math.round(project.width * project.height * fps * 0.27 * bits) })
-    const chunks: Blob[] = []
-    recorder.ondataavailable = event => { if (event.data.size) chunks.push(event.data) }
-    const finished = new Promise<void>(resolve => { recorder.onstop = () => resolve() })
-    recorder.start(250)
-    const startedAt = performance.now()
-    await sync(0, true)
-    await new Promise<void>(resolve => {
-      const frame = () => {
-        const t = (performance.now() - startedAt) / 1000
-        if (t >= end) { resolve(); return }
-        void sync(t, true)
-        draw(t)
-        setExporting(t / end)
-        setTime(t)
-        requestAnimationFrame(frame)
-      }
-      requestAnimationFrame(frame)
+    // The download card records the edit, compresses it when asked, then charges for it.
+    const saved = await download({
+      name: `spyda-video-${format.id}.${type.includes('mp4') ? 'mp4' : 'webm'}`,
+      kind: 'video',
+      title: 'Download your video',
+      produce: async report => {
+        stop()
+        setSelection(null)
+        setExporting(0)
+        try {
+          // Make sure the sound graph exists before recording starts.
+          for (const item of placed) { const element = elementFor(item.clip); if (element instanceof HTMLVideoElement) route(element, item.clip.muted ? 0 : item.clip.volume) }
+          await sync(0, false)
+          draw(0)
+          const stream = output.captureStream(fps)
+          const recorderAudio = audio.current?.recorder.stream.getAudioTracks() ?? []
+          for (const track of recorderAudio) stream.addTrack(track)
+          const bits = QUALITIES.find(item => item.value === quality)?.bits ?? 1
+          const recorder = new MediaRecorder(stream, { mimeType: type, videoBitsPerSecond: Math.round(project.width * project.height * fps * 0.27 * bits) })
+          const chunks: Blob[] = []
+          recorder.ondataavailable = event => { if (event.data.size) chunks.push(event.data) }
+          const finished = new Promise<void>(resolve => { recorder.onstop = () => resolve() })
+          recorder.start(250)
+          const startedAt = performance.now()
+          await sync(0, true)
+          await new Promise<void>(resolve => {
+            const frame = () => {
+              const t = (performance.now() - startedAt) / 1000
+              if (t >= end) { resolve(); return }
+              void sync(t, true)
+              draw(t)
+              setExporting(t / end)
+              report(t / end, 'Rendering your video…')
+              setTime(t)
+              requestAnimationFrame(frame)
+            }
+            requestAnimationFrame(frame)
+          })
+          recorder.stop()
+          await finished
+          for (const track of recorderAudio) stream.removeTrack(track)
+          return new Blob(chunks, { type: type.split(';')[0] })
+        } finally {
+          stop()
+          setExporting(null)
+        }
+      },
     })
-    recorder.stop()
-    await finished
-    stop()
-    for (const track of recorderAudio) stream.removeTrack(track)
-    setExporting(null)
-    const blob = new Blob(chunks, { type: type.split(';')[0] })
-    const link = document.createElement('a')
-    link.href = URL.createObjectURL(blob)
-    link.download = `spyda-video-${format.id}.${type.includes('mp4') ? 'mp4' : 'webm'}`
-    link.click()
-    window.setTimeout(() => URL.revokeObjectURL(link.href), 30_000)
-    setNotice(`Exported a ${formatTime(end)} ${type.includes('mp4') ? 'MP4' : 'WebM'} at ${project.width} × ${project.height}, ${fps} fps.`)
+    if (saved) setNotice(`Exported a ${formatTime(end)} video at ${project.width} × ${project.height}, ${fps} fps.`)
   }
 
   /* ── keyboard ────────────────────────────────────────────────────── */
@@ -1222,13 +1229,7 @@ export default function VideoEditor() {
                 <button type="button" onClick={() => setNotice(null)} aria-label="Dismiss"><X className="h-3 w-3" /></button>
               </div>
             ) : null}
-            {exporting != null ? (
-              <div className="absolute inset-x-0 bottom-4 mx-auto w-80 rounded-xl border border-white/[0.1] bg-black/80 p-3 text-center backdrop-blur">
-                <p className="text-[12px] font-semibold">Exporting your video…</p>
-                <div className="mt-2 h-1.5 overflow-hidden rounded-full bg-white/10"><div className="h-full rounded-full bg-primary transition-[width]" style={{ width: `${Math.round(exporting * 100)}%` }} /></div>
-                <p className="mt-1.5 text-[10px] text-muted-foreground">It records in real time, with sound. Keep this tab open.</p>
-              </div>
-            ) : null}
+
           </div>
           <div className="flex h-11 shrink-0 items-center gap-1.5 border-t border-white/[0.06] bg-[#111214] px-3">
             <button type="button" onClick={() => seek(0)} aria-label="Go to start" title="Go to start (Home)" className="h-8 w-8 rounded-md text-muted-foreground hover:bg-white/[0.08] hover:text-foreground">⏮</button>

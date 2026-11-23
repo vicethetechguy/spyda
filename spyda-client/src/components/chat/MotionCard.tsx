@@ -2,6 +2,7 @@ import { useEffect, useMemo, useRef, useState } from 'react'
 import { Clapperboard, Coins, Download, FileCode2, Loader2, RefreshCw, RotateCcw, Wrench } from '../ui/icons'
 import { MOTION_FORMATS, motionDocument, playerConfig, type MotionPlayerMessage } from '../../lib/motion-harness'
 import type { ChatMotion } from '../../lib/chat'
+import { useDownload } from '../DownloadProvider'
 
 /**
  * One motion design in the chat: progress while Claude writes it, then the
@@ -19,14 +20,6 @@ function slug(value: string) {
   return value.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '').slice(0, 40) || 'spyda-motion'
 }
 
-function download(blob: Blob, name: string) {
-  const url = URL.createObjectURL(blob)
-  const link = document.createElement('a')
-  link.href = url
-  link.download = name
-  link.click()
-  window.setTimeout(() => URL.revokeObjectURL(url), 10_000)
-}
 
 function Elapsed() {
   const [seconds, setSeconds] = useState(0)
@@ -39,6 +32,7 @@ function Elapsed() {
 
 function Player({ motion, onFix }: { motion: ChatMotion & { code: string }; onFix: (error: string) => void }) {
   const frameRef = useRef<HTMLIFrameElement | null>(null)
+  const saveFile = useDownload()
   const [state, setState] = useState<'loading' | 'playing' | 'recording' | 'error'>('loading')
   const [error, setError] = useState('')
   const size = MOTION_FORMATS[motion.format]
@@ -55,7 +49,7 @@ function Player({ motion, onFix }: { motion: ChatMotion & { code: string }; onFi
       if (message.type === 'recording') setState('recording')
       if (message.type === 'recorded') {
         setState('playing')
-        download(message.blob, `${name}.${message.mimeType.includes('mp4') ? 'mp4' : 'webm'}`)
+        void saveFile({ name: `${name}.${message.mimeType.includes('mp4') ? 'mp4' : 'webm'}`, kind: 'video', title: 'Download your motion design', produce: async () => message.blob })
       }
       if (message.type === 'error') {
         setState('error')
@@ -64,7 +58,7 @@ function Player({ motion, onFix }: { motion: ChatMotion & { code: string }; onFi
     }
     window.addEventListener('message', onMessage)
     return () => window.removeEventListener('message', onMessage)
-  }, [config, name])
+  }, [config, name, saveFile])
 
   const send = (type: 'restart' | 'record') => frameRef.current?.contentWindow?.postMessage({ type }, '*')
 
@@ -115,7 +109,7 @@ function Player({ motion, onFix }: { motion: ChatMotion & { code: string }; onFi
           </button>
           <button
             type="button"
-            onClick={() => download(new Blob([motionDocument(config, { standalone: true })], { type: 'text/html' }), `${name}.html`)}
+            onClick={() => { void saveFile({ name: `${name}.html`, kind: 'file', title: 'Download the motion file', produce: async () => new Blob([motionDocument(config, { standalone: true })], { type: 'text/html' }) }) }}
             className="inline-flex h-9 items-center gap-1.5 rounded-full border border-white/[0.1] bg-surface-raised px-3.5 text-xs font-semibold transition-colors hover:border-primary/30"
           >
             <FileCode2 className="h-3.5 w-3.5" /> HTML

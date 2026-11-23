@@ -53,6 +53,7 @@ import {
   Layers
 } from '../components/ui/icons'
 import { Link, useNavigate } from 'react-router-dom'
+import { fetchBlob, useDownload } from '../components/DownloadProvider'
 import {
   isAdminEmail,
   lookupSpydaWallet,
@@ -421,6 +422,7 @@ export default function Workspace() {
 type GalleryFilter = 'all' | 'generated' | 'draft'
 
 function GalleryView({ onNewDesign }: { onNewDesign: () => void }) {
+  const saveFile = useDownload()
   const [projects, setProjects] = useState<SavedSpydaProject[]>([])
   const [query, setQuery] = useState('')
   const [filter, setFilter] = useState<GalleryFilter>('all')
@@ -514,7 +516,7 @@ function GalleryView({ onNewDesign }: { onNewDesign: () => void }) {
                   <div className="absolute right-2 top-2 flex items-center gap-2 sm:right-3 sm:top-3">
                     {typeof project.qa?.score === 'number' && <div className="hidden rounded-md border border-primary/20 bg-black/65 px-2 py-1 text-[10px] font-semibold text-primary backdrop-blur-sm sm:block">{project.qa.score}% match</div>}
                     {project.breakdown && <Link to={`/editor/${encodeURIComponent(project.id)}`} aria-label={`Edit layers of ${project.name}`} title="Edit layers" className="inline-flex h-8 w-8 items-center justify-center rounded-md border border-white/10 bg-black/65 text-white transition-colors hover:bg-black/85"><Layers className="h-4 w-4" /></Link>}
-                    {preview && <a href={preview} download={downloadName(project)} aria-label={`Download ${project.name}`} title="Download design" className="inline-flex h-8 w-8 items-center justify-center rounded-md border border-white/10 bg-black/65 text-white transition-colors hover:bg-black/85"><Download className="h-4 w-4" /></a>}
+                    {preview && <button type="button" onClick={() => { void saveFile({ name: downloadName(project), kind: 'image', title: 'Download your design', produce: () => fetchBlob(preview) }) }} aria-label={`Download ${project.name}`} title="Download design" className="inline-flex h-8 w-8 items-center justify-center rounded-md border border-white/10 bg-black/65 text-white transition-colors hover:bg-black/85"><Download className="h-4 w-4" /></button>}
                   </div>
                 </div>
                 <div className="p-3 sm:p-4">
@@ -563,6 +565,12 @@ function WalletView({ onFund, onSend }: { onFund: () => void; onSend: () => void
   const { user } = useAuth()
   const isAdmin = isAdminEmail(user?.email)
   const [balance, setBalance] = useState(0)
+  // A download (or anything else) that spends credits announces the new balance.
+  useEffect(() => {
+    const onWallet = (event: Event) => { const next = (event as CustomEvent<{ balance?: number }>).detail?.balance; if (typeof next === 'number') setBalance(next) }
+    window.addEventListener('spyda:wallet', onWallet)
+    return () => window.removeEventListener('spyda:wallet', onWallet)
+  }, [])
   const [tokenBalance, setTokenBalance] = useState(0)
   const [creditsSpent, setCreditsSpent] = useState(0)
   const [byokEnabled, setByokEnabled] = useState(false)
@@ -887,6 +895,12 @@ function AdminWalletSendView({ onBack }: { onBack: () => void }) {
   const { user } = useAuth()
   const isAdmin = isAdminEmail(user?.email)
   const [balance, setBalance] = useState(0)
+  // A download (or anything else) that spends credits announces the new balance.
+  useEffect(() => {
+    const onWallet = (event: Event) => { const next = (event as CustomEvent<{ balance?: number }>).detail?.balance; if (typeof next === 'number') setBalance(next) }
+    window.addEventListener('spyda:wallet', onWallet)
+    return () => window.removeEventListener('spyda:wallet', onWallet)
+  }, [])
   const [loadingBalance, setLoadingBalance] = useState(true)
   const [recipientSpydaId, setRecipientSpydaId] = useState('')
   const [amount, setAmount] = useState('')
@@ -1111,6 +1125,12 @@ const USD_TO_NGN = 1500
 function FundView({ onBack }: { onBack: () => void }) {
   const { user } = useAuth()
   const [balance, setBalance] = useState(0)
+  // A download (or anything else) that spends credits announces the new balance.
+  useEffect(() => {
+    const onWallet = (event: Event) => { const next = (event as CustomEvent<{ balance?: number }>).detail?.balance; if (typeof next === 'number') setBalance(next) }
+    window.addEventListener('spyda:wallet', onWallet)
+    return () => window.removeEventListener('spyda:wallet', onWallet)
+  }, [])
   const [byokEnabled, setByokEnabled] = useState(false)
   const [loading, setLoading] = useState(true)
   const [balanceError, setBalanceError] = useState('')
