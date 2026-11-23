@@ -848,10 +848,37 @@
   .magic-scan__sweep { animation: none; opacity: 0.5; }
 }
 
-/* Spyda dropdown: grows out of its button. */
+/* Spyda dropdown: the card unfolds out of its button, its options cascade in,
+   and it folds away again on close. */
 @keyframes spyda-select-in {
-  from { opacity: 0; transform: translateY(-4px) scale(0.97); }
+  0% { opacity: 0; transform: translateY(-10px) scale(0.9); clip-path: inset(0 0 100% 0 round 12px); filter: blur(6px); }
+  60% { opacity: 1; filter: blur(0); }
+  100% { opacity: 1; transform: none; clip-path: inset(0 0 0 0 round 12px); filter: none; }
+}
+@keyframes spyda-select-in-up {
+  0% { opacity: 0; transform: translateY(10px) scale(0.9); clip-path: inset(100% 0 0 0 round 12px); filter: blur(6px); }
+  60% { opacity: 1; filter: blur(0); }
+  100% { opacity: 1; transform: none; clip-path: inset(0 0 0 0 round 12px); filter: none; }
+}
+@keyframes spyda-select-out {
+  to { opacity: 0; transform: translateY(-6px) scale(0.94); filter: blur(4px); }
+}
+@keyframes spyda-option-in {
+  from { opacity: 0; transform: translateX(-8px); }
   to { opacity: 1; transform: none; }
 }
-.spyda-select-menu { animation: spyda-select-in 160ms cubic-bezier(0.2, 0.9, 0.3, 1.1); }
-@media (prefers-reduced-motion: reduce) { .spyda-select-menu { animation: none; } }
+.spyda-select-menu { animation: spyda-select-in 320ms cubic-bezier(0.16, 1, 0.3, 1) both; will-change: transform, opacity, clip-path; }
+.spyda-select-menu[data-up="true"] { animation-name: spyda-select-in-up; }
+.spyda-select-menu[data-closing="true"] { animation: spyda-select-out 150ms cubic-bezier(0.4, 0, 1, 1) both; pointer-events: none; }
+.spyda-select-menu [role="option"] { animation: spyda-option-in 260ms cubic-bezier(0.16, 1, 0.3, 1) both; animation-delay: calc(min(var(--i, 0), 12) * 22ms + 60ms); transition: background-color 140ms ease, color 140ms ease, padding-left 160ms ease; }
+.spyda-select-menu [role="option"][data-active="true"] { padding-left: 14px; }
+@media (prefers-reduced-motion: reduce) {
+  .spyda-select-menu { animation-duration: 160ms; }
+  .spyda-select-menu [role="option"] { animation: none; }
+}
+
+/* Spyda's editors and menus scroll without visible scrollbars. */
+.figma-editor, .figma-editor *, .spyda-editor, .spyda-editor *, .spyda-select-menu { scrollbar-width: none; -ms-overflow-style: none; }
+.figma-editor::-webkit-scrollbar, .figma-editor *::-webkit-scrollbar,
+.spyda-editor::-webkit-scrollbar, .spyda-editor *::-webkit-scrollbar,
+.spyda-select-menu::-webkit-scrollbar { display: none; width: 0; height: 0; }

@@ -41,6 +41,9 @@ const MAX_HEIGHT = 300
 
 export default function SpydaSelect<T extends string | number>({ value, options, onChange, ariaLabel, disabled, className, menuWidth, placeholder, id, onOpen }: Props<T>) {
   const [open, setOpen] = useState(false)
+  /** The card stays mounted briefly after closing, to fold away. */
+  const [closing, setClosing] = useState(false)
+  const closeTimer = useRef(0)
   const [active, setActive] = useState(0)
   const [place, setPlace] = useState<{ left: number; top: number; width: number; maxHeight: number; up: boolean } | null>(null)
   const button = useRef<HTMLButtonElement | null>(null)
@@ -65,13 +68,19 @@ export default function SpydaSelect<T extends string | number>({ value, options,
     if (disabled) return
     onOpen?.()
     position()
+    window.clearTimeout(closeTimer.current)
+    setClosing(false)
     setActive(Math.max(0, selectedIndex))
     setOpen(true)
   }
   const close = (focus = true) => {
     setOpen(false)
+    setClosing(true)
+    window.clearTimeout(closeTimer.current)
+    closeTimer.current = window.setTimeout(() => setClosing(false), 150)
     if (focus) button.current?.focus()
   }
+  useEffect(() => () => window.clearTimeout(closeTimer.current), [])
   const choose = (index: number) => {
     const option = options[index]
     if (!option || option.disabled) return
@@ -150,13 +159,15 @@ export default function SpydaSelect<T extends string | number>({ value, options,
         <span className="min-w-0 truncate" style={selected?.style}>{selected ? selected.label : <span className="text-muted-foreground">{placeholder ?? 'Choose…'}</span>}</span>
         <ChevronDown className={`h-3 w-3 shrink-0 text-muted-foreground transition-transform duration-200 ${open ? 'rotate-180 text-primary' : ''}`} aria-hidden />
       </button>
-      {open && place ? createPortal(
+      {(open || closing) && place ? createPortal(
         <div
           ref={list}
           id={listId}
           role="listbox"
           aria-label={ariaLabel}
           tabIndex={-1}
+          data-up={place.up}
+          data-closing={!open && closing}
           onKeyDown={onKeyDown}
           className="spyda-select-menu fixed z-[1000] overflow-y-auto overscroll-contain rounded-xl border border-white/[0.1] bg-[#15161a]/95 p-1 text-foreground shadow-[0_18px_50px_rgba(0,0,0,0.55),0_0_0_1px_rgba(157,250,176,0.05)] backdrop-blur-xl [scrollbar-width:thin]"
           style={{
@@ -176,6 +187,8 @@ export default function SpydaSelect<T extends string | number>({ value, options,
                 role="option"
                 aria-selected={isSelected}
                 aria-disabled={option.disabled || undefined}
+                data-active={index === active}
+                style={{ '--i': index } as CSSProperties}
                 onPointerEnter={() => !option.disabled && setActive(index)}
                 onClick={() => choose(index)}
                 className={`flex cursor-pointer items-center gap-2 rounded-lg px-2.5 py-[7px] text-[12px] transition-colors ${option.disabled ? 'cursor-not-allowed opacity-40' : ''} ${index === active ? 'bg-white/[0.08]' : ''} ${isSelected ? 'text-primary' : 'text-foreground/90'}`}

@@ -255,6 +255,89 @@ function drawTitle(context: CanvasRenderingContext2D, raw: Title, t: number, W: 
   context.restore()
 }
 
+/**
+ * The timeline's scrollbar, as a mini-map: the whole edit in miniature (clips
+ * in green, music in amber, the playhead in pink) under a glowing Spyda-green
+ * lens showing the part in view. Drag the lens to scroll; click to jump.
+ */
+function TimelineScrubber({ scroller, left, view, content, zoom, time, placed, music }: {
+  scroller: { current: HTMLDivElement | null }
+  left: number
+  view: number
+  content: number
+  zoom: number
+  time: number
+  placed: Placed[]
+  music: AudioTrackItem[]
+}) {
+  const track = useRef<HTMLDivElement | null>(null)
+  const [width, setWidth] = useState(0)
+  const [dragging, setDragging] = useState(false)
+  useEffect(() => {
+    const node = track.current
+    if (!node) return
+    const observer = new ResizeObserver(() => setWidth(node.clientWidth))
+    observer.observe(node)
+    setWidth(node.clientWidth)
+    return () => observer.disconnect()
+  }, [])
+  const span = Math.max(1, content)
+  const range = Math.max(0, content - view)
+  const lens = Math.min(width, Math.max(44, (view / span) * width))
+  const travel = Math.max(1, width - lens)
+  const x = range > 0 ? (left / range) * travel : 0
+  const at = (seconds: number) => `${((seconds * zoom) / span) * 100}%`
+
+  const grab = (event: ReactPointerEvent<HTMLDivElement>) => {
+    event.preventDefault()
+    event.stopPropagation()
+    const node = scroller.current
+    if (!node || range <= 0) return
+    const x0 = event.clientX, start = node.scrollLeft
+    setDragging(true)
+    const move = (moveEvent: PointerEvent) => { node.scrollLeft = start + ((moveEvent.clientX - x0) * range) / travel }
+    const up = () => { setDragging(false); window.removeEventListener('pointermove', move); window.removeEventListener('pointerup', up) }
+    window.addEventListener('pointermove', move)
+    window.addEventListener('pointerup', up)
+  }
+  const jump = (event: ReactPointerEvent<HTMLDivElement>) => {
+    const node = scroller.current
+    if (!node || range <= 0) return
+    const rect = event.currentTarget.getBoundingClientRect()
+    node.scrollTo({ left: ((event.clientX - rect.left - lens / 2) / travel) * range, behavior: 'smooth' })
+  }
+
+  return (
+    <div className="shrink-0 px-2.5 pb-2 pt-1">
+      <div
+        ref={track}
+        role="scrollbar"
+        aria-label="Scroll the timeline"
+        aria-orientation="horizontal"
+        aria-controls="spyda-timeline"
+        aria-valuemin={0}
+        aria-valuemax={100}
+        aria-valuenow={range > 0 ? Math.round((left / range) * 100) : 0}
+        onPointerDown={jump}
+        className="group relative h-3.5 cursor-pointer rounded-full bg-[linear-gradient(180deg,rgba(255,255,255,0.025),rgba(255,255,255,0.05))] ring-1 ring-inset ring-white/[0.06]"
+      >
+        {/* The edit in miniature */}
+        {placed.map(item => <span key={item.clip.id} className="pointer-events-none absolute top-1/2 h-[3px] -translate-y-1/2 rounded-full bg-[#9dfab0]/30" style={{ left: at(item.start), width: `max(2px, ${at(item.length)})` }} />)}
+        {music.map(item => <span key={item.id} className="pointer-events-none absolute bottom-[2px] h-[2px] rounded-full bg-[#ffb36b]/40" style={{ left: at(item.start), width: `max(2px, ${at(item.out - item.in)})` }} />)}
+        <span className="pointer-events-none absolute inset-y-[2px] w-[2px] rounded-full bg-[#ff4fd8] shadow-[0_0_6px_#ff4fd8]" style={{ left: at(time) }} />
+        {/* The lens over the part in view */}
+        <div
+          onPointerDown={grab}
+          className={`absolute inset-y-0 flex items-center justify-center gap-[3px] rounded-full border border-[#c9ffd5]/60 bg-[linear-gradient(180deg,rgba(157,250,176,0.42),rgba(61,220,151,0.22))] shadow-[0_0_14px_rgba(157,250,176,0.35),inset_0_1px_0_rgba(255,255,255,0.35)] backdrop-blur-[1px] transition-[box-shadow,transform,opacity] duration-200 ${range > 0 ? 'cursor-grab active:cursor-grabbing' : 'opacity-60'} ${dragging ? 'scale-y-[1.25] shadow-[0_0_22px_rgba(157,250,176,0.6),inset_0_1px_0_rgba(255,255,255,0.4)]' : 'group-hover:scale-y-[1.15]'}`}
+          style={{ left: x, width: lens }}
+        >
+          {[0, 1, 2].map(index => <span key={index} className="h-[6px] w-[2px] rounded-full bg-[#0b1210]/55" />)}
+        </div>
+      </div>
+    </div>
+  )
+}
+
 /** A readable tick spacing for the ruler at `zoom` pixels per second. */
 function tickStep(zoom: number) {
   return [0.1, 0.25, 0.5, 1, 2, 5, 10, 15, 30, 60, 120, 300, 600].find(step => step * zoom >= 64) ?? 600
@@ -279,6 +362,7 @@ export default function VideoEditor() {
   const [quality, setQuality] = useState<(typeof QUALITIES)[number]['value']>('high')
   const [fps, setFps] = useState<(typeof FRAME_RATES)[number]>(30)
   const [, setHistoryTick] = useState(0)
+  const [scrollLeft, setScrollLeft] = useState(0)
 
   const outputRef = useRef<HTMLCanvasElement | null>(null)
   const previewRef = useRef<HTMLDivElement | null>(null)
@@ -979,7 +1063,7 @@ export default function VideoEditor() {
 
   return (
     <main
-      className="flex h-[100dvh] flex-col overflow-hidden bg-[#0b0c0e] text-foreground"
+      className="spyda-editor flex h-[100dvh] flex-col overflow-hidden bg-[#0b0c0e] text-foreground"
       onDragOver={event => { if ([...event.dataTransfer.types].includes('Files')) { event.preventDefault(); setDropping(true) } }}
       onDragLeave={event => { if (event.currentTarget === event.target) setDropping(false) }}
       onDrop={event => { event.preventDefault(); setDropping(false); setDropMarker(null); if (event.dataTransfer.files.length) void importFiles([...event.dataTransfer.files]) }}
@@ -1354,14 +1438,15 @@ export default function VideoEditor() {
       </div>
 
       {/* Timeline */}
-      <div className="h-[208px] shrink-0 border-t border-white/[0.06] bg-[#0f1012]">
+      <div className="h-[224px] shrink-0 border-t border-white/[0.06] bg-[#0f1012]">
         <div className="flex h-full">
           <div className="shrink-0 border-r border-white/[0.06] pt-6 text-[10px] text-muted-foreground" style={{ width: TRACK_HEAD }}>
             <p className="flex h-[78px] items-center gap-1.5 px-3"><Clapperboard className="h-3.5 w-3.5" /> Video</p>
             <p className="flex h-[44px] items-center gap-1.5 px-3"><Type className="h-3.5 w-3.5" /> Titles</p>
             <p className="flex h-[44px] items-center gap-1.5 px-3">♪ Music</p>
           </div>
-          <div ref={scrollerRef} className="relative min-w-0 flex-1 overflow-x-auto overflow-y-hidden [scrollbar-width:thin]">
+          <div className="flex min-w-0 flex-1 flex-col">
+          <div ref={scrollerRef} id="spyda-timeline" onScroll={event => setScrollLeft(event.currentTarget.scrollLeft)} className="relative min-h-0 min-w-0 flex-1 overflow-x-auto overflow-y-hidden">
             <div className="relative h-full" style={{ width: timelineWidth }}>
               {/* Ruler: click or drag to move the playhead. */}
               <div
@@ -1497,6 +1582,8 @@ export default function VideoEditor() {
                 <span className="absolute -left-1.5 top-0 h-3 w-3 rotate-45 bg-[#ff4fd8]" />
               </div>
             </div>
+          </div>
+          <TimelineScrubber scroller={scrollerRef} left={scrollLeft} view={viewWidth} content={timelineWidth} zoom={zoom} time={time} placed={placed} music={project.audio} />
           </div>
         </div>
       </div>
