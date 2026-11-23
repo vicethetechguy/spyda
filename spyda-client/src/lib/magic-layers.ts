@@ -3,6 +3,7 @@ import { BUNDLED_FAMILIES, preloadFonts } from './fonts'
 import { makeLayer } from './editor-objects'
 import { segmentFlyer } from './segmentation'
 import { encodeCanvas, renderAt4K } from './image-4k'
+import { outlineBoxes, type SamCandidates, type SamOutline } from './sam'
 
 /**
  * Magic Layers: one flat picture in, the same picture out as separate,
@@ -1154,29 +1155,153 @@ export async function runMagicLayers(options: MagicLayersOptions): Promise<Magic
     await ocr?.terminate().catch(() => undefined)
   }
 
-  /* Marks: logos, icons, coins and badges the analyser saw, found again in the pixels */
-  progress('Lifting logos and icons', 0.5)
-  const markLayers: DesignObject[] = []
+  /* Outlines: SlimSAM turns each rough box the analyser drew (logos, icons,
+     photos) into a precise outline, all in one pass. Where it cannot run, the
+     pixel methods below take over. */
+  progress('Outlining each element', 0.48)
   const markCandidates = analysed.filter(item => !item.status.removed && (MARK_KINDS.has(item.kind)
     || (item.kind === 'image' && (item.transform.bounds?.width ?? 100) * (item.transform.bounds?.height ?? 100) < 400)))
-  for (const object of markCandidates) {
-    const rect = analysedRect(object, W, H)
-    if (!rect || rect.w * rect.h > W * H * 0.12) continue
-    const ink = findInk(image, rect, claimed, { x: 0.3, y: 0.3 }, true, false)
-    if (!ink) continue
-    const fill = ink.pixels / Math.max(1, ink.box.w * ink.box.h)
-    // A real mark is compact and of a size near what the analyser described.
-    const sizeRatio = (ink.box.w * ink.box.h) / Math.max(1, rect.w * rect.h)
-    if (fill < 0.12 || sizeRatio < 0.12 || sizeRatio > 3) continue
-    const hole = dilate(markShape(ink.mask, ink.box, W), W, H, 1)
-    const pad = 2
-    const crop = clampRect({ x: ink.box.x - pad, y: ink.box.y - pad, w: ink.box.w + pad * 2, h: ink.box.h + pad * 2 }, W, H)
-    const lifted = matteCrop(full, crop, W, hole, W, [0, 0, 0], null)
-    const id = await saveAsset(await encodeCanvas(lifted, true))
+    .map(object => ({ object, rect: analysedRect(object, W, H) }))
+    .filter((entry): entry is { object: DesignObject; rect: Rect } => Boolean(entry.rect) && entry.rect!.w * entry.rect!.h <= W * H * 0.12)
+  const photoCandidates = analysed
+    .filter(item => item.kind === 'image' && !item.status.removed)
+    .map(object => ({ object, rect: analysedRect(object, W, H) }))
+    .filter((entry): entry is { object: DesignObject; rect: Rect } => Boolean(entry.rect) && entry.rect!.w * entry.rect!.h > W * H * 0.06)
+  const grow = (rect: Rect, by: number) => clampRect({ x: rect.x - rect.w * by, y: rect.y - rect.h * by, w: rect.w * (1 + 2 * by), h: rect.h * (1 + 2 * by) }, W, H)
+  // The analyser's icon boxes are often off-centre, and SAM outlines whatever
+  // its prompt lands on. So each mark is found in the pixels first and the
+  // prompt aimed at it; only a mark not found that way keeps the analyser's box.
+  const markInk = markCandidates.map(({ rect }) => findInk(image, rect, claimed, { x: 0.3, y: 0.3 }, true, false))
+  // The analyser's icon boxes are often off by most of their own size. So each
+  // icon is searched for: a box three times its size, and SAM aimed from its
+  // centre, four nearby offsets and the spot its pixels were found. The most
+  // confident compact, uncut outline of icon size wins below.
+  type MarkPrompt = Rect & { px: number; py: number }
+  const markPrompts: MarkPrompt[][] = markCandidates.map(({ rect }, index) => {
+    const room = grow(rect, 1)
+    const cx = rect.x + rect.w / 2, cy = rect.y + rect.h / 2
+    const aims: Array<[number, number]> = [
+      [cx, cy], [cx - rect.w * 0.6, cy], [cx + rect.w * 0.6, cy], [cx, cy - rect.h * 0.6], [cx, cy + rect.h * 0.6],
+    ]
+    const ink = markInk[index]
+    if (ink) aims.push([ink.box.x + ink.box.w / 2, ink.box.y + ink.box.h / 2])
+    return aims
+      .filter(([x, y]) => x >= room.x && x <= room.x + room.w && y >= room.y && y <= room.y + room.h)
+      .map(([px, py]) => ({ ...room, px, py }))
+  })
+  const flatMarkPrompts = markPrompts.flat()
+  const photoPrompts = photoCandidates.map(entry => grow(entry.rect, 0.05))
+  let outlines: Array<SamCandidates | null> | null = null
+  try {
+    outlines = await outlineBoxes(work, W, H, [...flatMarkPrompts, ...photoPrompts])
+  } catch (error) {
+    warnings.push(`Precise outlining was unavailable here (${error instanceof Error ? error.message : 'model failed'}), so cut-outs use the simpler method.`)
+  }
+  // Back to one list of candidate sets per mark, one set per aim.
+  const markOutlines: Array<Array<SamCandidates | null>> = []
+  {
+    let at = 0
+    for (const aims of markPrompts) {
+      markOutlines.push(aims.map((_, k) => outlines?.[at + k] ?? null))
+      at += aims.length
+    }
+  }
+  const photoOutlines = outlines ? outlines.slice(flatMarkPrompts.length) : []
+
+  /**
+   * The largest of SAM's candidates for a prompt that passes `check` (the whole
+   * badge before its letter, and never the backdrop, which fails the checks).
+   */
+  const bestCandidate = <T,>(candidates: SamCandidates | null | undefined, check: (outline: SamOutline) => T | null) => {
+    for (const candidate of candidates ?? []) {
+      if (candidate.share > 0.85) continue
+      const accepted = check(candidate)
+      if (accepted) return { outline: candidate, accepted }
+    }
+    return null
+  }
+
+  /** A mark is compact: thin arcs and lines (an orbit, a divider) are not icons. */
+  const compact = (box: Rect, area: number) => area / Math.max(1, box.w * box.h) >= 0.28 && Math.min(box.w, box.h) / Math.max(box.w, box.h) >= 0.22
+
+  /** A SAM outline as a binary mask (minus what is already taken) and its box, or null when it is not a believable shape for `rect`. */
+  const acceptOutline = (outline: SamOutline | null | undefined, rect: Rect, minScore: number, maxGrowth: number, prompt: Rect, maxSidesTouched: number) => {
+    if (!outline || outline.score < minScore) return null
+    const mask = new Uint8Array(W * H)
+    let area = 0, x0 = W, y0 = H, x1 = 0, y1 = 0
+    for (let i = 0; i < mask.length; i += 1) {
+      if (outline.alpha[i] < 128 || claimed[i]) continue
+      mask[i] = 1; area += 1
+      const x = i % W, y = (i - x) / W
+      if (x < x0) x0 = x
+      if (x > x1) x1 = x
+      if (y < y0) y0 = y
+      if (y > y1) y1 = y
+    }
+    const box = { x: x0, y: y0, w: x1 - x0 + 1, h: y1 - y0 + 1 }
+    // An outline that runs into the edges of its own prompt box was clipped
+    // there: it is the backdrop the prompt landed on, not an object.
+    const tolerance = Math.max(2, Math.round(Math.min(prompt.w, prompt.h) * 0.02))
+    const sides = Number(box.x <= prompt.x + tolerance && prompt.x > 0)
+      + Number(box.y <= prompt.y + tolerance && prompt.y > 0)
+      + Number(box.x + box.w >= prompt.x + prompt.w - tolerance && prompt.x + prompt.w < W)
+      + Number(box.y + box.h >= prompt.y + prompt.h - tolerance && prompt.y + prompt.h < H)
+    if (sides > maxSidesTouched) return null
+    const limit = grow(rect, maxGrowth)
+    const inside = area > 0 && box.x >= limit.x && box.y >= limit.y && box.x + box.w <= limit.x + limit.w && box.y + box.h <= limit.y + limit.h
+    if (!inside || area < rect.w * rect.h * 0.08) return null
+    return { mask, box, area }
+  }
+
+  /* Marks: logos, icons, coins and badges */
+  progress('Lifting logos and icons', 0.52)
+  const markLayers: DesignObject[] = []
+  for (const [index, { object, rect }] of markCandidates.entries()) {
+    // Every aim is judged: an icon outline must be confident, compact, of icon
+    // size and not touch its search box (which would mean it was cut off, or is
+    // the backdrop). The most confident wins, the larger on a tie.
+    const aims = markPrompts[index]
+    const judge = (prompt: Rect) => (candidate: SamOutline) => {
+      const accepted = acceptOutline(candidate, prompt, 0.75, 0, prompt, 0)
+      if (!accepted || !compact(accepted.box, accepted.area)) return null
+      const size = accepted.area / Math.max(1, rect.w * rect.h)
+      return size >= 0.12 && size <= 3 ? accepted : null
+    }
+    const options = aims
+      .map((aim, k) => bestCandidate(markOutlines[index]?.[k], judge(aim)))
+      .filter((option): option is NonNullable<typeof option> => Boolean(option))
+      .sort((a, b) => (b.outline.score - a.outline.score) || (b.accepted.area - a.accepted.area))
+    const outline = options[0]?.outline ?? null
+    const sam = options[0]?.accepted ?? null
+    let hole: Uint8Array
+    let crop: Rect
+    let alphaCanvas: HTMLCanvasElement | null = null
+    let evidence = 'mark-cutout'
+    if (sam && outline) {
+      // SAM's soft outline, minus anything already lifted (text sitting on a badge).
+      const alpha = new Uint8ClampedArray(W * H)
+      for (let i = 0; i < alpha.length; i += 1) alpha[i] = claimed[i] ? 0 : outline.alpha[i]
+      alphaCanvas = maskCanvas(alpha, W, H)
+      hole = dilate(sam.mask, W, H, 1)
+      crop = clampRect({ x: sam.box.x - 2, y: sam.box.y - 2, w: sam.box.w + 4, h: sam.box.h + 4 }, W, H)
+      evidence = 'sam-outline'
+    } else {
+      const ink = markInk[index]
+      if (!ink || !compact(ink.box, ink.pixels)) continue
+      const fill = ink.pixels / Math.max(1, ink.box.w * ink.box.h)
+      // A real mark is compact and of a size near what the analyser described.
+      const sizeRatio = (ink.box.w * ink.box.h) / Math.max(1, rect.w * rect.h)
+      if (fill < 0.12 || sizeRatio < 0.12 || sizeRatio > 3) continue
+      hole = dilate(markShape(ink.mask, ink.box, W), W, H, 1)
+      crop = clampRect({ x: ink.box.x - 2, y: ink.box.y - 2, w: ink.box.w + 4, h: ink.box.h + 4 }, W, H)
+    }
+    const id = alphaCanvas
+      ? await cutout(full, alphaCanvas, crop, W, saveAsset)
+      : await saveAsset(await encodeCanvas(matteCrop(full, crop, W, hole, W, [0, 0, 0], null), true))
     for (let i = 0; i < hole.length; i += 1) if (hole[i]) claimed[i] = 1
     const layer = makeLayer(doc, 'image', { assetRef: `asset:${id}`, name: object.name || 'Logo', bounds: toDocPercent(crop), zIndex: 0 })
     layer.kind = object.kind === 'qr-code' ? 'qr-code' : object.kind === 'image' ? 'icon' : 'logo'
-    layer.source = { provider: 'magic-layers', confidence: 0.85, evidence: ['mark-cutout'] }
+    layer.source = { provider: 'magic-layers', confidence: sam ? Math.round(outline!.score * 100) / 100 : 0.8, evidence: [evidence] }
     markLayers.push(layer)
   }
 
@@ -1203,36 +1328,27 @@ export async function runMagicLayers(options: MagicLayersOptions): Promise<Magic
     cleanContext.drawImage(textPatch, 0, 0, full.width, full.height)
   }
 
-  /* Subject */
-  progress('Cutting out the subject', 0.6)
-  let subjectLayer: DesignObject | null = null
+  /* Subjects: every photo the analyser saw becomes its own cut-out. SAM gives
+     each one's shape; the full-frame matte adds soft edge detail (hair, hands)
+     inside that shape only, so a sofa or a button never comes along. */
+  progress('Cutting out the subjects', 0.6)
+  const subjectLayers: DesignObject[] = []
   let subjectHole: Uint8Array | null = null
+  let matteData: Uint8ClampedArray | null = null
   try {
     const matte = await segmentFlyer(work.toDataURL('image/png'))
     const matteContext = canvasOf(W, H).getContext('2d', { willReadFrequently: true })!
     matteContext.drawImage(matte.canvas, 0, 0, W, H)
-    const matteData = matteContext.getImageData(0, 0, W, H).data
-    // The subject stays inside the photos the analyser marked: the matte also likes buttons and badges.
-    const photos = analysed
-      .filter(item => item.kind === 'image' && !item.status.removed)
-      .map(item => analysedRect(item, W, H))
-      .filter((rect): rect is Rect => Boolean(rect) && rect!.w * rect!.h > W * H * 0.06)
-      .map(rect => ({ x0: rect.x - rect.w * 0.1, y0: rect.y - rect.h * 0.1, x1: rect.x + rect.w * 1.1, y1: rect.y + rect.h * 1.1 }))
-    const inPhoto = (x: number, y: number) => !photos.length || photos.some(rect => x >= rect.x0 && x <= rect.x1 && y >= rect.y0 && y <= rect.y1)
-    const alpha = new Uint8ClampedArray(W * H)
-    for (let i = 0; i < W * H; i += 1) {
-      const x = i % W, y = (i - x) / W
-      alpha[i] = !inPhoto(x, y) ? 0 : matteData[i * 4 + 3]
-    }
-    // Only the largest connected subject (and pieces at least a fifth its size) survive.
-    const solid = new Uint8Array(W * H)
-    for (let i = 0; i < solid.length; i += 1) solid[i] = alpha[i] > 24 ? 1 : 0
-    const { labels, stats } = components(solid, W, H)
-    const largest = Math.max(0, ...stats.map(stat => stat.area))
+    matteData = matteContext.getImageData(0, 0, W, H).data
+  } catch (error) {
+    if (!outlines) warnings.push(`The subject could not be cut out: ${error instanceof Error ? error.message : 'segmentation failed'}.`)
+  }
+
+  const taken = new Uint8Array(W * H)
+  const addSubject = async (alpha: Uint8ClampedArray, name: string, evidence: string, confidence: number) => {
     let area = 0, x0 = W, y0 = H, x1 = 0, y1 = 0
-    for (let i = 0; i < solid.length; i += 1) {
-      if (!solid[i]) { alpha[i] = 0; continue }
-      if (stats[labels[i] - 1].area < largest * 0.2) { alpha[i] = 0; continue }
+    for (let i = 0; i < alpha.length; i += 1) {
+      if (alpha[i] <= 24) continue
       area += 1
       const x = i % W, y = (i - x) / W
       if (x < x0) x0 = x
@@ -1240,19 +1356,59 @@ export async function runMagicLayers(options: MagicLayersOptions): Promise<Magic
       if (y < y0) y0 = y
       if (y > y1) y1 = y
     }
-    const share = area / (W * H)
-    if (share > 0.02 && share < 0.8) {
-      const crop = clampRect({ x: x0 - 2, y: y0 - 2, w: x1 - x0 + 5, h: y1 - y0 + 5 }, W, H)
-      // An opaque core with only the core filled behind it: nothing shows through before anything moves.
-      const core = new Uint8Array(W * H)
-      for (let i = 0; i < core.length; i += 1) if (alpha[i] > 160) { core[i] = 1; alpha[i] = 255 }
-      const id = await cutout(clean, maskCanvas(alpha, W, H), crop, W, saveAsset)
-      subjectLayer = makeLayer(doc, 'image', { assetRef: `asset:${id}`, name: 'Subject', bounds: toDocPercent(crop), zIndex: 0 })
-      subjectLayer.source = { provider: 'magic-layers', confidence: 0.9, evidence: ['subject-matte'] }
-      subjectHole = dilate(core, W, H, 1)
+    if (area < W * H * 0.015 || area > W * H * 0.8) return false
+    const crop = clampRect({ x: x0 - 2, y: y0 - 2, w: x1 - x0 + 5, h: y1 - y0 + 5 }, W, H)
+    // An opaque core with only the core filled behind it: nothing shows through before anything moves.
+    const core = new Uint8Array(W * H)
+    for (let i = 0; i < core.length; i += 1) if (alpha[i] > 160) { core[i] = 1; alpha[i] = 255; taken[i] = 1 }
+    const id = await cutout(clean, maskCanvas(alpha, W, H), crop, W, saveAsset)
+    const layer = makeLayer(doc, 'image', { assetRef: `asset:${id}`, name, bounds: toDocPercent(crop), zIndex: 0 })
+    layer.source = { provider: 'magic-layers', confidence, evidence: [evidence] }
+    subjectLayers.push(layer)
+    const hole = dilate(core, W, H, 1)
+    if (!subjectHole) subjectHole = hole
+    else for (let i = 0; i < hole.length; i += 1) if (hole[i]) subjectHole[i] = 1
+    return true
+  }
+
+  // Largest photos first, so a small one inside a big one keeps its own pixels.
+  const photoOrder = photoCandidates.map((entry, index) => ({ ...entry, outline: photoOutlines[index], prompt: photoPrompts[index] }))
+    .sort((a, b) => b.rect.w * b.rect.h - a.rect.w * a.rect.h)
+  for (const { object, rect, outline, prompt } of photoOrder) {
+    // A subject may be cut by the picture's own edges, but not by all four sides of its box.
+    const chosen = bestCandidate(outline, candidate => acceptOutline(candidate, rect, 0.7, 0.25, prompt, 2))
+    if (!chosen) continue
+    const sam = chosen.accepted
+    const shape = chosen.outline
+    const reach = dilate(sam.mask, W, H, Math.max(3, Math.round(Math.max(W, H) * 0.004)))
+    const alpha = new Uint8ClampedArray(W * H)
+    for (let i = 0; i < alpha.length; i += 1) {
+      if (!reach[i] || claimed[i] || taken[i]) continue
+      const edge = shape.alpha[i]
+      const soft = matteData ? matteData[i * 4 + 3] : 0
+      // Inside the outline it is solid; at its edge the matte's softness decides.
+      alpha[i] = edge >= 230 ? 255 : Math.max(edge, Math.min(soft, 255))
     }
-  } catch (error) {
-    warnings.push(`The subject could not be cut out: ${error instanceof Error ? error.message : 'segmentation failed'}.`)
+    const label = (object.name && object.name.length < 40 ? object.name : object.content.description?.split(/[,.]/)[0]?.slice(0, 36)) || 'Subject'
+    await addSubject(alpha, label, 'sam-subject', Math.round(shape.score * 100) / 100)
+  }
+
+  // No outline for any photo: one subject from the matte, as before.
+  if (!subjectLayers.length && matteData) {
+    const photos = photoCandidates.map(({ rect }) => ({ x0: rect.x - rect.w * 0.1, y0: rect.y - rect.h * 0.1, x1: rect.x + rect.w * 1.1, y1: rect.y + rect.h * 1.1 }))
+    const inPhoto = (x: number, y: number) => !photos.length || photos.some(r => x >= r.x0 && x <= r.x1 && y >= r.y0 && y <= r.y1)
+    const alpha = new Uint8ClampedArray(W * H)
+    for (let i = 0; i < W * H; i += 1) {
+      const x = i % W, y = (i - x) / W
+      alpha[i] = !inPhoto(x, y) || claimed[i] ? 0 : matteData[i * 4 + 3]
+    }
+    // Only the largest connected subject (and pieces at least a fifth its size) survive.
+    const solid = new Uint8Array(W * H)
+    for (let i = 0; i < solid.length; i += 1) solid[i] = alpha[i] > 24 ? 1 : 0
+    const { labels, stats } = components(solid, W, H)
+    const largest = Math.max(0, ...stats.map(stat => stat.area))
+    for (let i = 0; i < solid.length; i += 1) if (!solid[i] || stats[labels[i] - 1].area < largest * 0.2) alpha[i] = 0
+    if (!(await addSubject(alpha, 'Subject', 'subject-matte', 0.8)) && !photos.length) warnings.push('No clear subject was found, so the picture stayed in the background.')
   }
 
   /* Background */
@@ -1287,7 +1443,7 @@ export async function runMagicLayers(options: MagicLayersOptions): Promise<Magic
   }
 
   if (!textLayers.length && lines.length === 0 && !warnings.length) warnings.push('No text was found to lift.')
-  const ordered = [background, ...(subjectLayer ? [subjectLayer] : []), ...markLayers, ...textLayers]
+  const ordered = [background, ...subjectLayers, ...markLayers, ...textLayers]
   const baseZ = wholeFlyer ? 0 : doc.objects.reduce((max, object) => Math.max(max, object.zIndex), 0) + 1
   ordered.forEach((object, index) => { object.zIndex = baseZ + index })
   progress('Done', 1)
