@@ -23,12 +23,38 @@ import {
 
 const chapters = [
   { id: 'vision', number: '01', label: 'The vision' },
-  { id: 'reward-loop', number: '02', label: 'Proof of use' },
-  { id: 'billion-mission', number: '03', label: 'The billion mission' },
-  { id: 'token-design', number: '04', label: 'Token design' },
-  { id: 'architecture', number: '05', label: 'Infrastructure' },
-  { id: 'roadmap', number: '06', label: 'Roadmap' },
-  { id: 'trust', number: '07', label: 'Trust and risk' },
+  { id: 'product', number: '02', label: 'The product' },
+  { id: 'credits-model', number: '03', label: 'Free to use' },
+  { id: 'reward-loop', number: '04', label: 'Proof of use' },
+  { id: 'billion-mission', number: '05', label: 'The billion mission' },
+  { id: 'token-design', number: '06', label: 'Token design' },
+  { id: 'architecture', number: '07', label: 'Infrastructure' },
+  { id: 'roadmap', number: '08', label: 'Roadmap' },
+  { id: 'trust', number: '09', label: 'Trust and risk' },
+]
+
+/** What is live in Spyda today. */
+const productPillars = [
+  ['Spyda AI', 'A chat that turns a design you like into yours from plain words, typed or spoken, with the credit cost confirmed before anything is generated.'],
+  ['Canvas mode', 'A pro flyer editor: layers, selection, groups, alignment, smart guides, typography with line and paragraph spacing, effects, animation and undo.'],
+  ['Magic Layers', 'Splits a flat flyer into live text, its subject, its logos and a filled-in background, all in the browser, with one-step undo.'],
+  ['Video editor', 'A timeline editor with 12 colour controls, 19 effects, 15 transitions, animated titles, music, transforms and MP4 export with sound.'],
+  ['Motion by Claude', 'Claude Opus 5.5 turns a reference into a short animation for posts, stories and reels, revised by follow-up messages.'],
+  ['Download compressor', 'Graphics and video come out up to 90% smaller while staying visually identical, checked against the original before it is kept.'],
+  ['Marketplace', 'Creators list flyers and motion designs at their own price in Spyda credits; buyers pay the creator directly in credits.'],
+  ['Rewards', 'A welcome reward, community tasks that pay credits, coupons, and SPYDA accrued from every eligible credit spent.'],
+]
+
+/** What Spyda credits pay for. Using Spyda is free. */
+const creditPrices = [
+  ['Using every editor and tool', 'Free'],
+  ['Downloading a flyer, animation or video', '100 credits'],
+  ['Compressor on a download (only when it saves space)', '+50 credits'],
+  ['AI generation: Groq + GPT-Image 2', '20 credits'],
+  ['AI generation: GPT-Image 2 only', '30 credits'],
+  ['Motion design by Claude Opus 5.5', '50 credits'],
+  ['AI generation with your own API key', '5 credits'],
+  ['Listing a design on the marketplace', '5 credits'],
 ]
 
 const launchMilestones = [
@@ -43,7 +69,7 @@ const roadmap = [
   {
     phase: 'Live',
     title: 'Useful before tokenization',
-    copy: 'Spyda solves the design problem first: reference analysis, focused edits, reconstruction, QA, projects, wallet funding, and BYOK workflows.',
+    copy: 'Spyda solves the design problem first: Spyda AI, Canvas mode with Magic Layers, the Video editor, motion by Claude, the download compressor, the marketplace, wallet recharges from $1, rewards and BYOK.',
   },
   {
     phase: 'Ledger',
@@ -211,9 +237,9 @@ export function WhitepaperView() {
           <div className="absolute inset-x-0 top-0 h-px bg-[linear-gradient(90deg,transparent,#9dfab0,transparent)] opacity-70" />
           <div className="grid items-center gap-12 lg:grid-cols-[minmax(0,1.12fr)_minmax(330px,.72fr)]">
             <div>
-              <div className="inline-flex items-center gap-2 rounded-md border border-primary/20 bg-primary/[0.06] px-3 py-2 text-[10px] font-semibold uppercase tracking-[0.16em] text-primary"><Sparkles className="h-3.5 w-3.5" /> Spyda Economy Whitepaper / Version 2.0</div>
+              <div className="inline-flex items-center gap-2 rounded-md border border-primary/20 bg-primary/[0.06] px-3 py-2 text-[10px] font-semibold uppercase tracking-[0.16em] text-primary"><Sparkles className="h-3.5 w-3.5" /> Spyda Economy Whitepaper / Version 3.0</div>
               <h1 className="mt-7 max-w-4xl font-heading text-4xl font-semibold leading-[1.03] sm:text-6xl lg:text-[70px]">Design should build your future, not only drain your budget.</h1>
-              <p className="mt-6 max-w-2xl text-base leading-8 text-muted-foreground sm:text-lg">Spyda helps people create premium design work faster, then turns eligible product usage into participation in the economy they are helping to build.</p>
+              <p className="mt-6 max-w-2xl text-base leading-8 text-muted-foreground sm:text-lg">Spyda is free to use, with no subscriptions now or ever. It helps people create premium flyers, animations and videos faster, charges Spyda credits only for downloads and AI, and turns eligible usage into participation in the economy they are helping to build.</p>
               <div className="mt-8 flex flex-wrap items-center gap-3">
                 <button type="button" onClick={() => goToChapter(1)} className="inline-flex h-11 items-center gap-2 rounded-lg bg-primary px-5 text-sm font-semibold text-primary-foreground transition-transform hover:-translate-y-0.5">Explore the reward loop <ArrowDown className="h-4 w-4" /></button>
                 <div className="inline-flex h-11 items-center gap-2 rounded-lg border border-white/[0.09] bg-surface px-4 text-sm text-muted-foreground"><ShieldCheck className="h-4 w-4 text-primary" /> Utility first. Community earned.</div>
@@ -232,8 +258,8 @@ export function WhitepaperView() {
         <WhitepaperChapter id="vision" number="01" eyebrow="The vision" title="People already pay to create. Spyda lets that activity count for something more.">
           <div className="grid gap-7 lg:grid-cols-[1fr_280px]">
             <div className="space-y-5 text-sm leading-7 text-muted-foreground sm:text-base sm:leading-8">
-              <p>Good design is expensive in more ways than one. People pay designers, buy subscriptions, purchase assets, spend model credits, and lose hours rebuilding layouts that already work. The result may be beautiful, but the value usually moves in only one direction: away from the person doing the work.</p>
-              <p>Spyda changes that relationship. The product begins with a practical promise: upload a visual reference, identify its design atoms, make focused changes, and produce a premium child design without starting over. The network vision adds a second promise: eligible usage can become a visible record of participation.</p>
+              <p>Good design is expensive in more ways than one. People pay designers, pay monthly for several design tools, purchase assets, spend model credits, and lose hours rebuilding layouts that already work. The result may be beautiful, but the value usually moves in only one direction: away from the person doing the work.</p>
+              <p>Spyda changes that relationship. The product begins with a practical promise: start from a design you already like, make it yours by chat or by hand, animate it, cut it into a video, and download it, all in one place and without a subscription. The network vision adds a second promise: eligible usage becomes a visible record of participation.</p>
               <p>Every person who uses Spyda helps improve demand, strengthen the creative network, and move the ecosystem closer to launch. The goal is not to attach a token to an empty idea. The goal is to build a useful creative product first, then let the people who create its momentum share in the economy around it.</p>
             </div>
             <div className="grid gap-2">
@@ -244,13 +270,39 @@ export function WhitepaperView() {
           </div>
         </WhitepaperChapter>
 
-        <WhitepaperChapter id="reward-loop" number="02" eyebrow="Proof of use" title="Spend credits on real creative work. Accrue SPYDA as proof that you helped build the network.">
+        <WhitepaperChapter id="product" number="02" eyebrow="The product" title="One creative studio for flyers, motion and video, built to be useful before anything else.">
+          <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
+            {productPillars.map(([title, copy], index) => (
+              <div key={title} className="rounded-lg border border-white/[0.08] bg-surface p-5 transition-colors hover:border-primary/25 hover:bg-primary/[0.035]"><span className="text-[10px] font-semibold text-primary">{String(index + 1).padStart(2, '0')}</span><h3 className="mt-2 text-sm font-semibold">{title}</h3><p className="mt-2 text-xs leading-5 text-muted-foreground">{copy}</p></div>
+            ))}
+          </div>
+          <p className="mt-6 max-w-3xl text-sm leading-7 text-muted-foreground">Heavy work runs on the user&apos;s own device wherever it can: Magic Layers, the video renderer and the compressor all run in the browser, so media stays private and Spyda stays fast and affordable.</p>
+        </WhitepaperChapter>
+
+        <WhitepaperChapter id="credits-model" number="03" eyebrow="Free to use" title="No subscriptions, now or ever. You pay in Spyda credits only for what you take with you.">
+          <div className="grid gap-6 lg:grid-cols-[minmax(0,1fr)_340px]">
+            <div className="space-y-5 text-sm leading-7 text-muted-foreground sm:text-base sm:leading-8">
+              <p>Spyda has no plans, tiers or monthly fees. Every editor and tool is free to open and use: design, edit, animate and preview as much as you like. Spyda credits are spent only when you download finished work or run AI, and every future feature will follow the same rule.</p>
+              <p>Recharges start at just $1, which adds 100 credits: enough to download a finished flyer. Credits never expire and there is never a recurring payment, so anyone can use Spyda, at any budget, whenever they need it.</p>
+              <p>A download is charged only once its file is ready, and the compressor only when it actually made the file smaller. Prices are set on the server and confirmed in the app before anything is spent.</p>
+            </div>
+            <div className="rounded-lg border border-white/[0.1] bg-surface p-5">
+              <div className="flex items-center justify-between"><p className="text-[10px] font-semibold uppercase tracking-[0.15em] text-primary">What credits pay for</p><Wallet className="h-5 w-5 text-primary" /></div>
+              <div className="mt-4 divide-y divide-white/[0.07]">
+                {creditPrices.map(([what, cost]) => <div key={what} className="flex items-center justify-between gap-3 py-2.5"><span className="text-xs text-muted-foreground">{what}</span><span className={`shrink-0 text-xs font-semibold ${cost === 'Free' ? 'text-primary' : ''}`}>{cost}</span></div>)}
+              </div>
+              <p className="mt-4 rounded-md bg-primary/[0.06] px-3 py-2 text-xs font-semibold text-primary">Recharge from $1 · $1 = 100 credits</p>
+            </div>
+          </div>
+        </WhitepaperChapter>
+
+        <WhitepaperChapter id="reward-loop" number="04" eyebrow="Proof of use" title="Spend credits on real creative work. Accrue SPYDA as proof that you helped build the network.">
           <div className="grid gap-6 lg:grid-cols-[minmax(0,1fr)_360px]">
             <div>
               <div className="grid gap-px overflow-hidden rounded-lg border border-white/[0.08] bg-white/[0.08] sm:grid-cols-4">
                 {[
-                  [Wallet, 'Fund', 'Add Spyda Credits'],
-                  [Sparkles, 'Create', 'Use eligible tools'],
+                  [Wallet, 'Fund', 'Recharge from $1'],
+                  [Sparkles, 'Create', 'Download and use AI'],
                   [Gauge, 'Record', 'Verify consumed credits'],
                   [Gift, 'Accrue', 'Earn SPYDA allocation'],
                 ].map(([Icon, title, copy], index) => {
@@ -271,12 +323,12 @@ export function WhitepaperView() {
               <div className="mt-2 flex h-12 items-center rounded-lg border border-white/[0.1] bg-black/20 px-3 focus-within:border-primary/50"><SpydaTokenIcon className="h-5 w-5" /><input id="whitepaper-credit-spend" type="number" min="0" max="1000000000" step="100" value={creditSpend} onChange={event => setCreditSpend(event.target.value)} className="min-w-0 flex-1 bg-transparent px-3 font-heading text-lg font-semibold outline-none" /><span className="text-xs text-muted-foreground">credits</span></div>
               <div className="my-4 flex justify-center"><ArrowDown className="h-4 w-4 animate-bounce text-primary" /></div>
               <div className="rounded-lg border border-primary/20 bg-primary/[0.055] p-5 text-center"><p className="text-[10px] font-semibold uppercase text-muted-foreground">Pre-launch allocation</p><div className="mt-3 flex items-center justify-center gap-2"><SpydaTokenIcon className="h-8 w-8" /><p className="font-heading text-4xl font-semibold">{earnedSpyda.toLocaleString(undefined, { maximumFractionDigits: 3 })}</p></div><p className="mt-2 text-xs font-semibold text-primary">SPYDA accrued</p></div>
-              <p className="mt-4 text-xs leading-5 text-muted-foreground">At current rates, one Groq + GPT-Image 2 generation costs 20 credits and accrues 0.02 SPYDA. GPT-Image 2 alone costs 30 credits. One 5-credit BYOK generation accrues 0.005 SPYDA.</p>
+              <p className="mt-4 text-xs leading-5 text-muted-foreground">At current rates, a download costs 100 credits and accrues 0.1 SPYDA (0.15 with the compressor). A Groq + GPT-Image 2 generation costs 20 credits (0.02 SPYDA), GPT-Image 2 alone 30, a motion design 50, and a BYOK generation 5.</p>
             </div>
           </div>
         </WhitepaperChapter>
 
-        <WhitepaperChapter id="billion-mission" number="03" eyebrow="The community trigger" title="The token launches when users have collectively earned one billion SPYDA and readiness gates are complete.">
+        <WhitepaperChapter id="billion-mission" number="05" eyebrow="The community trigger" title="The token launches when users have collectively earned one billion SPYDA and readiness gates are complete.">
           <p className="max-w-3xl text-sm leading-7 text-muted-foreground sm:text-base sm:leading-8">The one-billion target is a proof-of-demand milestone. It means the launch is powered by people who used the product, completed creative work, and earned their allocation through activity. It is not a fabricated countdown and it is not permission to launch before the system is secure.</p>
           <div className="mt-8 overflow-x-auto pb-2 [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
             <div className="relative flex min-w-[720px] items-start justify-between">
@@ -293,7 +345,7 @@ export function WhitepaperView() {
           </div>
         </WhitepaperChapter>
 
-        <WhitepaperChapter id="token-design" number="04" eyebrow="Token design" title="SPYDA is designed as the creative network's unit of participation, not a promise of free money.">
+        <WhitepaperChapter id="token-design" number="06" eyebrow="Token design" title="SPYDA is designed as the creative network's unit of participation, not a promise of free money.">
           <div className="grid gap-8 lg:grid-cols-[1fr_310px]">
             <div>
               <div className="grid gap-3 sm:grid-cols-2">
@@ -313,10 +365,10 @@ export function WhitepaperView() {
           </div>
         </WhitepaperChapter>
 
-        <WhitepaperChapter id="architecture" number="05" eyebrow="Infrastructure" title="Web2 makes Spyda easy to use. Web3 makes ownership and settlement portable when the network is ready.">
+        <WhitepaperChapter id="architecture" number="07" eyebrow="Infrastructure" title="Web2 makes Spyda easy to use. Web3 makes ownership and settlement portable when the network is ready.">
           <div className="grid gap-px overflow-hidden rounded-lg border border-white/[0.08] bg-white/[0.08] lg:grid-cols-3">
             {[
-              [Layers3, 'Product layer', 'Web2 experience', 'Accounts, projects, references, design atoms, AI orchestration, QA, subscriptions, credit funding, and collaboration remain fast and familiar.'],
+              [Layers3, 'Product layer', 'Web2 experience', 'Accounts, projects, the editors, AI orchestration, QA, credit-only billing with recharges from $1, the marketplace and in-browser media processing stay fast and familiar.'],
               [Cpu, 'Proof layer', 'Usage and reward ledger', 'Eligible credit consumption, reversals, accrual events, balances, and claim eligibility are recorded with auditable event references.'],
               [Globe2, 'Settlement layer', 'Progressive Web3', 'Smart contracts, token claims, external wallets, marketplace settlement, and portable participation activate after readiness gates pass.'],
             ].map(([Icon, label, title, copy]) => {
@@ -327,7 +379,7 @@ export function WhitepaperView() {
           <div className="mt-5 flex items-start gap-3 rounded-lg border border-primary/20 bg-primary/[0.045] p-5"><Network className="mt-0.5 h-5 w-5 shrink-0 text-primary" /><div><p className="text-sm font-semibold">One interface, separate ledgers</p><p className="mt-1 text-xs leading-5 text-muted-foreground">Spyda Credits, fiat balances, and SPYDA allocations appear in one wallet but remain separate assets with different accounting, transfer, withdrawal, and compliance rules.</p></div></div>
         </WhitepaperChapter>
 
-        <WhitepaperChapter id="roadmap" number="06" eyebrow="Roadmap" title="The product earns the right to become a network.">
+        <WhitepaperChapter id="roadmap" number="08" eyebrow="Roadmap" title="The product earns the right to become a network.">
           <div className="divide-y divide-white/[0.08] border-y border-white/[0.08]">
             {roadmap.map((item, index) => (
               <div key={item.phase} className="group grid gap-4 py-6 sm:grid-cols-[80px_220px_1fr] sm:items-start"><div className="flex h-9 w-9 items-center justify-center rounded-full border border-primary/30 bg-primary/[0.06] text-xs font-semibold text-primary transition-colors group-hover:bg-primary group-hover:text-primary-foreground">{index + 1}</div><div><p className="text-[10px] font-semibold uppercase tracking-[0.15em] text-primary">{item.phase}</p><h3 className="mt-2 text-sm font-semibold">{item.title}</h3></div><p className="text-sm leading-6 text-muted-foreground">{item.copy}</p></div>
@@ -336,7 +388,7 @@ export function WhitepaperView() {
           <div className="mt-7 flex items-center gap-3 text-sm font-semibold text-primary"><Rocket className="h-5 w-5" /> Launch follows usage, readiness, and trust. It does not follow hype.</div>
         </WhitepaperChapter>
 
-        <WhitepaperChapter id="trust" number="07" eyebrow="Trust and risk" title="A credible reward economy says what is exciting, what is uncertain, and what must still be earned.">
+        <WhitepaperChapter id="trust" number="09" eyebrow="Trust and risk" title="A credible reward economy says what is exciting, what is uncertain, and what must still be earned.">
           <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
             {[
               [LockKeyhole, 'No guaranteed value', 'SPYDA accrual is not cash, a refund, interest, investment profit, or a promise that a token will have a particular market price.'],

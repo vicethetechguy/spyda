@@ -259,10 +259,10 @@ export default function Workspace() {
     templates: 'Templates',
     'brand-assets': 'Brand Assets',
     whitepaper: 'Whitepaper',
-    guides: 'Guides',
+    guides: 'Knowledge base',
     wallet: 'Wallet',
     fund: 'Fund',
-    subscription: 'Subscription',
+    subscription: 'Pricing & credits',
     settings: 'Settings',
   }
 
@@ -556,6 +556,7 @@ function SpydaCreditIcon({ className = '' }: { className?: string }) {
 }
 
 const CREDIT_TIERS: CreditTier[] = [
+  { amountUSD: 1, credits: 100, label: '$1', title: 'Quick start', detail: 'Enough for one download' },
   { amountUSD: 5, credits: 500, label: '$5', title: 'Starter', detail: 'For focused edits and quick experiments' },
   { amountUSD: 10, credits: 1000, label: '$10', title: 'Creator', detail: 'For regular design reconstruction', recommended: true },
   { amountUSD: 25, credits: 2800, label: '$25', title: 'Studio', detail: 'Extra credits for production work' },
@@ -1176,7 +1177,7 @@ function FundView({ onBack }: { onBack: () => void }) {
       <header className="mt-5 flex flex-col gap-4 border-b border-white/[0.07] pb-6 sm:flex-row sm:items-end sm:justify-between">
         <div>
           <h2 className="font-heading text-2xl font-semibold sm:text-[28px]">Fund Spyda Credits</h2>
-          <p className="mt-1.5 max-w-xl text-sm text-muted-foreground">Choose a pack or enter any amount. Every $1 adds 100 credits.</p>
+          <p className="mt-1.5 max-w-xl text-sm text-muted-foreground">Recharge from just $1: choose a pack or enter any amount. Every $1 adds 100 credits, and there is never a subscription.</p>
         </div>
         <div className="inline-flex w-fit items-center gap-2 rounded-lg border border-white/[0.08] bg-surface-raised px-3 py-2 text-xs text-muted-foreground">
           <Wallet className="h-4 w-4 text-primary" /> Current balance:
@@ -1605,9 +1606,9 @@ function SettingsView({ profilePic, setProfilePic, onManageSubscription }: { pro
               <Zap className="w-4 h-4 text-primary" /> Current Plan
             </h4>
             <div className="text-2xl font-heading font-bold text-foreground mb-1">Spyda access</div>
-            <p className="text-xs leading-5 text-muted-foreground mb-6">Review your current plan, access period, and billing history.</p>
+            <p className="text-xs leading-5 text-muted-foreground mb-6">Spyda is free, with no subscription. See what credits pay for and recharge from $1.</p>
             <button type="button" onClick={onManageSubscription} className="w-full inline-flex h-9 items-center justify-center rounded-lg border border-primary/20 bg-primary/10 text-xs font-semibold text-primary hover:bg-primary/20 transition-colors">
-              Manage Subscription
+              Pricing & credits
             </button>
           </div>
 

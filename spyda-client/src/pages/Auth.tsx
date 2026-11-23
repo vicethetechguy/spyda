@@ -22,6 +22,7 @@ import { passwordStrength } from '../lib/password-strength'
 const STRENGTH_COLORS = ['bg-white/10', 'bg-red-400', 'bg-amber-300', 'bg-[#8bd3ff]', 'bg-primary']
 
 const SHOWCASE_CHIPS = [
+  { icon: Coins, label: 'Free to use · no subscription' },
   { icon: Coins, label: '1,000 credits used = 1 SPYDA' },
   { icon: Clapperboard, label: 'Motion videos by Claude' },
   { icon: ShieldCheck, label: 'Two-factor sign-in' },

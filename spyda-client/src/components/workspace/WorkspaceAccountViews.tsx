@@ -1,5 +1,4 @@
 import { useEffect, useMemo, useState } from 'react'
-import { usePaystackPayment } from 'react-paystack'
 import {
   ArrowLeft,
   CalendarDays,
@@ -14,133 +13,31 @@ import {
   Shield,
   ShieldCheck,
   Smartphone,
-  X,
 } from '../ui/icons'
 import { useAuth } from '../../lib/AuthContext'
 import { supabase } from '../../lib/supabase'
 
-type SubscriptionPlanId = 'free' | 'creator' | 'studio'
-
-type BillingEntry = {
-  id: string
-  plan: SubscriptionPlanId
-  amount: number
-  date: string
-  reference: string
-}
-
-type SubscriptionRecord = {
-  planId: SubscriptionPlanId
-  status: 'active' | 'cancelled'
-  startedAt: string
-  expiresAt: string | null
-  billingHistory: BillingEntry[]
-}
-
-type SubscriptionPlan = {
-  id: SubscriptionPlanId
-  name: string
-  price: number
-  credits: string
-  creditAmount: number
-  description: string
-  features: string[]
-}
-
-const PLANS: SubscriptionPlan[] = [
-  { id: 'creator', name: 'Creator', price: 12000, credits: '1,200 credits per access period', creditAmount: 1200, description: 'For creators producing campaigns regularly.', features: ['Unlimited saved projects', 'Premium analysis', 'Brand asset library', 'Priority generation'] },
-  { id: 'studio', name: 'Studio', price: 30000, credits: '3,500 credits per access period', creditAmount: 3500, description: 'For teams and high-volume design work.', features: ['Everything in Creator', 'Shared project capacity', 'Faster processing queue', 'Advanced brand controls'] },
-]
-
-const PAYMENT_OPTIONS = [
-  { id: 'wallet', name: 'Wallet Funding', price: 'Any amount', detail: '$1 = 100 Spyda credits', description: 'Fund your Spyda Wallet for pay-as-you-go design work.', features: ['Credits stay in your wallet', '20 credits: Groq + GPT-Image 2', '30 credits: GPT-Image 2 only', 'Top up again at any time'], texture: 'starter' },
-  { id: 'creator', name: 'Creator', price: 'NGN 12,000', detail: '30 days of access', description: 'For creators producing campaigns regularly.', features: ['1,200 credits per access period', 'Unlimited saved projects', 'Brand asset library', 'Priority generation'], texture: 'creator' },
-  { id: 'studio', name: 'Studio', price: 'NGN 30,000', detail: '30 days of access', description: 'For teams and high-volume design work.', features: ['3,500 credits per access period', 'Everything in Creator', 'Faster processing queue', 'Advanced brand controls'], texture: 'pro' },
-  { id: 'byok', name: 'Bring Your API Key', price: '5 credits', detail: 'per AI generation', description: 'Use your own OpenAI API billing with Spyda editing and QA.', features: ['Connect your OpenAI API key', 'Optional Groq analysis key', '5 Spyda credits per generation', 'Manage keys from Settings'], texture: 'free' },
+/** What Spyda costs: free to use, credits for downloads and AI, recharge from $1, never a subscription. */
+const PRICING = [
+  { id: 'free', name: 'Spyda', price: 'Free', detail: 'Always. No subscription.', description: 'Every editor and tool is free to open and use.', features: ['Spyda AI chat and voice', 'Canvas mode and Magic Layers', 'Video editor', 'Templates and the marketplace'], texture: 'free' },
+  { id: 'wallet', name: 'Recharge', price: 'From $1', detail: '$1 = 100 Spyda credits', description: 'Top up any amount, whenever you need it.', features: ['Any amount from $1', 'Credits never expire', 'No recurring payment, ever', 'Paid securely through Paystack'], texture: 'starter' },
+  { id: 'downloads', name: 'Downloads', price: '100 credits', detail: 'per flyer or video', description: 'Pay once your finished work is ready to save.', features: ['Compressor: +50 credits', 'Up to 90% smaller, same quality', 'Charged only when the file is ready', 'Eligible spend accrues SPYDA'], texture: 'creator' },
+  { id: 'byok', name: 'AI work', price: 'From 5 credits', detail: 'per generation', description: 'The cost is confirmed before anything runs.', features: ['20 credits: Groq + GPT-Image 2', '30 credits: GPT-Image 2 only', '50 credits: motion by Claude Opus 5.5', '5 credits with your own API key'], texture: 'pro' },
 ] as const
 
-function subscriptionStorageKey(userId?: string) {
-  return `spyda.subscription.v1:${userId || 'guest'}`
-}
-
-function defaultSubscription(): SubscriptionRecord {
-  return { planId: 'free', status: 'active', startedAt: new Date().toISOString(), expiresAt: null, billingHistory: [] }
-}
-
-function readSubscription(userId?: string, metadata?: Record<string, unknown>): SubscriptionRecord {
-  const remote = metadata?.spyda_subscription
-  if (remote && typeof remote === 'object') return remote as SubscriptionRecord
-  try {
-    const saved = window.localStorage.getItem(subscriptionStorageKey(userId))
-    return saved ? JSON.parse(saved) as SubscriptionRecord : defaultSubscription()
-  } catch {
-    return defaultSubscription()
-  }
-}
-
-async function persistSubscription(userId: string | undefined, record: SubscriptionRecord) {
-  window.localStorage.setItem(subscriptionStorageKey(userId), JSON.stringify(record))
-  if (userId) await supabase.auth.updateUser({ data: { spyda_subscription: record } })
-}
-
-function formatDate(value: string | null) {
-  if (!value) return 'No expiry'
-  return new Intl.DateTimeFormat(undefined, { month: 'short', day: 'numeric', year: 'numeric' }).format(new Date(value))
-}
-
-function PlanCheckoutButton({ plan, current, onActivated }: { plan: SubscriptionPlan; current: boolean; onActivated: (record: SubscriptionRecord) => void }) {
-  const { user } = useAuth()
-  const [state, setState] = useState<'idle' | 'processing' | 'error'>('idle')
-  const publicKey = import.meta.env.VITE_PAYSTACK_PUBLIC_KEY || ''
-  const config = {
-    publicKey,
-    email: user?.email || '',
-    amount: plan.price * 100,
-    currency: 'NGN',
-    reference: `spyda-sub-${plan.id}-${Date.now()}`,
-  }
-  const initializePayment = usePaystackPayment(config)
-
-  const purchase = () => {
-    if (!user || !publicKey || plan.price === 0) return
-    setState('processing')
-    initializePayment({
-      onSuccess: async response => {
-        const startedAt = new Date()
-        const expiresAt = new Date(startedAt)
-        expiresAt.setDate(expiresAt.getDate() + 30)
-        const existing = readSubscription(user.id, user.user_metadata)
-        const next: SubscriptionRecord = {
-          planId: plan.id,
-          status: 'active',
-          startedAt: startedAt.toISOString(),
-          expiresAt: expiresAt.toISOString(),
-          billingHistory: [{ id: crypto.randomUUID(), plan: plan.id, amount: plan.price, date: startedAt.toISOString(), reference: String(response?.reference || config.reference) }, ...existing.billingHistory].slice(0, 20),
-        }
-        const { data: profile } = await supabase.from('profiles').select('wallet_balance').eq('id', user.id).single()
-        await supabase.from('profiles').update({ wallet_balance: Number(profile?.wallet_balance || 0) + plan.creditAmount }).eq('id', user.id)
-        await persistSubscription(user.id, next)
-        onActivated(next)
-        setState('idle')
-      },
-      onClose: () => setState('idle'),
-    })
-  }
-
-  return (
-    <button type="button" disabled={current || state === 'processing' || !publicKey || !user} onClick={purchase} className={`mt-6 inline-flex h-11 w-full items-center justify-center gap-2 rounded-lg text-sm font-semibold transition-colors ${current ? 'border border-primary/30 bg-primary/10 text-primary' : 'bg-primary text-primary-foreground hover:bg-primary/90'} disabled:cursor-not-allowed disabled:opacity-60`}>
-      {state === 'processing' && <Loader2 className="h-4 w-4 animate-spin" />}
-      {current ? 'Current plan' : !user ? 'Sign in to subscribe' : !publicKey ? 'Billing unavailable' : `Choose ${plan.name}`}
-    </button>
-  )
-}
+const CREDIT_USES: Array<[string, string]> = [
+  ['Using Spyda AI, Canvas mode, the Video editor and templates', 'Free'],
+  ['Downloading a flyer, animation, video or file', '100 credits'],
+  ['Compressor on a download (only when it saves space)', '+50 credits'],
+  ['AI generation: Groq + GPT-Image 2 / GPT-Image 2 only', '20 / 30 credits'],
+  ['Motion design by Claude Opus 5.5', '50 credits'],
+  ['AI generation with your own OpenAI key', '5 credits'],
+  ['Listing a design on the marketplace', '5 credits'],
+]
 
 export function SubscriptionView({ onBack, onOpenWallet, onOpenSettings }: { onBack: () => void; onOpenWallet: () => void; onOpenSettings: () => void }) {
   const { user } = useAuth()
-  const [subscription, setSubscription] = useState<SubscriptionRecord>(() => readSubscription(user?.id, user?.user_metadata))
   const [hasApiKey, setHasApiKey] = useState(false)
-  const [message, setMessage] = useState('')
-  const currentPlan = PLANS.find(plan => plan.id === subscription.planId)
 
   useEffect(() => {
     if (!user) return
@@ -149,29 +46,18 @@ export function SubscriptionView({ onBack, onOpenWallet, onOpenSettings }: { onB
     })
   }, [user])
 
-  const cancelAccess = async () => {
-    const next = { ...subscription, planId: 'free' as const, status: 'active' as const, expiresAt: null }
-    await persistSubscription(user?.id, next)
-    setSubscription(next)
-    setMessage('Paid access has been removed from this Spyda account.')
-  }
-
   return (
     <div className="mx-auto w-full max-w-6xl p-5 sm:p-8">
       <button type="button" onClick={onBack} className="mb-5 inline-flex items-center gap-2 text-xs font-semibold text-muted-foreground hover:text-foreground"><ArrowLeft className="h-4 w-4" /> Back to settings</button>
       <div className="flex flex-col gap-5 border-b border-white/[0.07] pb-6 lg:flex-row lg:items-end lg:justify-between">
-        <div><p className="mb-2 text-[10px] font-semibold uppercase tracking-[0.18em] text-primary">Account billing</p><h2 className="font-heading text-2xl font-semibold sm:text-3xl">Subscription</h2><p className="mt-2 max-w-2xl text-sm leading-6 text-muted-foreground">Choose the access level that fits your design workload and manage it from one place.</p></div>
-        <div className="rounded-lg border border-primary/20 bg-primary/[0.05] px-5 py-4"><p className="text-[10px] font-semibold uppercase text-muted-foreground">Current access</p><div className="mt-1 flex items-center gap-3"><span className="font-heading text-xl font-semibold">{currentPlan?.name || (hasApiKey ? 'Bring Your API Key' : 'Pay as you go')}</span><span className="rounded bg-primary/10 px-2 py-1 text-[10px] font-semibold uppercase text-primary">{subscription.status}</span></div>{subscription.expiresAt && <p className="mt-2 text-xs text-muted-foreground">Access through {formatDate(subscription.expiresAt)}</p>}{currentPlan && <button type="button" onClick={cancelAccess} className="mt-3 text-xs font-semibold text-muted-foreground hover:text-foreground">Cancel paid access</button>}</div>
+        <div><p className="mb-2 text-[10px] font-semibold uppercase tracking-[0.18em] text-primary">Pricing</p><h2 className="font-heading text-2xl font-semibold sm:text-3xl">Pricing & credits</h2><p className="mt-2 max-w-2xl text-sm leading-6 text-muted-foreground">Spyda is free to use, with no subscriptions now or ever. You spend Spyda credits only when you download your work or run AI, and new features will use credits too. Recharge from just $1.</p></div>
+        <div className="rounded-lg border border-primary/20 bg-primary/[0.05] px-5 py-4"><p className="text-[10px] font-semibold uppercase text-muted-foreground">Your access</p><div className="mt-1 flex items-center gap-3"><span className="font-heading text-xl font-semibold">Free, forever</span><span className="rounded bg-primary/10 px-2 py-1 text-[10px] font-semibold uppercase text-primary">No subscription</span></div>{hasApiKey ? <p className="mt-2 text-xs text-muted-foreground">Your own OpenAI key is connected: generations cost 5 credits.</p> : null}</div>
       </div>
 
-      {message && <div className="mt-5 flex items-center justify-between gap-3 rounded-lg border border-primary/20 bg-primary/[0.06] p-4 text-sm text-primary"><span>{message}</span><button type="button" onClick={() => setMessage('')} aria-label="Dismiss"><X className="h-4 w-4" /></button></div>}
-
       <div className="mt-5 flex snap-x snap-mandatory gap-4 overflow-x-auto px-[8vw] pb-3 pt-2 sm:px-0 lg:grid lg:pt-0 lg:grid-cols-2 lg:overflow-visible lg:pb-0 xl:grid-cols-4">
-        {PAYMENT_OPTIONS.map(option => {
-          const plan = PLANS.find(candidate => candidate.id === option.id)
-          return (
-          <article key={option.id} tabIndex={0} aria-label={`${option.name} payment option`} className={`pricing-texture pricing-texture--${option.texture} relative flex w-[84vw] max-w-[340px] shrink-0 snap-start flex-col rounded-lg border p-6 outline-none sm:w-[340px] lg:w-auto lg:max-w-none ${option.id === 'creator' ? 'border-primary/45 bg-primary/[0.04]' : 'border-white/[0.07] bg-surface'}`}>
-            {option.id === 'creator' && <span className="absolute right-4 top-4 rounded bg-primary/10 px-2 py-1 text-[9px] font-semibold uppercase tracking-[0.12em] text-primary">Popular</span>}
+        {PRICING.map(option => (
+          <article key={option.id} tabIndex={0} aria-label={`${option.name} pricing`} className={`pricing-texture pricing-texture--${option.texture} relative flex w-[84vw] max-w-[340px] shrink-0 snap-start flex-col rounded-lg border p-6 outline-none sm:w-[340px] lg:w-auto lg:max-w-none ${option.id === 'wallet' ? 'border-primary/45 bg-primary/[0.04]' : 'border-white/[0.07] bg-surface'}`}>
+            {option.id === 'wallet' && <span className="absolute right-4 top-4 rounded bg-primary/10 px-2 py-1 text-[9px] font-semibold uppercase tracking-[0.12em] text-primary">From $1</span>}
             <h3 className="font-heading text-lg font-semibold">{option.name}</h3>
             <p className="mt-4 font-heading text-3xl font-semibold">{option.price}</p>
             <p className="mt-1 text-xs text-primary">{option.detail}</p>
@@ -184,16 +70,20 @@ export function SubscriptionView({ onBack, onOpenWallet, onOpenSettings }: { onB
                 </li>
               ))}
             </ul>
-            {option.id === 'wallet' && <button type="button" onClick={onOpenWallet} className="mt-6 inline-flex h-11 w-full items-center justify-center rounded-lg border border-white/[0.1] bg-surface-raised text-sm font-semibold transition-colors hover:bg-white/[0.07]">Fund wallet</button>}
+            {option.id === 'wallet' && <button type="button" onClick={onOpenWallet} className="mt-6 inline-flex h-11 w-full items-center justify-center rounded-lg bg-primary text-sm font-semibold text-primary-foreground transition-colors hover:bg-primary/90">Recharge from $1</button>}
             {option.id === 'byok' && <button type="button" onClick={onOpenSettings} className="mt-6 inline-flex h-11 w-full items-center justify-center rounded-lg border border-white/[0.1] bg-surface-raised text-sm font-semibold transition-colors hover:bg-white/[0.07]">{hasApiKey ? 'Manage API key' : 'Connect API key'}</button>}
-            {plan && <PlanCheckoutButton plan={plan} current={plan.id === subscription.planId} onActivated={record => { setSubscription(record); setMessage(`${plan.name} access is now active.`) }} />}
           </article>
-        )})}
+        ))}
       </div>
 
       <div className="mt-8 grid gap-5 lg:grid-cols-[1fr_320px]">
-        <section className="rounded-lg border border-white/[0.08] bg-surface p-5"><div className="flex items-center gap-2"><CreditCard className="h-4 w-4 text-primary" /><h3 className="text-sm font-semibold">Billing history</h3></div>{!subscription.billingHistory.length ? <p className="mt-5 text-sm text-muted-foreground">No payments have been made on this account yet.</p> : <div className="mt-4 divide-y divide-white/[0.07]">{subscription.billingHistory.map(entry => <div key={entry.id} className="flex items-center justify-between gap-4 py-3"><div><p className="text-sm font-medium capitalize">{entry.plan} access</p><p className="mt-1 text-[11px] text-muted-foreground">{formatDate(entry.date)} · {entry.reference}</p></div><p className="text-sm font-semibold">NGN {entry.amount.toLocaleString()}</p></div>)}</div>}</section>
-        <aside className="rounded-lg border border-white/[0.08] bg-surface p-5"><ShieldCheck className="h-5 w-5 text-primary" /><h3 className="mt-3 text-sm font-semibold">Protected checkout</h3><p className="mt-2 text-xs leading-5 text-muted-foreground">Payments are handled by Paystack. Spyda does not store your card details.</p><div className="mt-4 flex items-center gap-2 text-xs text-muted-foreground"><CalendarDays className="h-4 w-4" /> Each payment activates 30 days of access. It does not renew automatically.</div></aside>
+        <section className="rounded-lg border border-white/[0.08] bg-surface p-5">
+          <div className="flex items-center gap-2"><CreditCard className="h-4 w-4 text-primary" /><h3 className="text-sm font-semibold">What Spyda credits pay for</h3></div>
+          <div className="mt-4 divide-y divide-white/[0.07]">
+            {CREDIT_USES.map(([what, cost]) => <div key={what} className="flex items-center justify-between gap-4 py-2.5"><p className="text-sm text-muted-foreground">{what}</p><p className={`shrink-0 text-sm font-semibold ${cost === 'Free' ? 'text-primary' : ''}`}>{cost}</p></div>)}
+          </div>
+        </section>
+        <aside className="rounded-lg border border-white/[0.08] bg-surface p-5"><ShieldCheck className="h-5 w-5 text-primary" /><h3 className="mt-3 text-sm font-semibold">Never a subscription</h3><p className="mt-2 text-xs leading-5 text-muted-foreground">There is nothing to renew and nothing to cancel. Recharges are one-off payments through Paystack, and Spyda never stores your card details.</p><div className="mt-4 flex items-center gap-2 text-xs text-muted-foreground"><CalendarDays className="h-4 w-4" /> Credits stay in your wallet until you use them.</div></aside>
       </div>
     </div>
   )

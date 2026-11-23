@@ -70,7 +70,7 @@ const spydaNavGroups: NavGroupData[] = [
     heading: 'Documentation',
     items: [
       { id: 'whitepaper', title: 'Whitepaper', icon: BookOpen },
-      { id: 'guides', title: 'Guides', icon: GraduationCap },
+      { id: 'guides', title: 'Knowledge base', icon: GraduationCap },
     ],
   },
 ];

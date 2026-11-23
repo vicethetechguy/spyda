@@ -381,7 +381,8 @@ function FeatureCard({ icon: Icon, title, desc, tone = 'surface' }: { icon: Reac
   )
 }
 
-function PricingCard({ name, price, detail, desc, features, featured, texture }: {
+function PricingCard({ name, price, detail, desc, features, featured, texture, cta }: {
+  cta?: string
   name: string
   price: string
   detail: string
@@ -391,8 +392,8 @@ function PricingCard({ name, price, detail, desc, features, featured, texture }:
   texture: 'free' | 'starter' | 'creator' | 'pro'
 }) {
   return (
-    <article tabIndex={0} aria-label={`${name} pricing plan`} className={`pricing-texture pricing-texture--${texture} relative flex w-[84vw] max-w-[340px] shrink-0 snap-start flex-col rounded-[26px] border p-7 outline-none md:w-auto md:max-w-none ${featured ? 'border-primary/50 bg-surface-raised shadow-[0_0_0_1px_rgba(157,250,176,0.12),0_24px_60px_rgba(157,250,176,0.07)]' : 'border-white/[0.07] bg-surface'}`}>
-      {featured && <span className="absolute right-5 top-5 rounded-full bg-primary px-2.5 py-1 font-heading text-[9px] font-semibold uppercase tracking-[0.14em] text-primary-foreground">Popular</span>}
+    <article tabIndex={0} aria-label={`${name} pricing`} className={`pricing-texture pricing-texture--${texture} relative flex w-[84vw] max-w-[340px] shrink-0 snap-start flex-col rounded-[26px] border p-7 outline-none md:w-auto md:max-w-none ${featured ? 'border-primary/50 bg-surface-raised shadow-[0_0_0_1px_rgba(157,250,176,0.12),0_24px_60px_rgba(157,250,176,0.07)]' : 'border-white/[0.07] bg-surface'}`}>
+      {featured && <span className="absolute right-5 top-5 rounded-full bg-primary px-2.5 py-1 font-heading text-[9px] font-semibold uppercase tracking-[0.14em] text-primary-foreground">Start here</span>}
       <h3 className="font-heading text-lg font-semibold">{name}</h3>
       <p className="mt-4 font-heading text-3xl font-semibold">{price}</p>
       <p className="mt-1 text-xs text-primary">{detail}</p>
@@ -406,7 +407,7 @@ function PricingCard({ name, price, detail, desc, features, featured, texture }:
         ))}
       </ul>
       <Link to="/auth" className={`mt-6 inline-flex h-11 items-center justify-center rounded-full font-heading text-[12px] font-semibold uppercase tracking-[0.12em] transition-all active:scale-[0.98] ${featured ? 'bg-primary text-primary-foreground hover:bg-primary/90' : 'border border-white/[0.1] bg-surface-raised hover:bg-white/[0.07]'}`}>
-        Choose {name}
+        {cta ?? `Choose ${name}`}
       </Link>
     </article>
   )
@@ -547,7 +548,7 @@ export default function Landing() {
                   <span className="text-[#c9ffd8]/90">Change only what you need.</span>
                 </h1>
                 <p className="mx-auto mt-6 max-w-2xl text-[15px] leading-7 text-white/80 sm:text-base">
-                  Upload a design you already like and tell Spyda what to change, by typing or by voice. ChatGPT makes it yours, Claude Opus 5.5 turns it into motion, and canvas mode lets you fine-tune every layer by hand.
+                  Upload a design you already like and tell Spyda what to change, by typing or by voice. ChatGPT makes it yours, Claude Opus 5.5 turns it into motion, canvas mode lets you fine-tune every layer by hand, and the video editor cuts it all together. Free to use, no subscription: pay with Spyda credits only when you download.
                 </p>
                 <div className="mt-8 flex flex-col items-stretch justify-center gap-3 sm:flex-row sm:items-center">
                   <SecondaryPill href="#how"><Play className="h-3.5 w-3.5 text-primary" /> See the workflow</SecondaryPill>
@@ -689,7 +690,9 @@ export default function Landing() {
               <FeatureCard tone="mint" icon={MessageSquareText} title="A chat that makes it yours" desc="Tell Spyda what to change in plain words. It confirms the change and its credit cost before anything is generated." />
               <FeatureCard icon={Clapperboard} title="Motion by Claude Opus 5.5" desc="Turn any reference into a short animation for posts, stories and reels, then download it as a video." />
               <FeatureCard icon={Mic} title="Talk instead of type" desc="Tap the mic and describe the change. Your words land in the chat for you to send." />
-              <FeatureCard icon={Layers3} title="Canvas mode" desc="Open a flyer as layers to drag, resize, rewrite and recolour each part, with undo and an edit timeline." />
+              <FeatureCard icon={Layers3} title="Canvas mode and Magic Layers" desc="Split a flat flyer into live text, subject, logos and background, then edit every layer with pro typography, effects and animation." />
+              <FeatureCard icon={Play} title="A pro video editor" desc="Cut, grade and add effects, transitions, titles and music on a timeline, then export an MP4 with sound." />
+              <FeatureCard icon={Download} title="Smaller downloads" desc="Turn on the compressor when you download and files come out up to 90% smaller, looking exactly the same." />
               <FeatureCard tone="light" icon={Palette} title="Brand constants" desc="Keep your fonts, HEX colours and visual direction consistent across every version you make." />
               <FeatureCard icon={Library} title="A reusable workspace" desc="Return to your chats, projects, templates, brand assets and generated designs on this device." />
             </div>
@@ -799,16 +802,16 @@ export default function Landing() {
           <div className="mx-auto max-w-6xl">
             <div className="mx-auto max-w-3xl text-center">
               <Eyebrow>Pricing</Eyebrow>
-              <h2 className="font-heading text-[2.2rem] font-semibold leading-[1.08] tracking-[-0.02em] sm:text-5xl">Pay for the design work you need.</h2>
-              <p className="mt-5 text-base leading-7 text-muted-foreground">Fund your wallet, subscribe for a larger workload, or connect your own API key for a lower Spyda credit rate.</p>
+              <h2 className="font-heading text-[2.2rem] font-semibold leading-[1.08] tracking-[-0.02em] sm:text-5xl">Free to use. Pay only when you download.</h2>
+              <p className="mt-5 text-base leading-7 text-muted-foreground">No subscriptions, now or ever. Every editor and tool in Spyda is free to use; you spend Spyda credits only when you download your work or run AI, and a recharge starts at just $1.</p>
             </div>
             <div className="mx-auto mt-12 flex max-w-7xl snap-x snap-mandatory gap-4 overflow-x-auto px-[8vw] pb-3 pt-2 md:mt-14 md:grid md:pt-0 md:grid-cols-2 md:overflow-visible md:px-0 md:pb-0 xl:grid-cols-4">
-              <PricingCard name="Wallet Funding" price="Any amount" detail="$1 = 100 Spyda credits" desc="Fund your wallet with the amount that matches the work in front of you." features={['Credits stay in your account', 'No recurring payment', '20 credits: Groq + GPT-Image 2', '30 credits: GPT-Image 2 only', '50 credits: motion by Claude Opus 5.5', 'Eligible spend accrues SPYDA']} texture="starter" />
-              <PricingCard name="Creator" price="NGN 12,000" detail="30 days of access" desc="For creators handling regular campaigns, promotions, and client revisions." features={['1,200 credits per access period', 'Unlimited saved projects', 'Brand asset library', 'Eligible spend accrues SPYDA']} texture="creator" featured />
-              <PricingCard name="Studio" price="NGN 30,000" detail="30 days of access" desc="For teams and high-volume creative work that needs more room to move." features={['3,500 credits per access period', 'Everything in Creator', 'Faster processing queue', 'Eligible spend accrues SPYDA']} texture="pro" />
-              <PricingCard name="Bring Your API Key" price="5 credits" detail="per AI generation" desc="Use your own OpenAI API billing while Spyda provides the editing workflow and QA." features={['Connect your OpenAI API key', 'Optional Groq analysis key', '5 Spyda credits per generation', 'Eligible spend accrues SPYDA']} texture="free" />
+              <PricingCard name="Spyda" price="Free" detail="Always. No subscription." desc="Open every editor and tool, design, edit and preview as much as you like." features={['Spyda AI chat and voice', 'Canvas mode flyer editor and Magic Layers', 'Video editor with effects and transitions', 'Templates and the marketplace']} texture="free" cta="Start free" />
+              <PricingCard name="Recharge" price="From $1" detail="$1 = 100 Spyda credits" desc="Top up any amount, whenever you need it. Easy and affordable for anyone." features={['Recharge any amount from $1', 'Credits never expire', 'No recurring payment, ever', 'Paid securely through Paystack']} texture="starter" featured cta="Recharge" />
+              <PricingCard name="Downloads" price="100 credits" detail="per flyer or video" desc="Pay once your finished flyer, animation or video is ready to save." features={['Compressor: +50 credits', 'Up to 90% smaller, same quality', 'Charged only when the file is ready', 'Eligible spend accrues SPYDA']} texture="creator" cta="Start designing" />
+              <PricingCard name="AI work" price="From 5 credits" detail="per generation" desc="AI runs on credits as you use it, with the cost confirmed before it starts." features={['20 credits: Groq + GPT-Image 2', '30 credits: GPT-Image 2 only', '50 credits: motion by Claude Opus 5.5', '5 credits with your own API key']} texture="pro" cta="Try Spyda AI" />
             </div>
-            <p className="mt-5 text-center text-xs text-muted-foreground">Paid access does not renew automatically. Payments are handled securely through Paystack.</p>
+            <p className="mt-5 text-center text-xs text-muted-foreground">No subscriptions now or in the future: new features will use Spyda credits too. Payments are handled securely through Paystack.</p>
           </div>
         </section>
 
@@ -820,7 +823,10 @@ export default function Landing() {
             </div>
             <div className="mt-12 space-y-3">
               <FAQItem question="What does Spyda actually do?" answer="Spyda turns a design you like into your own. Import a flyer or social design, tell Spyda what to change by typing or talking, and it generates your version while keeping the look. You can also animate it with Claude Opus 5.5 or edit every layer by hand in canvas mode." />
-              <FAQItem question="Can I edit the design by hand?" answer="Yes. Canvas mode separates a flyer into layers you can move, resize, restyle and rewrite, with undo and an edit timeline. It is not a Photoshop file: layers are rebuilt from the flat image, and Make it editable cuts out the pictures." />
+              <FAQItem question="Is Spyda free?" answer="Yes. Using Spyda is free and always will be: there is no subscription, now or in the future. You spend Spyda credits only when you download your work (100 credits a flyer or video) or run AI. Recharge from just $1, which adds 100 credits." />
+              <FAQItem question="What does a download cost?" answer="100 Spyda credits for a flyer, animation or video. Turn on the compressor for 50 more and the file comes out up to 90% smaller while looking the same; if it cannot be made smaller, you are not charged for it. Credits are taken only once your file is ready." />
+              <FAQItem question="Can I edit the design by hand?" answer="Yes. Canvas mode is a full flyer editor: Magic Layers splits a flat flyer into live text, its subject, logos and a clean background, and you can move, resize, restyle and rewrite each one, with typography controls, effects, animation and undo." />
+              <FAQItem question="Can I edit videos too?" answer="Yes. The Video editor cuts clips on a timeline, grades their colour, adds 19 effects, 15 transitions, animated titles and music, and exports an MP4 with sound. It is free to use; the download costs 100 credits." />
               <FAQItem question="How do motion designs work?" answer="Switch the chat to Motion, import a reference and describe what you want. Claude Opus 5.5 writes the animation, you watch it in the chat, and you can download it as a video or an HTML file. Each motion uses 50 credits, and follow-up messages revise the last one." />
               <FAQItem question="Can I talk instead of typing?" answer="Yes. Tap the microphone in the chat box and speak; your words appear in the message for you to check and send. It uses your browser's own speech recognition, so it works in Chrome, Edge and Safari." />
               <FAQItem question="Can I replace logos and product images?" answer="Yes. Upload a replacement on the matching design atom or through Essentials. Spyda also supports exact placement controls for detected image regions before the AI generation step." />
