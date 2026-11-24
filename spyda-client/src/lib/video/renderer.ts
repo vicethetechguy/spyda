@@ -133,6 +133,7 @@ uniform vec4 uXform;    // scale, rotation (radians), x, y
 uniform vec2 uFlip;     // 1 = flipped
 uniform int uBlurBg;
 uniform float uOpacity;
+uniform int uOverlay;   // 1 = an overlay track: outside the clip is see-through
 
 float hash(vec2 p) { return fract(sin(dot(p, vec2(127.1, 311.7))) * 43758.5453); }
 float luma(vec3 c) { return dot(c, vec3(0.2126, 0.7152, 0.0722)); }
@@ -322,10 +323,28 @@ void main() {
   if (uFlip.y > 0.5) q.y = 1.0 - q.y;
   vec2 s = q * uFit.xy + uFit.zw;
   bool inside = s.x >= 0.0 && s.y >= 0.0 && s.x <= 1.0 && s.y <= 1.0;
+  if (uOverlay == 1) {
+    if (!inside) { outColor = vec4(0.0); return; }
+    vec3 o = look(grade(spatial(uTex, uFit, q, uFx, uAmt, uTime), uGrade, vUv), vUv, uFx, uAmt, uTime);
+    // Soften the edge by a pixel so a scaled-down overlay is not jagged.
+    vec2 edge = min(s, 1.0 - s) / max(fwidth(s), vec2(1e-5));
+    float a = clamp(min(edge.x, edge.y), 0.0, 1.0) * clamp(uOpacity, 0.0, 1.0);
+    outColor = vec4(clamp(o, 0.0, 1.0) * a, a);
+    return;
+  }
   vec3 c = inside ? spatial(uTex, uFit, q, uFx, uAmt, uTime) : (uBlurBg == 1 ? backdrop(vUv) : vec3(0.0));
   c = look(grade(c, uGrade, vUv), vUv, uFx, uAmt, uTime);
   outColor = vec4(clamp(c, 0.0, 1.0) * clamp(uOpacity, 0.0, 1.0), 1.0);
 }`
+
+/** Pass 3: an overlay track's finished clip, laid over the frame (premultiplied alpha). */
+const OVERLAY_FRAGMENT = `#version 300 es
+precision highp float;
+in vec2 vUv;
+out vec4 outColor;
+uniform sampler2D uLayer;
+// Clip textures are stored upside down (as in the mix pass), so read them flipped.
+void main() { outColor = texture(uLayer, vec2(vUv.x, 1.0 - vUv.y)); }`
 
 /**
  * Pass 2: the frame, from one finished clip or two through a transition. Kept
@@ -470,6 +489,7 @@ export class VideoRenderer {
   private gl: WebGL2RenderingContext
   private clipProgram: WebGLProgram
   private mixProgram: WebGLProgram
+  private overlayProgram: WebGLProgram
   private source: WebGLTexture
   /** Finished clips A and B, each with its framebuffer. */
   private layers: Array<{ texture: WebGLTexture; framebuffer: WebGLFramebuffer }>
@@ -483,6 +503,7 @@ export class VideoRenderer {
     this.gl = gl
     this.clipProgram = link(gl, CLIP_FRAGMENT)
     this.mixProgram = link(gl, MIX_FRAGMENT)
+    this.overlayProgram = link(gl, OVERLAY_FRAGMENT)
     const buffer = gl.createBuffer()
     gl.bindBuffer(gl.ARRAY_BUFFER, buffer)
     gl.bufferData(gl.ARRAY_BUFFER, new Float32Array([-1, -1, 1, -1, -1, 1, -1, 1, 1, -1, 1, 1]), gl.STATIC_DRAW)
@@ -533,7 +554,7 @@ export class VideoRenderer {
   }
 
   /** Pass 1 for one clip, into layer `slot`. */
-  private renderClip(slot: 0 | 1, layer: ClipLayer) {
+  private renderClip(slot: 0 | 1, layer: ClipLayer, overlay = false) {
     const gl = this.gl
     const program = this.clipProgram
     gl.useProgram(program)
@@ -555,6 +576,7 @@ export class VideoRenderer {
     gl.uniform2f(this.u(program, 'uFlip'), move.flipX ? 1 : 0, move.flipY ? 1 : 0)
     gl.uniform1i(this.u(program, 'uBlurBg'), layer.fit === 'blur' ? 1 : 0)
     gl.uniform1f(this.u(program, 'uOpacity'), layer.opacity ?? 1)
+    gl.uniform1i(this.u(program, 'uOverlay'), overlay ? 1 : 0)
     gl.uniform1fv(this.u(program, 'uGrade'), GRADE_KEYS.map(key => layer.grade[key]))
     gl.uniform1i(this.u(program, 'uFx'), Math.max(0, EFFECTS.findIndex(effect => effect.id === layer.effect)))
     gl.uniform1f(this.u(program, 'uAmt'), layer.amount)
@@ -588,6 +610,24 @@ export class VideoRenderer {
     gl.uniform1i(this.u(program, 'uTransition'), Math.max(0, TRANSITIONS.findIndex(item => item.id === transition)))
     gl.uniform1f(this.u(program, 'uProgress'), progress)
     gl.drawArrays(gl.TRIANGLES, 0, 6)
+  }
+
+  /** Lays one overlay-track clip over the frame `draw` just made (call it after `draw`, bottom track first). */
+  drawOverlay(layer: ClipLayer) {
+    const gl = this.gl
+    this.fitLayers()
+    this.renderClip(0, layer, true)
+    const program = this.overlayProgram
+    gl.useProgram(program)
+    gl.bindFramebuffer(gl.FRAMEBUFFER, null)
+    gl.viewport(0, 0, this.canvas.width, this.canvas.height)
+    gl.activeTexture(gl.TEXTURE3)
+    gl.bindTexture(gl.TEXTURE_2D, this.layers[0].texture)
+    gl.uniform1i(this.u(program, 'uLayer'), 3)
+    gl.enable(gl.BLEND)
+    gl.blendFunc(gl.ONE, gl.ONE_MINUS_SRC_ALPHA)
+    gl.drawArrays(gl.TRIANGLES, 0, 6)
+    gl.disable(gl.BLEND)
   }
 }
 

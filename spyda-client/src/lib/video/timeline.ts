@@ -47,7 +47,25 @@ export type Clip = {
   amount: number
   /** How this clip hands over to the next one. */
   transition: { type: TransitionId; duration: number }
+  /** How see-through the clip is, 0..1 (default 1). */
+  opacity?: number
+  /** Animation: the clip's position, size, rotation and opacity at moments of its own time. */
+  keyframes?: Keyframe[]
+  /** Overlay clips only: the video track above the main one (2 = V2) and where it starts. */
+  track?: number
+  start?: number
 }
+
+/** One moment of a clip's animation; `at` is seconds from the clip's start on the timeline. */
+export type Keyframe = { id: string; at: number; scale: number; x: number; y: number; rotate: number; opacity: number }
+
+/** A named point on the timeline. */
+export type Marker = { id: string; t: number; label: string; color: string }
+
+export const MARKER_COLORS = ['#9dfab0', '#ffb36b', '#7cc7ff', '#ff6bd5', '#ffe066'] as const
+
+/** Overlay video tracks, above the main track (V1). */
+export const OVERLAY_TRACKS = [2, 3] as const
 
 export type ClipMotion = 'none' | 'zoom-in' | 'zoom-out' | 'pan-left' | 'pan-right' | 'pan-up' | 'pan-down'
 
@@ -115,7 +133,7 @@ export type AudioTrackItem = {
   fadeIn: number
   fadeOut: number
   /** Which audio lane it sits on. Default: music. */
-  lane?: 'music' | 'sfx'
+  lane?: 'voice' | 'music' | 'sfx'
 }
 
 export type VideoProject = {
@@ -124,6 +142,11 @@ export type VideoProject = {
   clips: Clip[]
   titles: Title[]
   audio: AudioTrackItem[]
+  /** Clips on the video tracks above the main one (picture-in-picture, logos, B-roll). */
+  overlays?: Clip[]
+  markers?: Marker[]
+  /** Music is lowered by `amount` (0..1) while anything plays on the voice track. */
+  duck?: { on: boolean; amount: number }
 }
 
 export const FORMATS = [
@@ -259,19 +282,65 @@ export function splitAt(clips: Clip[], t: number): Clip[] | null {
   return next
 }
 
-/** How visible a clip is at `t` (its fade in and out): 0..1. */
+/** Overlay clips placed where they start, on their own track. */
+export function placeOverlays(overlays: Clip[] = []): Placed[] {
+  return overlays.map(clip => {
+    const length = clipLength(clip)
+    const start = Math.max(0, clip.start ?? 0)
+    return { clip, index: -1, start, end: start + length, length, transitionIn: 0, transitionOut: 0 }
+  })
+}
+
+const smooth = (p: number) => p * p * (3 - 2 * p)
+
+/** The clip's animated values at `local` seconds into it, eased between keyframes; null with no keyframes. */
+export function keyframeValues(clip: Clip, local: number): Omit<Keyframe, 'id' | 'at'> | null {
+  const frames = [...(clip.keyframes ?? [])].sort((a, b) => a.at - b.at)
+  if (!frames.length) return null
+  const pick = ({ scale, x, y, rotate, opacity }: Keyframe) => ({ scale, x, y, rotate, opacity })
+  if (local <= frames[0].at) return pick(frames[0])
+  const last = frames[frames.length - 1]
+  if (local >= last.at) return pick(last)
+  const index = frames.findIndex(frame => frame.at > local)
+  const a = frames[index - 1], b = frames[index]
+  const p = smooth((local - a.at) / Math.max(0.001, b.at - a.at))
+  const mix = (from: number, to: number) => from + (to - from) * p
+  return { scale: mix(a.scale, b.scale), x: mix(a.x, b.x), y: mix(a.y, b.y), rotate: mix(a.rotate, b.rotate), opacity: mix(a.opacity, b.opacity) }
+}
+
+/** How much music is turned down at `t` because the voice track is playing (1 = not at all). */
+export function duckingAt(project: VideoProject, t: number) {
+  const duck = project.duck
+  if (!duck?.on || duck.amount <= 0) return 1
+  const ramp = 0.3
+  let strength = 0
+  for (const item of project.audio) {
+    if (item.lane !== 'voice') continue
+    const start = item.start, end = item.start + item.out - item.in
+    if (t >= start && t <= end) { strength = 1; break }
+    const distance = t < start ? start - t : t - end
+    if (distance < ramp) strength = Math.max(strength, 1 - distance / ramp)
+  }
+  return 1 - duck.amount * smooth(strength)
+}
+
+/** How visible a clip is at `t` (its fade in and out, opacity and keyframes): 0..1. */
 export function clipOpacity(item: Placed, t: number) {
   const local = t - item.start
   const { fadeIn, fadeOut } = item.clip
+  const keyed = keyframeValues(item.clip, local)
   let value = 1
   if (fadeIn > 0) value = Math.min(value, local / fadeIn)
   if (fadeOut > 0) value = Math.min(value, (item.length - local) / fadeOut)
+  value *= keyed ? keyed.opacity : item.clip.opacity ?? 1
   return Math.max(0, Math.min(1, value))
 }
 
-/** The clip's transform at `t`, with its slow motion (Ken Burns) applied. */
+/** The clip's transform at `t`: its keyframes (or its own transform), with its slow motion (Ken Burns) on top. */
 export function clipTransformAt(item: Placed, t: number): ClipTransform {
-  const base = item.clip.transform ?? IDENTITY_TRANSFORM
+  const own = item.clip.transform ?? IDENTITY_TRANSFORM
+  const keyed = keyframeValues(item.clip, t - item.start)
+  const base = keyed ? { ...own, scale: keyed.scale, x: keyed.x, y: keyed.y, rotate: keyed.rotate } : own
   const p = Math.max(0, Math.min(1, (t - item.start) / Math.max(0.1, item.length)))
   const ease = p * p * (3 - 2 * p)
   const move = { ...base }

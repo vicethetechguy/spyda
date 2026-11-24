@@ -20,3 +20,69 @@ describe('splitAudioAt', () => {
     expect(splitAudioAt(song, 12.5, () => 'b')).toBeNull()
   })
 })
+
+import { clipOpacity, clipTransformAt, duckingAt, keyframeValues, placeOverlays, type Clip, type VideoProject } from './timeline'
+
+const base = { id: 'c', mediaId: 'm', in: 0, out: 4, speed: 1, volume: 1, muted: false, fit: 'contain', transform: { scale: 1, x: 0, y: 0, rotate: 0, flipX: false, flipY: false }, motion: 'none', fadeIn: 0, fadeOut: 0, grade: {}, effect: 'none', amount: 0, transition: { type: 'cut', duration: 0 } } as unknown as Clip
+
+describe('keyframes', () => {
+  const clip: Clip = { ...base, keyframes: [
+    { id: 'k1', at: 0, scale: 1, x: 0, y: 0, rotate: 0, opacity: 1 },
+    { id: 'k2', at: 2, scale: 2, x: 0.5, y: -0.5, rotate: 90, opacity: 0 },
+  ] }
+
+  it('holds the first and last pose outside the keyframes', () => {
+    expect(keyframeValues(clip, -1)).toMatchObject({ scale: 1, x: 0 })
+    expect(keyframeValues(clip, 3)).toMatchObject({ scale: 2, x: 0.5, rotate: 90 })
+  })
+
+  it('moves smoothly between keyframes (halfway is halfway)', () => {
+    const mid = keyframeValues(clip, 1)!
+    expect(mid.scale).toBeCloseTo(1.5)
+    expect(mid.x).toBeCloseTo(0.25)
+    expect(mid.opacity).toBeCloseTo(0.5)
+    // eased: a quarter of the way in time is less than a quarter of the move
+    expect(keyframeValues(clip, 0.5)!.x).toBeLessThan(0.125)
+  })
+
+  it('drives the clip transform and opacity, keeping its flips', () => {
+    const [item] = placeOverlays([{ ...clip, start: 10, transform: { ...base.transform, flipX: true } }])
+    expect(item.start).toBe(10)
+    const move = clipTransformAt(item, 12)
+    expect(move).toMatchObject({ scale: 2, x: 0.5, y: -0.5, rotate: 90, flipX: true })
+    expect(clipOpacity(item, 11)).toBeCloseTo(0.5)
+  })
+
+  it('has no keyframe values without keyframes, and uses the clip opacity', () => {
+    expect(keyframeValues(base, 1)).toBeNull()
+    const [item] = placeOverlays([{ ...base, opacity: 0.4 }])
+    expect(clipOpacity(item, 1)).toBeCloseTo(0.4)
+  })
+})
+
+describe('music under the voice track', () => {
+  const project: VideoProject = {
+    width: 1920, height: 1080, clips: [], titles: [],
+    audio: [
+      { id: 'm', mediaId: 'song', start: 0, volume: 1, in: 0, out: 20, fadeIn: 0, fadeOut: 0, lane: 'music' },
+      { id: 'v', mediaId: 'talk', start: 5, volume: 1, in: 0, out: 3, fadeIn: 0, fadeOut: 0, lane: 'voice' },
+    ],
+    duck: { on: true, amount: 0.6 },
+  }
+
+  it('lowers music by the amount while the voice plays, and not far from it', () => {
+    expect(duckingAt(project, 6)).toBeCloseTo(0.4)
+    expect(duckingAt(project, 1)).toBe(1)
+    expect(duckingAt(project, 12)).toBe(1)
+  })
+
+  it('eases in and out around the voice', () => {
+    const near = duckingAt(project, 4.85)
+    expect(near).toBeGreaterThan(0.4)
+    expect(near).toBeLessThan(1)
+  })
+
+  it('does nothing when switched off', () => {
+    expect(duckingAt({ ...project, duck: { on: false, amount: 0.6 } }, 6)).toBe(1)
+  })
+})

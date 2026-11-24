@@ -10,7 +10,7 @@ import type { StudioPage } from '../../lib/video/studio-pages'
 const PAGES: Array<{ id: StudioPage; label: string; icon: LucideIcon; key: string; soon?: string; hint: string }> = [
   { id: 'media', label: 'Media', icon: Library, key: '1', hint: 'Bring in and organise your files' },
   { id: 'photo', label: 'Photo', icon: ImageIcon, key: '2', hint: 'Make stills and graphics in the canvas' },
-  { id: 'cut', label: 'Cut', icon: Scissors, key: '3', soon: 'Fast rough cuts: add to end, insert, quick trims', hint: 'Rough cut, fast' },
+  { id: 'cut', label: 'Cut', icon: Scissors, key: '3', hint: 'Rough cut, fast: add to end, insert, on top, trim to the playhead' },
   { id: 'edit', label: 'Edit', icon: Clapperboard, key: '4', hint: 'The timeline: clips, titles, music and effects' },
   { id: 'color', label: 'Color', icon: Palette, key: '5', soon: 'Colour wheels, curves and scopes', hint: 'Make it look right' },
   { id: 'mixer', label: 'Mixer', icon: Sparkles, key: '6', soon: 'Layers on top of a clip: text, shapes, masks, green screen', hint: 'Effects and motion graphics' },

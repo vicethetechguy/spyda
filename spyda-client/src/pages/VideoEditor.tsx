@@ -2,7 +2,7 @@ import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, typ
 import { useNavigate } from 'react-router-dom'
 import {
   Clapperboard, Copy, Download, ImagePlus, Layers, Loader2, LogOut, Maximize2, Palette, Pause, Play, Plus, Redo2, Sparkles, Trash2, Type, Undo2, Upload, Wand2, X,
-  ListCheck, Store, Transition, Zap,
+  ListCheck, Mic, Store, Transition, Zap,
 } from '../components/ui/icons'
 import SpydaSelect from '../components/ui/SpydaSelect'
 import { useDownload } from '../components/DownloadProvider'
@@ -14,7 +14,7 @@ import {
 import {
   CLIP_MOTIONS, FORMATS, TITLE_DEFAULTS, activeAt, audioFade, clipLength, clipOpacity, clipTransformAt, formatFor, formatTime, layout, makeClip, makeTitle,
   newId, sourceTime, splitAt, titleFrame,
-  splitAudioAt, type AudioTrackItem, type Clip, type ClipMotion, type MediaItem, type Placed, type Title, type TitleAnimation, type VideoProject,
+  MARKER_COLORS, OVERLAY_TRACKS, duckingAt, keyframeValues, placeOverlays, splitAudioAt, type AudioTrackItem, type Clip, type Keyframe, type ClipMotion, type MediaItem, type Placed, type Title, type TitleAnimation, type VideoProject,
 } from '../lib/video/timeline'
 import { BUNDLED_FAMILIES, loadFontPreviews, previewFamily } from '../lib/fonts'
 import { renderSoundEffects } from '../lib/video/sound-effects'
@@ -61,6 +61,18 @@ function TransportGlyph({ name }: { name: 'start' | 'back' | 'forward' | 'end' }
   return <svg viewBox="0 0 24 24" className="h-4 w-4" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">{paths[name]}</svg>
 }
 
+/** A clip's keyframes, as diamonds along the bottom of its block on the timeline. */
+function KeyframeMarks({ clip, zoom }: { clip: Clip; zoom: number }) {
+  if (!clip.keyframes?.length) return null
+  return (
+    <>
+      {clip.keyframes.map(frame => (
+        <span key={frame.id} aria-hidden="true" className="pointer-events-none absolute bottom-3.5 h-2 w-2 -translate-x-1/2 rotate-45 rounded-[1px] border border-black/60 bg-[#ffe066]" style={{ left: frame.at * zoom }} />
+      ))}
+    </>
+  )
+}
+
 /** A small waveform drawing for a sound effect card, the same for the same name. */
 function SoundWave({ seed }: { seed: string }) {
   let value = [...seed].reduce((sum, char) => sum * 31 + char.charCodeAt(0), 7) >>> 0
@@ -74,7 +86,8 @@ function SoundWave({ seed }: { seed: string }) {
 
 type LeftTab = 'media' | 'timeline' | 'effects' | 'transitions' | 'titles'
 type MediaFilter = 'all' | 'video' | 'image' | 'audio' | 'sfx' | 'unused'
-type AudioLane = 'music' | 'sfx'
+type AudioLane = 'voice' | 'music' | 'sfx'
+type LaneId = 'video' | AudioLane | 'v2' | 'v3'
 type Format = (typeof FORMATS)[number]
 
 /** Drag payloads inside the editor. */
@@ -427,7 +440,7 @@ function VideoStudio({ projectId, onOpenProject, onNewProject }: { projectId: st
   const [notice, setNotice] = useState<string | null>(null)
   const [importing, setImporting] = useState(false)
   const [dropping, setDropping] = useState(false)
-  const [dropMarker, setDropMarker] = useState<{ track: 'video' | AudioLane; x: number } | null>(null)
+  const [dropMarker, setDropMarker] = useState<{ track: LaneId; x: number } | null>(null)
   const [quality, setQuality] = useState<(typeof QUALITIES)[number]['value']>(() => QUALITIES.find(item => item.value === initial.quality)?.value ?? 'high')
   const [fps, setFps] = useState<(typeof FRAME_RATES)[number]>(() => FRAME_RATES.find(rate => rate === initial.fps) ?? 30)
   const [, setHistoryTick] = useState(0)
@@ -458,7 +471,10 @@ function VideoStudio({ projectId, onOpenProject, onNewProject }: { projectId: st
   const { placed, total } = useMemo(() => layout(project.clips), [project.clips])
   const placedRef = useRef(placed)
   placedRef.current = placed
-  const end = Math.max(total, ...project.titles.map(title => title.start + title.duration), ...project.audio.map(item => item.start + item.out - item.in), 0)
+  const overlays = useMemo(() => placeOverlays(project.overlays), [project.overlays])
+  const overlaysRef = useRef(overlays)
+  overlaysRef.current = overlays
+  const end = Math.max(total, ...overlays.map(item => item.end), ...project.titles.map(title => title.start + title.duration), ...project.audio.map(item => item.start + item.out - item.in), 0)
   // The timeline fits the whole edit by default; Shift/Ctrl + wheel (or the slider) zooms.
   const lane = Math.max(100, viewWidth - GUTTER * 2)
   const zoom = zoomState.fit ? clamp((lane * 0.94) / Math.max(end, 8), MIN_ZOOM, MAX_ZOOM) : zoomState.value
@@ -664,7 +680,11 @@ function VideoStudio({ projectId, onOpenProject, onNewProject }: { projectId: st
     const la = a ? layerOf(a) : null
     const lb = b ? layerOf(b) : null
     // A clip still decoding (just seeked) keeps the last good frame rather than flashing black.
-    if (!(a && !la)) gl.draw(la, la && lb ? lb : null, a?.clip.transition.type ?? 'cut', progress)
+    if (!(a && !la)) {
+      gl.draw(la, la && lb ? lb : null, a?.clip.transition.type ?? 'cut', progress)
+      const above = overlaysRef.current.filter(item => t >= item.start && t < item.end).sort((x, y) => (x.clip.track ?? 2) - (y.clip.track ?? 2))
+      for (const item of above) { const layer = layerOf(item); if (layer) gl.drawOverlay(layer) }
+    }
     const context = output.getContext('2d')!
     context.drawImage(glCanvas.current, 0, 0, output.width, output.height)
     for (const title of projectRef.current.titles) drawTitle(context, title, t, output.width, output.height)
@@ -672,9 +692,10 @@ function VideoStudio({ projectId, onOpenProject, onNewProject }: { projectId: st
 
   /** Puts every element at the right moment for `t`, playing or still. */
   const sync = useCallback(async (t: number, play: boolean) => {
-    const list = placedRef.current
-    const { a, b } = activeAt(list, t)
-    const active = new Set([a?.clip.id, b?.clip.id].filter(Boolean) as string[])
+    const main = placedRef.current
+    const list = [...main, ...overlaysRef.current]
+    const { a, b } = activeAt(main, t)
+    const active = new Set([a?.clip.id, b?.clip.id, ...overlaysRef.current.filter(item => t >= item.start && t < item.end).map(item => item.clip.id)].filter(Boolean) as string[])
     const waits: Promise<void>[] = []
     for (const item of list) {
       const element = elementFor(item.clip)
@@ -704,7 +725,7 @@ function VideoStudio({ projectId, onOpenProject, onNewProject }: { projectId: st
       const local = t - track.start
       const on = local >= 0 && local < track.out - track.in
       if (!on) { if (!element.paused) element.pause(); continue }
-      route(element, track.volume * audioFade(track, local))
+      route(element, track.volume * audioFade(track, local) * ((track.lane ?? 'music') === 'music' ? duckingAt(projectRef.current, t) : 1))
       const target = track.in + local
       if (play) {
         if (Math.abs(element.currentTime - target) > 0.3) element.currentTime = target
@@ -726,7 +747,7 @@ function VideoStudio({ projectId, onOpenProject, onNewProject }: { projectId: st
   }, [])
 
   const play = useCallback(() => {
-    if (!placedRef.current.length) return
+    if (!placedRef.current.length && !overlaysRef.current.length && !projectRef.current.audio.length) return
     const from = timeRef.current >= end - 0.05 ? 0 : timeRef.current
     clock.current = { startedAt: performance.now(), from }
     setPlaying(true)
@@ -780,13 +801,68 @@ function VideoStudio({ projectId, onOpenProject, onNewProject }: { projectId: st
   const updateClip = (id: string, patch: Partial<Clip> | ((clip: Clip) => Partial<Clip>), key?: string) => change(current => ({
     ...current,
     clips: current.clips.map(clip => (clip.id === id ? { ...clip, ...(typeof patch === 'function' ? patch(clip) : patch) } : clip)),
+    ...(current.overlays?.some(clip => clip.id === id) ? { overlays: current.overlays.map(clip => (clip.id === id ? { ...clip, ...(typeof patch === 'function' ? patch(clip) : patch) } : clip)) } : {}),
   }), key ?? `clip:${id}:${typeof patch === 'function' ? 'fn' : Object.keys(patch).join(',')}`)
   const updateTitle = (id: string, patch: Partial<Title>, key?: string) => change(current => ({ ...current, titles: current.titles.map(title => (title.id === id ? { ...title, ...patch } : title)) }), key ?? `title:${id}:${Object.keys(patch).join(',')}`)
   const updateAudio = (id: string, patch: Partial<AudioTrackItem>, key?: string) => change(current => ({ ...current, audio: current.audio.map(item => (item.id === id ? { ...item, ...patch } : item)) }), key ?? `audio:${id}:${Object.keys(patch).join(',')}`)
-  const updateTransform = (clip: Clip, patch: Partial<ClipTransform>, key?: string) => updateClip(clip.id, current => ({ transform: { ...IDENTITY_TRANSFORM, ...current.transform, ...patch } }), key ?? `clip:${clip.id}:transform:${Object.keys(patch).join(',')}`)
+  /** Where a clip sits on the timeline (main or overlay track). */
+  const placedOf = (id: string) => placedRef.current.find(item => item.clip.id === id) ?? overlaysRef.current.find(item => item.clip.id === id) ?? null
+  /** Seconds into the clip at the playhead, kept inside it. */
+  const localTime = (clip: Clip) => { const item = placedOf(clip.id); return item ? clamp(timeRef.current - item.start, 0, item.length) : 0 }
+  const FRAME = 1 / 30
+
+  /** With keyframes, a change of position, size, rotation or opacity is keyed at the playhead. */
+  const upsertKeyframe = (current: Clip, patch: Partial<Omit<Keyframe, 'id' | 'at'>>) => {
+    const at = localTime(current)
+    const frames = current.keyframes ?? []
+    const move = { ...IDENTITY_TRANSFORM, ...current.transform }
+    const here = keyframeValues(current, at) ?? { scale: move.scale, x: move.x, y: move.y, rotate: move.rotate, opacity: current.opacity ?? 1 }
+    const existing = frames.find(frame => Math.abs(frame.at - at) < FRAME / 2 + 0.001)
+    return existing
+      ? frames.map(frame => (frame === existing ? { ...frame, ...patch } : frame))
+      : [...frames, { id: newId('key'), at, ...here, ...patch }].sort((x, y) => x.at - y.at)
+  }
+
+  const updateTransform = (clip: Clip, patch: Partial<ClipTransform>, key?: string) => updateClip(clip.id, current => {
+    const { flipX, flipY, ...animated } = patch
+    if (current.keyframes?.length && Object.keys(animated).length) {
+      return { keyframes: upsertKeyframe(current, animated), transform: { ...IDENTITY_TRANSFORM, ...current.transform, ...(flipX != null ? { flipX } : {}), ...(flipY != null ? { flipY } : {}) } }
+    }
+    return { transform: { ...IDENTITY_TRANSFORM, ...current.transform, ...patch } }
+  }, key ?? `clip:${clip.id}:transform:${Object.keys(patch).join(',')}`)
+
+  const updateOpacity = (clip: Clip, opacity: number) => updateClip(clip.id, current => (current.keyframes?.length ? { keyframes: upsertKeyframe(current, { opacity }) } : { opacity }), `clip:${clip.id}:opacity`)
+
+  const addKeyframe = (clip: Clip) => updateClip(clip.id, current => ({ keyframes: upsertKeyframe(current, {}) }))
+  const removeKeyframe = (clip: Clip, id: string) => updateClip(clip.id, current => {
+    const frames = (current.keyframes ?? []).filter(frame => frame.id !== id)
+    if (frames.length) return { keyframes: frames }
+    // The last keyframe gone: the clip keeps the pose it had there.
+    const gone = (current.keyframes ?? []).find(frame => frame.id === id)
+    return gone ? { keyframes: [], opacity: gone.opacity, transform: { ...IDENTITY_TRANSFORM, ...current.transform, scale: gone.scale, x: gone.x, y: gone.y, rotate: gone.rotate } } : { keyframes: [] }
+  })
+
+  /* ── markers ── */
+  const addMarker = () => {
+    const at = timeRef.current
+    change(current => {
+      const markers = current.markers ?? []
+      if (markers.some(marker => Math.abs(marker.t - at) < 0.05)) return current
+      return { ...current, markers: [...markers, { id: newId('marker'), t: at, label: `Marker ${markers.length + 1}`, color: MARKER_COLORS[markers.length % MARKER_COLORS.length] }].sort((x, y) => x.t - y.t) }
+    })
+  }
+  const updateMarker = (id: string, patch: Partial<{ label: string; color: string; t: number }>) => change(current => ({ ...current, markers: (current.markers ?? []).map(marker => (marker.id === id ? { ...marker, ...patch } : marker)) }), `marker:${id}`)
+  const removeMarker = (id: string) => change(current => ({ ...current, markers: (current.markers ?? []).filter(marker => marker.id !== id) }))
 
   /** Places footage on the timeline (at `index`, else the end); music goes on the music track at `at`. */
-  const placeMedia = useCallback((item: MediaItem, options: { index?: number; at?: number; lane?: AudioLane } = {}) => {
+  const placeMedia = useCallback((item: MediaItem, options: { index?: number; at?: number; lane?: AudioLane; track?: number } = {}) => {
+    if (options.track && item.kind !== 'audio') {
+      // On top: picture-in-picture in the top-right corner, ready to move and resize.
+      const clip: Clip = { ...makeClip(item), track: options.track, start: Math.max(0, options.at ?? 0), fit: 'contain', transform: { ...IDENTITY_TRANSFORM, scale: 0.4, x: 0.27, y: -0.27 } }
+      change(current => ({ ...current, overlays: [...(current.overlays ?? []), clip] }))
+      setSelection({ kind: 'clip', id: clip.id })
+      return
+    }
     if (item.kind === 'audio') {
       const lane: AudioLane = options.lane ?? (item.sfx ? 'sfx' : 'music')
       const track: AudioTrackItem = { id: newId('audio'), mediaId: item.id, start: Math.max(0, options.at ?? 0), volume: item.sfx ? 1 : 0.8, in: 0, out: item.duration, fadeIn: 0, fadeOut: 0, lane }
@@ -903,26 +979,31 @@ function VideoStudio({ projectId, onOpenProject, onNewProject }: { projectId: st
     void audio.play().catch(() => setPreviewing(null))
   }
 
-  const importFiles = async (files: File[], place?: { index?: number; at?: number }) => {
+  const importFiles = async (files: File[], place?: { index?: number; at?: number; track?: number; lane?: AudioLane }) => {
     const usable = files.filter(file => /^(video|image|audio)\//.test(file.type))
     if (!usable.length) { setNotice('Add video (MP4, WebM, MOV), image or audio files.'); return }
     setImporting(true)
     let index = place?.index
+    const failed: string[] = []
     try {
       for (const file of usable) {
-        const item = { ...(await readMedia(file)), size: file.size, addedAt: new Date().toISOString() }
+        // One file that will not open does not stop the others.
+        let read: MediaItem
+        try { read = await readMedia(file) } catch { failed.push(file.name); continue }
+        const item = { ...read, size: file.size, addedAt: new Date().toISOString() }
         void storeMediaFile(item.id, file).catch(() => setNotice('This device is out of space: the file is in the edit but will not be there after a refresh.'))
         mediaRef.current = [...mediaRef.current, item]
         setMedia(mediaRef.current)
         if (place) {
-          placeMedia(item, { index, at: place.at })
+          placeMedia(item, { index, at: place.at, track: place.track, lane: place.lane })
           if (index != null && item.kind !== 'audio') index += 1
         } else if (item.kind !== 'audio' && !projectRef.current.clips.length) {
           // The first footage goes straight onto the timeline, so there is something to edit at once.
           placeMedia(item)
         }
       }
-      if (!place) setNotice(current => current?.startsWith('Matched') ? current : null)
+      if (failed.length) setNotice(`${failed.join(', ')} could not be opened. ${failed.length === 1 ? 'It may be damaged, or in a format this browser cannot play' : 'They may be damaged, or in a format this browser cannot play'} (MP4, WebM and MOV work best).`)
+      else if (!place) setNotice(current => current?.startsWith('Matched') ? current : null)
     } catch (error) {
       setNotice(error instanceof Error ? error.message : 'That file could not be opened.')
     } finally {
@@ -934,7 +1015,7 @@ function VideoStudio({ projectId, onOpenProject, onNewProject }: { projectId: st
     if (!selection) return
     if (selection.kind === 'clip' || selection.kind === 'transition') {
       if (selection.kind === 'transition') { updateClip(selection.id, { transition: { type: 'cut', duration: 0 } }); setSelection(null); return }
-      change(current => ({ ...current, clips: current.clips.filter(clip => clip.id !== selection.id) }))
+      change(current => ({ ...current, clips: current.clips.filter(clip => clip.id !== selection.id), overlays: (current.overlays ?? []).filter(clip => clip.id !== selection.id) }))
     }
     if (selection.kind === 'title') change(current => ({ ...current, titles: current.titles.filter(title => title.id !== selection.id) }))
     if (selection.kind === 'audio') {
@@ -965,6 +1046,16 @@ function VideoStudio({ projectId, onOpenProject, onNewProject }: { projectId: st
       setNotice('Move the playhead inside the selected music to split it.')
       return
     }
+    const overlay = selection?.kind === 'clip' ? overlays.find(item => item.clip.id === selection.id) : undefined
+    if (overlay) {
+      if (time <= overlay.start + 0.1 || time >= overlay.end - 0.1) { setNotice('Move the playhead inside the selected clip to split it.'); return }
+      const at = sourceTime(overlay, time)
+      const left: Clip = { ...overlay.clip, out: at, keyframes: (overlay.clip.keyframes ?? []).filter(frame => frame.at <= time - overlay.start) }
+      const right: Clip = { ...structuredClone(overlay.clip), id: newId('clip'), in: at, start: time, keyframes: (overlay.clip.keyframes ?? []).filter(frame => frame.at > time - overlay.start).map(frame => ({ ...frame, at: frame.at - (time - overlay.start) })) }
+      change(current => ({ ...current, overlays: (current.overlays ?? []).flatMap(clip => (clip.id === overlay.clip.id ? [left, right] : [clip])) }))
+      setSelection({ kind: 'clip', id: right.id })
+      return
+    }
     const next = splitAt(project.clips, time)
     if (next) { change(current => ({ ...current, clips: next })); return }
     const under = project.audio.find(item => time > item.start && time < item.start + item.out - item.in)
@@ -973,6 +1064,13 @@ function VideoStudio({ projectId, onOpenProject, onNewProject }: { projectId: st
   }
 
   const duplicateSelected = () => {
+    const overlay = selection?.kind === 'clip' ? project.overlays?.find(clip => clip.id === selection.id) : undefined
+    if (overlay) {
+      const copy = { ...structuredClone(overlay), id: newId('clip'), start: (overlay.start ?? 0) + clipLength(overlay) }
+      change(current => ({ ...current, overlays: [...(current.overlays ?? []), copy] }))
+      setSelection({ kind: 'clip', id: copy.id })
+      return
+    }
     if (selection?.kind === 'clip') {
       const copyId = newId('clip')
       change(current => {
@@ -1006,7 +1104,7 @@ function VideoStudio({ projectId, onOpenProject, onNewProject }: { projectId: st
     setSelection({ kind: 'title', id: title.id })
   }
 
-  const selectedClip = selection?.kind === 'clip' || selection?.kind === 'transition' ? project.clips.find(clip => clip.id === selection.id) ?? null : null
+  const selectedClip = selection?.kind === 'clip' || selection?.kind === 'transition' ? project.clips.find(clip => clip.id === selection.id) ?? project.overlays?.find(clip => clip.id === selection.id) ?? null : null
   const selectedTitle = selection?.kind === 'title' ? project.titles.find(title => title.id === selection.id) ?? null : null
   const selectedAudio = selection?.kind === 'audio' ? project.audio.find(item => item.id === selection.id) ?? null : null
   const target = selectedClip ?? (placed.length ? activeAt(placed, time).a?.clip ?? null : null)
@@ -1026,7 +1124,7 @@ function VideoStudio({ projectId, onOpenProject, onNewProject }: { projectId: st
   /** The whole edit and only the media it uses, as one Spyda design file. */
   const makeVideoPackage = async () => {
     const current = projectRef.current
-    const used = new Set([...current.clips.map(clip => clip.mediaId), ...current.audio.map(track => track.mediaId)])
+    const used = new Set([...current.clips.map(clip => clip.mediaId), ...(current.overlays ?? []).map(clip => clip.mediaId), ...current.audio.map(track => track.mediaId)])
     const items = mediaRef.current.filter(item => used.has(item.id))
     const files: PackageFile[] = []
     for (const item of items) {
@@ -1072,6 +1170,7 @@ function VideoStudio({ projectId, onOpenProject, onNewProject }: { projectId: st
         const next: VideoProject = {
           ...data.project,
           clips: data.project.clips.map(clip => ({ ...clip, mediaId: remap(clip.mediaId) })),
+          overlays: (data.project.overlays ?? []).map(clip => ({ ...clip, mediaId: remap(clip.mediaId) })),
           audio: data.project.audio.map(track => ({ ...track, mediaId: remap(track.mediaId) })),
         }
         const nextFormat = FORMATS.find(item => item.id === data.format)
@@ -1108,6 +1207,39 @@ function VideoStudio({ projectId, onOpenProject, onNewProject }: { projectId: st
       title: 'Download this frame',
       produce: () => new Promise<Blob>((resolve, reject) => output.toBlob(blob => (blob ? resolve(blob) : reject(new Error('This frame could not be saved.'))), 'image/png')),
     })
+  }
+
+  /* ── Cut tools ── */
+  const mainAt = (at: number) => placed.find(item => at >= item.start && at < item.end) ?? null
+  /** Cuts the clip under the playhead so it starts (or ends) right here; the rest closes up. */
+  const trimToPlayhead = (side: 'start' | 'end') => {
+    const item = mainAt(time)
+    if (!item) { setNotice('Move the playhead over a clip on the main track.'); return }
+    const at = sourceTime(item, time)
+    if (side === 'start') { updateClip(item.clip.id, { in: Math.min(at, item.clip.out - 0.2) }); seek(item.start) }
+    else updateClip(item.clip.id, { out: Math.max(at, item.clip.in + 0.2) })
+  }
+  /** Moves the playhead to the previous or next cut. */
+  const jumpCut = (direction: 1 | -1) => {
+    const edges = [...new Set([0, ...placed.flatMap(item => [item.start, item.end]), ...overlays.flatMap(item => [item.start, item.end])])].sort((x, y) => x - y)
+    const target = direction > 0 ? edges.find(edge => edge > time + 0.02) : [...edges].reverse().find(edge => edge < time - 0.02)
+    if (target != null) seek(target)
+  }
+  /** Puts footage in at the playhead: inside a clip, it is cut there and the new clip goes in between. */
+  const insertAtPlayhead = (item: MediaItem) => {
+    const inside = mainAt(time)
+    if (!inside || time <= inside.start + 0.1 || time >= inside.end - 0.1) { placeMedia(item, { index: insertIndex(time) }); return }
+    const split = splitAt(project.clips, time)
+    if (!split) { placeMedia(item, { index: inside.index + 1 }); return }
+    const clip = makeClip(item)
+    change(current => ({ ...current, clips: [...split.slice(0, inside.index + 1), clip, ...split.slice(inside.index + 1)] }))
+    setSelection({ kind: 'clip', id: clip.id })
+  }
+  /** Puts footage on the first overlay track free at the playhead. */
+  const placeOnTop = (item: MediaItem) => {
+    const busy = (track: number) => overlays.some(entry => (entry.clip.track ?? 2) === track && time >= entry.start - 0.05 && time < entry.end)
+    const track = OVERLAY_TRACKS.find(candidate => !busy(candidate)) ?? OVERLAY_TRACKS[OVERLAY_TRACKS.length - 1]
+    placeMedia(item, { track, at: time })
   }
 
   const goToPage = (next: StudioPage) => {
@@ -1202,7 +1334,7 @@ function VideoStudio({ projectId, onOpenProject, onNewProject }: { projectId: st
         if (next) { event.preventDefault(); goToPage(next) }
         return
       }
-      if (page !== 'edit') return
+      if (page !== 'edit' && page !== 'cut') return
       const mod = event.metaKey || event.ctrlKey
       const key = event.key.toLowerCase()
       if (mod && key === 'z') { event.preventDefault(); if (event.shiftKey) redo(); else undo(); return }
@@ -1211,6 +1343,11 @@ function VideoStudio({ projectId, onOpenProject, onNewProject }: { projectId: st
       if (mod) return
       if (event.key === ' ') { event.preventDefault(); if (playing) stop(); else play() }
       if (key === 's') { event.preventDefault(); split() }
+      if (key === 'm') { event.preventDefault(); addMarker() }
+      if (event.key === '[') { event.preventDefault(); trimToPlayhead('start') }
+      if (event.key === ']') { event.preventDefault(); trimToPlayhead('end') }
+      if (event.key === 'ArrowUp') { event.preventDefault(); jumpCut(-1) }
+      if (event.key === 'ArrowDown') { event.preventDefault(); jumpCut(1) }
       if (event.key === 'Delete' || event.key === 'Backspace') { event.preventDefault(); removeSelected() }
       if (event.key === 'ArrowLeft') { event.preventDefault(); seek(timeRef.current - (event.shiftKey ? 1 : 1 / 30)) }
       if (event.key === 'ArrowRight') { event.preventDefault(); seek(timeRef.current + (event.shiftKey ? 1 : 1 / 30)) }
@@ -1276,6 +1413,22 @@ function VideoStudio({ projectId, onOpenProject, onNewProject }: { projectId: st
     }, `trim:${track.id}`)
   }
 
+  // V2 always shows; V3 appears once there is something on top to stack over.
+  const overlayLanes = (overlays.some(item => (item.clip.track ?? 2) === 3) || overlays.length ? [3, 2] : [2]) as number[]
+
+  const trimOverlay = (event: ReactPointerEvent, clip: Clip, side: 'in' | 'out') => {
+    const info = mediaFor(clip)
+    const begin = { in: clip.in, out: clip.out, at: clip.start ?? 0 }
+    const limit = info?.kind === 'image' ? 600 : info?.duration ?? clip.out
+    dragStart(event, dx => {
+      const delta = dx * clip.speed
+      if (side === 'in') {
+        const next = clamp(begin.in + delta, 0, begin.out - 0.2)
+        updateClip(clip.id, { in: next, start: Math.max(0, begin.at + (next - begin.in) / clip.speed) }, `trim:${clip.id}`)
+      } else updateClip(clip.id, { out: clamp(begin.out + delta, begin.in + 0.2, limit) }, `trim:${clip.id}`)
+    }, `trim:${clip.id}`)
+  }
+
   /** Where a drop at timeline time `t` lands among the clips. */
   const insertIndex = (t: number) => placed.filter(item => (item.start + item.end) / 2 < t).length
 
@@ -1289,18 +1442,18 @@ function VideoStudio({ projectId, onOpenProject, onNewProject }: { projectId: st
     return types.includes(MEDIA_MIME) || types.includes(CLIP_MIME) || types.includes('Files')
   }
 
-  const onTrackDragOver = (track: 'video' | AudioLane) => (event: ReactDragEvent<HTMLElement>) => {
+  const onTrackDragOver = (track: LaneId) => (event: ReactDragEvent<HTMLElement>) => {
     if (!acceptsDrop(event)) return
     event.preventDefault()
     event.stopPropagation()
     event.dataTransfer.dropEffect = [...event.dataTransfer.types].includes(CLIP_MIME) ? 'move' : 'copy'
     const t = trackTime(event)
-    const x = track === 'video' ? (() => { const index = insertIndex(t); return (index < placed.length ? placed[index].start : total) * zoom })() : t * zoom
+    const x = track === 'video' ? (() => { const index = insertIndex(t); return (index < placed.length ? placed[index].start : total) * zoom })() : snap(t) * zoom
     setDropMarker({ track, x })
     setDropping(false)
   }
 
-  const onTrackDrop = (track: 'video' | AudioLane) => (event: ReactDragEvent<HTMLElement>) => {
+  const onTrackDrop = (track: LaneId) => (event: ReactDragEvent<HTMLElement>) => {
     if (!acceptsDrop(event)) return
     event.preventDefault()
     event.stopPropagation()
@@ -1310,7 +1463,8 @@ function VideoStudio({ projectId, onOpenProject, onNewProject }: { projectId: st
     const mediaId = event.dataTransfer.getData(MEDIA_MIME)
     if (mediaId) {
       const item = mediaRef.current.find(entry => entry.id === mediaId)
-      if (item) placeMedia(item, item.kind === 'audio' ? { at: snap(t), lane: track === 'video' ? undefined : track } : { index: insertIndex(t) })
+      const overlayTrack = track === 'v2' ? 2 : track === 'v3' ? 3 : undefined
+      if (item) placeMedia(item, item.kind === 'audio' ? { at: snap(t), lane: track === 'voice' || track === 'music' || track === 'sfx' ? track : undefined } : overlayTrack ? { track: overlayTrack, at: snap(t) } : { index: insertIndex(t) })
       return
     }
     if (dragIndex.current != null && track === 'video') {
@@ -1321,7 +1475,7 @@ function VideoStudio({ projectId, onOpenProject, onNewProject }: { projectId: st
       moveClip(from, to)
       return
     }
-    if (event.dataTransfer.files.length) void importFiles([...event.dataTransfer.files], track === 'music' ? { at: t, index: insertIndex(t) } : { index: insertIndex(t), at: t })
+    if (event.dataTransfer.files.length) void importFiles([...event.dataTransfer.files], track === 'v2' || track === 'v3' ? { at: t, track: track === 'v2' ? 2 : 3 } : track === 'voice' || track === 'music' || track === 'sfx' ? { at: t, index: insertIndex(t), lane: track } : { index: insertIndex(t), at: t })
   }
 
   /* ── dragging titles and clips in the preview ────────────────────── */
@@ -1368,7 +1522,7 @@ function VideoStudio({ projectId, onOpenProject, onNewProject }: { projectId: st
   ]
   // Where each imported file is used: clips on the video track, items on the music track.
   const usage = new Map<string, number>()
-  for (const clip of project.clips) usage.set(clip.mediaId, (usage.get(clip.mediaId) ?? 0) + 1)
+  for (const clip of [...project.clips, ...(project.overlays ?? [])]) usage.set(clip.mediaId, (usage.get(clip.mediaId) ?? 0) + 1)
   for (const track of project.audio) usage.set(track.mediaId, (usage.get(track.mediaId) ?? 0) + 1)
   const imported = media.filter(item => !item.sfx)
   const effects = media.filter(item => item.sfx)
@@ -1383,7 +1537,7 @@ function VideoStudio({ projectId, onOpenProject, onNewProject }: { projectId: st
   const shownMedia = (mediaFilter === 'sfx' ? effects : imported).filter(item => (mediaFilter === 'all' || mediaFilter === 'sfx' || (mediaFilter === 'unused' ? !usage.get(item.id) : item.kind === mediaFilter)) && (!mediaQuery.trim() || item.name.toLowerCase().includes(mediaQuery.trim().toLowerCase())))
   /** Selects where a file is used and moves the playhead there. */
   const locateMedia = (item: MediaItem) => {
-    const clip = placed.find(entry => entry.clip.mediaId === item.id)
+    const clip = placed.find(entry => entry.clip.mediaId === item.id) ?? overlays.find(entry => entry.clip.mediaId === item.id)
     if (clip) { setSelection({ kind: 'clip', id: clip.clip.id }); seek(clip.start + 0.01); return }
     const track = project.audio.find(entry => entry.mediaId === item.id)
     if (track) { setSelection({ kind: 'audio', id: track.id }); seek(track.start + 0.01) }
@@ -1503,9 +1657,48 @@ function VideoStudio({ projectId, onOpenProject, onNewProject }: { projectId: st
           history={exportsDone}
         />
       ) : null}
-      <div className={`mac-workspace min-h-0 flex-1 ${page === 'edit' ? 'flex' : 'hidden'}`}>
+      <div className={`mac-workspace min-h-0 flex-1 ${page === 'edit' || page === 'cut' ? 'flex' : 'hidden'}`}>
+        {page === 'cut' ? (
+          <aside className="mac-sidebar flex w-[300px] shrink-0 flex-col overflow-y-auto border-r border-white/[0.06] bg-[#111214] p-3">
+            <div className="mb-2 flex items-center justify-between">
+              <p className="text-[12px] font-semibold">Source</p>
+              <button type="button" onClick={() => fileRef.current?.click()} className="inline-flex h-7 items-center gap-1 rounded-md bg-white/[0.06] px-2 text-[10px] font-semibold hover:bg-white/[0.1]"><Upload className="h-3 w-3" /> Import</button>
+            </div>
+            <p className="mb-3 text-[10px] leading-4 text-muted-foreground">Build the rough cut fast: pick a shot and say where it goes. Fine-tune on the Edit page.</p>
+            <div className="space-y-2">
+              {media.filter(item => !item.sfx).map(item => (
+                <div key={item.id} className="overflow-hidden rounded-xl border border-white/[0.08] bg-black/30">
+                  <div className="flex items-center gap-2 p-1.5">
+                    {item.thumbnail ? <img src={item.thumbnail} alt="" className="h-12 w-20 shrink-0 rounded-md bg-black object-contain" /> : <span className="flex h-12 w-20 shrink-0 items-center justify-center rounded-md bg-white/[0.04] text-[16px]">♪</span>}
+                    <span className="min-w-0">
+                      <span className="block truncate text-[11px] font-semibold">{item.name}</span>
+                      <span className="block font-mono text-[9px] text-muted-foreground">{item.kind === 'image' ? 'Picture' : formatTime(item.duration)}{usage.get(item.id) ? ` · in use ${usage.get(item.id)}×` : ''}</span>
+                    </span>
+                  </div>
+                  {item.kind === 'audio' ? (
+                    <div className="grid grid-cols-2 gap-px border-t border-white/[0.06] bg-white/[0.06]">
+                      <button type="button" onClick={() => placeMedia(item, { at: time, lane: 'music' })} className="h-8 bg-[#141518] text-[10px] font-semibold hover:bg-white/[0.06]">♪ Music here</button>
+                      <button type="button" onClick={() => placeMedia(item, { at: time, lane: 'voice' })} className="h-8 bg-[#141518] text-[10px] font-semibold hover:bg-white/[0.06]">🎙 Voice here</button>
+                    </div>
+                  ) : (
+                    <div className="grid grid-cols-3 gap-px border-t border-white/[0.06] bg-white/[0.06]">
+                      <button type="button" onClick={() => placeMedia(item)} title="Add it after the last clip" className="h-8 bg-[#141518] text-[10px] font-semibold hover:bg-white/[0.06]">Add to end</button>
+                      <button type="button" onClick={() => insertAtPlayhead(item)} title="Cut at the playhead and put it in between" className="h-8 bg-[#141518] text-[10px] font-semibold hover:bg-white/[0.06]">Insert here</button>
+                      <button type="button" onClick={() => placeOnTop(item)} title="On the track above, from the playhead (picture-in-picture)" className="h-8 bg-[#141518] text-[10px] font-semibold hover:bg-white/[0.06]">On top</button>
+                    </div>
+                  )}
+                </div>
+              ))}
+              {!media.some(item => !item.sfx) ? <button type="button" onClick={() => fileRef.current?.click()} className="w-full rounded-xl border border-dashed border-white/[0.14] px-4 py-8 text-[11px] text-muted-foreground hover:border-primary/50">Import footage to start cutting</button> : null}
+            </div>
+            <div className="mt-4 rounded-lg bg-white/[0.03] p-2.5 text-[10px] leading-5 text-muted-foreground">
+              <p><b className="text-foreground">[</b> / <b className="text-foreground">]</b> trim the clip to start / end at the playhead</p>
+              <p><b className="text-foreground">↑</b> / <b className="text-foreground">↓</b> previous / next cut · <b className="text-foreground">S</b> split · <b className="text-foreground">M</b> marker</p>
+            </div>
+          </aside>
+        ) : null}
         {/* Left: media, effects, transitions, titles */}
-        <aside className="mac-sidebar flex w-[280px] shrink-0 flex-col border-r border-white/[0.06] bg-[#111214]">
+        <aside className={`mac-sidebar w-[280px] shrink-0 flex-col border-r border-white/[0.06] bg-[#111214] ${page === 'cut' ? 'hidden' : 'flex'}`}>
           <div role="tablist" className="grid grid-cols-5 gap-0.5 border-b border-white/[0.06] p-1">
             {tabs.map(item => (
               <button key={item.id} type="button" role="tab" aria-selected={tab === item.id} onClick={() => setTab(item.id)} className={`flex flex-col items-center gap-0.5 rounded-md py-1.5 text-[9px] font-medium ${tab === item.id ? 'bg-white/[0.08] text-foreground' : 'text-muted-foreground hover:text-foreground'}`}>
@@ -1591,6 +1784,14 @@ function VideoStudio({ projectId, onOpenProject, onNewProject }: { projectId: st
                     }),
                   },
                   {
+                    title: 'On top (V2, V3)',
+                    empty: 'Nothing on top yet. Drag a clip or picture onto V2 for picture-in-picture.',
+                    rows: [...overlays].sort((a, b) => a.start - b.start).map(item => {
+                      const info = mediaFor(item.clip)
+                      return { key: item.clip.id, selected: selection?.kind === 'clip' && selection.id === item.clip.id, thumb: info?.thumbnail ?? null, label: `V${item.clip.track ?? 2} · ${info?.name ?? 'Clip'}`, detail: `${formatTime(item.start)} – ${formatTime(item.end)}${item.clip.keyframes?.length ? ` · ${item.clip.keyframes.length} keyframes` : ''}`, onClick: () => jumpTo({ kind: 'clip', id: item.clip.id }, item.start), onRemove: () => change(current => ({ ...current, overlays: (current.overlays ?? []).filter(clip => clip.id !== item.clip.id) })) }
+                    }),
+                  },
+                  {
                     title: 'Titles',
                     empty: 'No titles yet. Add one from the Titles tab.',
                     rows: [...project.titles].sort((a, b) => a.start - b.start).map(title => ({ key: title.id, selected: selection?.kind === 'title' && selection.id === title.id, thumb: null, label: title.text.split('\n')[0] || 'Title', detail: `${formatTime(title.start)} – ${formatTime(title.start + title.duration)} · ${title.animation}`, onClick: () => jumpTo({ kind: 'title', id: title.id }, title.start), onRemove: () => change(current => ({ ...current, titles: current.titles.filter(item => item.id !== title.id) })) })),
@@ -1621,6 +1822,21 @@ function VideoStudio({ projectId, onOpenProject, onNewProject }: { projectId: st
                     ) : <p className="rounded-md bg-white/[0.02] px-2 py-2 text-[10px] text-muted-foreground">{section.empty}</p>}
                   </section>
                 ))}
+                <section>
+                  <h3 className="mb-1.5 text-[10px] font-semibold uppercase tracking-[0.14em] text-muted-foreground">Markers <span className="ml-1 rounded bg-white/[0.06] px-1 font-mono text-[9px] normal-case tracking-normal">{project.markers?.length ?? 0}</span></h3>
+                  {project.markers?.length ? (
+                    <ul className="space-y-1">
+                      {project.markers.map(marker => (
+                        <li key={marker.id} className="group flex items-center gap-1.5 rounded-lg border border-white/[0.06] px-1.5 py-1">
+                          <button type="button" onClick={() => updateMarker(marker.id, { color: MARKER_COLORS[(MARKER_COLORS.indexOf(marker.color as (typeof MARKER_COLORS)[number]) + 1) % MARKER_COLORS.length] })} title="Change colour" aria-label="Change marker colour" className="h-4 w-4 shrink-0 rounded-sm" style={{ background: marker.color }} />
+                          <input value={marker.label} onChange={event => updateMarker(marker.id, { label: event.target.value })} onKeyDown={event => event.stopPropagation()} aria-label="Marker name" className="min-w-0 flex-1 rounded bg-transparent px-1 text-[11px] outline-none focus:bg-white/[0.06]" />
+                          <button type="button" onClick={() => seek(marker.t)} className="font-mono text-[9px] text-muted-foreground hover:text-foreground" title="Go to the marker">{formatTime(marker.t)}</button>
+                          <button type="button" onClick={() => removeMarker(marker.id)} aria-label={`Remove ${marker.label}`} className="hidden rounded p-0.5 text-muted-foreground hover:text-red-300 group-hover:block"><Trash2 className="h-3 w-3" /></button>
+                        </li>
+                      ))}
+                    </ul>
+                  ) : <p className="rounded-md bg-white/[0.02] px-2 py-2 text-[10px] text-muted-foreground">No markers yet. Press M to mark the playhead.</p>}
+                </section>
               </div>
             ) : tab === 'effects' ? (
               <div>
@@ -1707,6 +1923,13 @@ function VideoStudio({ projectId, onOpenProject, onNewProject }: { projectId: st
               <button type="button" onClick={() => addTitle()} title="Add a title at the playhead" aria-label="Add a title" className={toolButton}><Type className="h-3.5 w-3.5 shrink-0" /><span className="transport-label">Title</span></button>
               <button type="button" onClick={() => fileRef.current?.click()} title="Import media" aria-label="Import media" className={toolButton}><Plus className="h-3.5 w-3.5 shrink-0" /><span className="transport-label">Media</span></button>
               <button type="button" onClick={saveFrame} disabled={!placed.length} title="Save this frame as a PNG" aria-label="Save this frame as a PNG" className={`${toolButton} hidden lg:inline-flex`}><ImagePlus className="h-3.5 w-3.5 shrink-0" /><span className="transport-label">Save frame</span></button>
+              <button type="button" onClick={addMarker} title="Add a marker at the playhead (M)" aria-label="Add a marker" className={toolButton}><span className="inline-block h-3 w-2.5 bg-current" style={{ clipPath: 'polygon(0 0, 100% 0, 100% 70%, 50% 100%, 0 70%)' }} /><span className="transport-label">Marker</span></button>
+              {page === 'cut' ? (
+                <>
+                  <button type="button" onClick={() => trimToPlayhead('start')} disabled={!placed.length} title="Trim the clip to start at the playhead ([)" aria-label="Trim start to the playhead" className={toolButton}>⇤<span className="transport-label">Trim start</span></button>
+                  <button type="button" onClick={() => trimToPlayhead('end')} disabled={!placed.length} title="Trim the clip to end at the playhead (])" aria-label="Trim end to the playhead" className={toolButton}>⇥<span className="transport-label">Trim end</span></button>
+                </>
+              ) : null}
               <button type="button" onClick={() => { void previewRef.current?.requestFullscreen?.() }} title="Full-screen preview" aria-label="Full-screen preview" className={`${transportButton} hidden lg:flex`}><Maximize2 className="h-3.5 w-3.5" /></button>
             </div>
             <div className="ml-auto flex shrink-0 items-center gap-1 text-[10px] text-muted-foreground">
@@ -1719,19 +1942,28 @@ function VideoStudio({ projectId, onOpenProject, onNewProject }: { projectId: st
         </section>
 
         {/* Right: inspector */}
-        <aside className="mac-sidebar w-[300px] shrink-0 overflow-y-auto border-l border-white/[0.06] bg-[#111214]">
+        <aside className={`mac-sidebar w-[300px] shrink-0 overflow-y-auto border-l border-white/[0.06] bg-[#111214] ${page === 'cut' ? 'hidden' : ''}`}>
           {selectedClip && selection?.kind === 'clip' ? (() => {
             const clip = selectedClip
             const info = mediaFor(clip)
             const index = project.clips.findIndex(item => item.id === clip.id)
+            const isOverlay = index < 0
             const move = { ...IDENTITY_TRANSFORM, ...clip.transform }
+            const local = localTime(clip)
+            const keyed = keyframeValues(clip, local)
+            const shown = keyed ? { ...move, ...keyed } : { ...move, opacity: clip.opacity ?? 1 }
+            const frames = [...(clip.keyframes ?? [])].sort((x, y) => x.at - y.at)
+            const here = frames.find(frame => Math.abs(frame.at - local) < FRAME / 2 + 0.001)
+            const startOf = placedOf(clip.id)?.start ?? 0
+            const previousKey = [...frames].reverse().find(frame => frame.at < local - 0.01)
+            const nextKey = frames.find(frame => frame.at > local + 0.01)
             return (
               <>
                 <div className="flex items-center gap-2 border-b border-white/[0.06] px-3 py-3">
                   {info?.thumbnail ? <img src={info.thumbnail} alt="" className="h-9 w-14 rounded bg-black object-contain" /> : null}
                   <div className="min-w-0">
                     <p className="truncate text-[12px] font-semibold">{info?.name ?? 'Clip'}</p>
-                    <p className="text-[10px] text-muted-foreground">{formatTime(clipLength(clip))} on the timeline · clip {index + 1} of {project.clips.length}</p>
+                    <p className="text-[10px] text-muted-foreground">{isOverlay ? `On V${clip.track ?? 2} · starts at ${formatTime(clip.start ?? 0)} · ${formatTime(clipLength(clip))}` : `${formatTime(clipLength(clip))} on the timeline · clip ${index + 1} of ${project.clips.length}`}</p>
                   </div>
                 </div>
                 <Section title="Clip">
@@ -1762,10 +1994,10 @@ function VideoStudio({ projectId, onOpenProject, onNewProject }: { projectId: st
                   <div className="flex gap-1">
                     {FITS.map(fit => <button key={fit.id} type="button" onClick={() => updateClip(clip.id, { fit: fit.id })} className={`h-7 flex-1 rounded text-[10px] ${clip.fit === fit.id ? 'bg-primary text-primary-foreground' : 'bg-white/[0.05] hover:bg-white/[0.1]'}`}>{fit.name}</button>)}
                   </div>
-                  <Slider label="Scale" value={move.scale} min={0.2} max={4} step={0.01} reset={1} onChange={scale => updateTransform(clip, { scale })} format={value => `${Math.round(value * 100)}%`} />
-                  <Slider label="Position X" value={move.x} min={-1} max={1} step={0.005} onChange={x => updateTransform(clip, { x })} format={value => `${Math.round(value * 100)}`} />
-                  <Slider label="Position Y" value={move.y} min={-1} max={1} step={0.005} onChange={y => updateTransform(clip, { y })} format={value => `${Math.round(value * 100)}`} />
-                  <Slider label="Rotate" value={move.rotate} min={-180} max={180} step={1} onChange={rotate => updateTransform(clip, { rotate })} format={value => `${Math.round(value)}°`} />
+                  <Slider label="Scale" value={shown.scale} min={0.05} max={4} step={0.01} reset={1} onChange={scale => updateTransform(clip, { scale })} format={value => `${Math.round(value * 100)}%`} />
+                  <Slider label="Position X" value={shown.x} min={-1} max={1} step={0.005} onChange={x => updateTransform(clip, { x })} format={value => `${Math.round(value * 100)}`} />
+                  <Slider label="Position Y" value={shown.y} min={-1} max={1} step={0.005} onChange={y => updateTransform(clip, { y })} format={value => `${Math.round(value * 100)}`} />
+                  <Slider label="Rotate" value={shown.rotate} min={-180} max={180} step={1} onChange={rotate => updateTransform(clip, { rotate })} format={value => `${Math.round(value)}°`} />
                   <div className="flex gap-1">
                     <Toggle label="Flip horizontally" active={move.flipX} onClick={() => updateTransform(clip, { flipX: !move.flipX })}>⇋ Flip H</Toggle>
                     <Toggle label="Flip vertically" active={move.flipY} onClick={() => updateTransform(clip, { flipY: !move.flipY })}>⇵ Flip V</Toggle>
@@ -1775,7 +2007,21 @@ function VideoStudio({ projectId, onOpenProject, onNewProject }: { projectId: st
                     <span className="w-[72px] shrink-0">Motion</span>
                     <SpydaSelect ariaLabel="Clip motion" value={clip.motion ?? 'none'} onChange={(motion: ClipMotion) => updateClip(clip.id, { motion })} options={CLIP_MOTIONS.map(item => ({ value: item.id, label: item.name }))} className="flex h-7 flex-1 rounded-md bg-white/[0.05] px-2 text-[11px] hover:bg-white/[0.08]" />
                   </div>
+                  <Slider label="Opacity" value={shown.opacity} min={0} max={1} step={0.01} reset={1} onChange={opacity => updateOpacity(clip, opacity)} format={value => `${Math.round(value * 100)}%`} />
                   <p className="text-[9px] leading-3 text-muted-foreground">Tip: with the clip selected, drag it in the preview to move it.</p>
+                </Section>
+                <Section title="Animate (keyframes)" action={frames.length ? <button type="button" onClick={() => updateClip(clip.id, { keyframes: [], transform: { ...move, scale: shown.scale, x: shown.x, y: shown.y, rotate: shown.rotate }, opacity: shown.opacity })} className="text-[10px] text-muted-foreground hover:text-foreground">Clear</button> : null}>
+                  <div className="flex items-center gap-1">
+                    <button type="button" onClick={() => previousKey && seek(startOf + previousKey.at)} disabled={!previousKey} title="Previous keyframe" aria-label="Previous keyframe" className="h-8 w-8 rounded-md bg-white/[0.05] text-[12px] hover:bg-white/[0.1] disabled:opacity-30">‹</button>
+                    <button type="button" onClick={() => (here ? removeKeyframe(clip, here.id) : addKeyframe(clip))} disabled={time < startOf - 0.01 || time > startOf + clipLength(clip) + 0.01} className={`inline-flex h-8 flex-1 items-center justify-center gap-1.5 rounded-md text-[11px] font-semibold disabled:opacity-40 ${here ? 'bg-[#ffe066]/15 text-[#ffe066] ring-1 ring-inset ring-[#ffe066]/40' : 'bg-white/[0.06] hover:bg-white/[0.1]'}`}>
+                      <span className="inline-block h-2.5 w-2.5 rotate-45 rounded-[1px] border border-current" style={{ background: here ? 'currentColor' : 'transparent' }} />
+                      {here ? 'Remove keyframe here' : 'Add keyframe here'}
+                    </button>
+                    <button type="button" onClick={() => nextKey && seek(startOf + nextKey.at)} disabled={!nextKey} title="Next keyframe" aria-label="Next keyframe" className="h-8 w-8 rounded-md bg-white/[0.05] text-[12px] hover:bg-white/[0.1] disabled:opacity-30">›</button>
+                  </div>
+                  <p className="text-[9px] leading-4 text-muted-foreground">{frames.length
+                    ? `${frames.length} ${frames.length === 1 ? 'keyframe' : 'keyframes'}. Move the playhead and change Scale, Position, Rotate or Opacity: Spyda keys it there and moves smoothly between keyframes.`
+                    : 'To animate: put the playhead where the move starts, add a keyframe, then move the playhead and change the size, position, rotation or opacity.'}</p>
                 </Section>
                 <Section title="Colour" action={<button type="button" onClick={() => updateClip(clip.id, { grade: { ...NEUTRAL_GRADE } })} className="text-[10px] text-muted-foreground hover:text-foreground">Reset</button>}>
                   <div className="mb-1.5 grid grid-cols-4 gap-1">
@@ -1791,12 +2037,23 @@ function VideoStudio({ projectId, onOpenProject, onNewProject }: { projectId: st
                   <SpydaSelect ariaLabel="Effect" value={clip.effect} onChange={(effect: EffectId) => updateClip(clip.id, { effect })} options={EFFECTS.map(effect => ({ value: effect.id as EffectId, label: effect.name }))} className="flex h-7 w-full rounded-md bg-white/[0.05] px-2 text-[11px] hover:bg-white/[0.08]" />
                   {clip.effect !== 'none' ? <Slider label="Intensity" value={clip.amount} min={0} max={1} step={0.01} reset={0.7} onChange={amount => updateClip(clip.id, { amount })} format={value => `${Math.round(value * 100)}%`} /> : null}
                 </Section>
-                {index < project.clips.length - 1 ? (
+                {!isOverlay && index < project.clips.length - 1 ? (
                   <Section title="Transition to next">
                     <SpydaSelect ariaLabel="Transition" value={clip.transition.type} onChange={(type: TransitionId) => updateClip(clip.id, current => ({ transition: { type, duration: type === 'cut' ? 0 : current.transition.duration || 0.6 } }))} options={TRANSITIONS.map(transition => ({ value: transition.id as TransitionId, label: transition.name }))} className="flex h-7 w-full rounded-md bg-white/[0.05] px-2 text-[11px] hover:bg-white/[0.08]" />
                     {clip.transition.type !== 'cut' ? <Slider label="Duration" value={clip.transition.duration} min={0.1} max={2.5} step={0.05} reset={0.6} onChange={duration => updateClip(clip.id, current => ({ transition: { ...current.transition, duration } }), `transition:${clip.id}`)} format={value => `${value.toFixed(2)}s`} /> : null}
                   </Section>
                 ) : null}
+                {isOverlay ? (
+                  <Section title="Arrange">
+                    <div className="grid grid-cols-4 gap-1">
+                      <button type="button" onClick={() => updateClip(clip.id, { track: 3 })} disabled={(clip.track ?? 2) === 3} title="Move up to V3 (in front)" className="h-8 rounded bg-white/[0.05] text-[10px] font-semibold hover:bg-white/[0.1] disabled:opacity-30">↑ V3</button>
+                      <button type="button" onClick={() => updateClip(clip.id, { track: 2 })} disabled={(clip.track ?? 2) === 2} title="Move down to V2" className="h-8 rounded bg-white/[0.05] text-[10px] font-semibold hover:bg-white/[0.1] disabled:opacity-30">↓ V2</button>
+                      <button type="button" onClick={duplicateSelected} title="Duplicate (Ctrl+D)" aria-label="Duplicate clip" className="flex h-8 items-center justify-center rounded bg-white/[0.05] hover:bg-white/[0.1]"><Copy className="h-3.5 w-3.5" /></button>
+                      <button type="button" onClick={removeSelected} title="Delete (Del)" aria-label="Delete clip" className="flex h-8 items-center justify-center rounded bg-white/[0.05] hover:bg-red-500/20"><Trash2 className="h-3.5 w-3.5" /></button>
+                    </div>
+                    <Slider label="Starts at" value={clip.start ?? 0} min={0} max={Math.max(1, end)} step={0.05} onChange={start => updateClip(clip.id, { start }, `clip:${clip.id}:start`)} format={formatTime} />
+                  </Section>
+                ) : (
                 <Section title="Arrange">
                   <div className="grid grid-cols-4 gap-1">
                     <button type="button" onClick={() => moveClip(index, index - 1)} disabled={index === 0} title="Move earlier" className="h-8 rounded bg-white/[0.05] text-[11px] hover:bg-white/[0.1] disabled:opacity-30">◀</button>
@@ -1805,6 +2062,7 @@ function VideoStudio({ projectId, onOpenProject, onNewProject }: { projectId: st
                     <button type="button" onClick={removeSelected} title="Delete (Del)" aria-label="Delete clip" className="flex h-8 items-center justify-center rounded bg-white/[0.05] hover:bg-red-500/20"><Trash2 className="h-3.5 w-3.5" /></button>
                   </div>
                 </Section>
+                )}
               </>
             )
           })() : selectedClip && selection?.kind === 'transition' ? (
@@ -1879,8 +2137,13 @@ function VideoStudio({ projectId, onOpenProject, onNewProject }: { projectId: st
             const info = media.find(item => item.id === selectedAudio.mediaId)
             const length = selectedAudio.out - selectedAudio.in
             return (
-              <Section title="Music">
+              <Section title={(selectedAudio.lane ?? 'music') === 'voice' ? 'Voice' : (selectedAudio.lane ?? 'music') === 'sfx' ? 'Sound effect' : 'Music'}>
                 <p className="truncate text-[12px] font-semibold">{info?.name}</p>
+                <div className="grid grid-cols-3 gap-1" role="radiogroup" aria-label="Audio track">
+                  {([['voice', 'Voice'], ['music', 'Music'], ['sfx', 'SFX']] as const).map(([lane, label]) => (
+                    <button key={lane} type="button" role="radio" aria-checked={(selectedAudio.lane ?? 'music') === lane} onClick={() => updateAudio(selectedAudio.id, { lane })} className={`h-7 rounded-md text-[10px] font-semibold ${(selectedAudio.lane ?? 'music') === lane ? 'bg-primary text-primary-foreground' : 'bg-white/[0.05] text-muted-foreground hover:text-foreground'}`}>{label}</button>
+                  ))}
+                </div>
                 <Slider label="Volume" value={selectedAudio.volume} min={0} max={1.5} step={0.01} reset={0.8} onChange={volume => updateAudio(selectedAudio.id, { volume })} format={value => `${Math.round(value * 100)}%`} />
                 <Slider label="Starts at" value={selectedAudio.start} min={0} max={Math.max(1, end)} step={0.05} onChange={start => updateAudio(selectedAudio.id, { start })} format={formatTime} />
                 <Slider label="Trim start" value={selectedAudio.in} min={0} max={Math.max(0, selectedAudio.out - 0.3)} step={0.05} onChange={value => updateAudio(selectedAudio.id, { in: value })} format={formatTime} />
@@ -1888,6 +2151,14 @@ function VideoStudio({ projectId, onOpenProject, onNewProject }: { projectId: st
                 <Slider label="Fade in" value={selectedAudio.fadeIn} min={0} max={Math.min(10, length / 2)} step={0.1} onChange={fadeIn => updateAudio(selectedAudio.id, { fadeIn })} format={value => `${value.toFixed(1)}s`} />
                 <Slider label="Fade out" value={selectedAudio.fadeOut} min={0} max={Math.min(10, length / 2)} step={0.1} onChange={fadeOut => updateAudio(selectedAudio.id, { fadeOut })} format={value => `${value.toFixed(1)}s`} />
                 <button type="button" onClick={() => end > 0 && updateAudio(selectedAudio.id, { start: 0, out: Math.min(info?.duration ?? selectedAudio.out, selectedAudio.in + total), fadeOut: Math.max(selectedAudio.fadeOut, 1.5) })} disabled={!total} className="h-7 w-full rounded-md bg-white/[0.05] text-[10px] font-semibold hover:bg-white/[0.1] disabled:opacity-40">Fit to the video, with a fade out</button>
+                <div className="mt-2 rounded-lg border border-white/[0.07] bg-white/[0.02] p-2">
+                  <label className="flex items-center justify-between gap-2 text-[11px] font-semibold">
+                    Lower music while someone speaks
+                    <input type="checkbox" checked={Boolean(project.duck?.on)} onChange={event => change(current => ({ ...current, duck: { on: event.target.checked, amount: current.duck?.amount ?? 0.6 } }))} className="accent-[#9dfab0]" />
+                  </label>
+                  {project.duck?.on ? <Slider label="Lower by" value={project.duck.amount} min={0.1} max={0.95} step={0.05} reset={0.6} onChange={amount => change(current => ({ ...current, duck: { on: true, amount } }), 'duck')} format={value => `${Math.round(value * 100)}%`} /> : null}
+                  <p className="mt-1 text-[9px] leading-3 text-muted-foreground">Applies to the Music track whenever something plays on the Voice track.</p>
+                </div>
                 <button type="button" onClick={removeSelected} className="mt-1 inline-flex h-8 w-full items-center justify-center gap-1.5 rounded-md bg-white/[0.05] text-[11px] hover:bg-red-500/20"><Trash2 className="h-3.5 w-3.5" /> Remove music</button>
               </Section>
             )
@@ -1896,7 +2167,8 @@ function VideoStudio({ projectId, onOpenProject, onNewProject }: { projectId: st
               <p className="flex items-center gap-2 text-[12px] font-semibold text-foreground"><Wand2 className="h-4 w-4 text-primary" /> Edit like a pro</p>
               <p>Select a clip to trim it, frame and move it, change its speed and sound, grade its colour and give it an effect. Click a ◆ between clips to choose the transition.</p>
               <ul className="space-y-1 text-[10px]">
-                <li><b className="text-foreground">Space</b> play · <b className="text-foreground">S</b> split · <b className="text-foreground">Del</b> delete</li>
+                <li><b className="text-foreground">Space</b> play · <b className="text-foreground">S</b> split · <b className="text-foreground">Del</b> delete · <b className="text-foreground">M</b> marker</li>
+                <li><b className="text-foreground">[</b> <b className="text-foreground">]</b> trim to the playhead · <b className="text-foreground">↑</b> <b className="text-foreground">↓</b> previous / next cut</li>
                 <li><b className="text-foreground">Ctrl+Z</b> undo · <b className="text-foreground">Ctrl+Shift+Z</b> redo · <b className="text-foreground">Ctrl+D</b> duplicate</li>
                 <li><b className="text-foreground">← →</b> one frame · <b className="text-foreground">Shift</b> one second</li>
                 <li><b className="text-foreground">Shift/Ctrl + wheel</b> zoom the timeline · <b className="text-foreground">\</b> fit</li>
@@ -1908,13 +2180,15 @@ function VideoStudio({ projectId, onOpenProject, onNewProject }: { projectId: st
       </div>
 
       {/* Timeline */}
-      <div className={`mac-timeline h-[268px] shrink-0 border-t border-white/[0.06] bg-[#0f1012] ${page === 'edit' ? '' : 'hidden'}`}>
+      <div className={`mac-timeline shrink-0 border-t border-white/[0.06] bg-[#0f1012] ${page === 'edit' || page === 'cut' ? '' : 'hidden'}`} style={{ height: 24 + 78 + 36 * 4 + 40 * overlayLanes.length + 38 }}>
         <div className="flex h-full">
           <div className="shrink-0 border-r border-white/[0.06] pt-6 text-[10px] text-muted-foreground" style={{ width: TRACK_HEAD }}>
-            <p className="flex h-[78px] items-center gap-1.5 px-3"><Clapperboard className="h-3.5 w-3.5" /> Video</p>
-            <p className="flex h-[44px] items-center gap-1.5 px-3"><Type className="h-3.5 w-3.5" /> Titles</p>
-            <p className="flex h-[44px] items-center gap-1.5 px-3">♪ Music</p>
-            <p className="flex h-[44px] items-center gap-1.5 px-3"><Zap className="h-3.5 w-3.5" /> SFX</p>
+            {overlayLanes.map(track => <p key={track} className="flex h-[40px] items-center gap-1.5 px-3" title={`Video track ${track}: drawn on top of the tracks below it`}><Layers className="h-3.5 w-3.5" /> V{track}</p>)}
+            <p className="flex h-[78px] items-center gap-1.5 px-3"><Clapperboard className="h-3.5 w-3.5" /> V1 Video</p>
+            <p className="flex h-[36px] items-center gap-1.5 px-3"><Type className="h-3.5 w-3.5" /> Titles</p>
+            <p className="flex h-[36px] items-center gap-1.5 px-3"><Mic className="h-3.5 w-3.5" /> Voice</p>
+            <p className="flex h-[36px] items-center gap-1.5 px-3">♪ Music</p>
+            <p className="flex h-[36px] items-center gap-1.5 px-3"><Zap className="h-3.5 w-3.5" /> SFX</p>
           </div>
           <div className="flex min-w-0 flex-1 flex-col">
           <div ref={scrollerRef} id="spyda-timeline" onScroll={event => setScrollLeft(event.currentTarget.scrollLeft)} className="relative min-h-0 min-w-0 flex-1 overflow-x-auto overflow-y-hidden overscroll-x-contain">
@@ -1930,6 +2204,20 @@ function VideoStudio({ projectId, onOpenProject, onNewProject }: { projectId: st
                   dragStart(event, dx => seek(at + dx), 'seek')
                 }}
               >
+                {(project.markers ?? []).map(marker => (
+                  <button
+                    key={marker.id}
+                    type="button"
+                    onPointerDown={event => { event.stopPropagation(); seek(marker.t) }}
+                    onContextMenu={event => { event.preventDefault(); removeMarker(marker.id) }}
+                    title={`${marker.label} · ${formatTime(marker.t)} (right-click to remove)`}
+                    aria-label={`Go to ${marker.label}`}
+                    className="absolute top-0 z-10 h-full -translate-x-1/2 px-1"
+                    style={{ left: marker.t * zoom }}
+                  >
+                    <span className="block h-3 w-2.5 rounded-b-sm" style={{ background: marker.color, clipPath: 'polygon(0 0, 100% 0, 100% 70%, 50% 100%, 0 70%)' }} />
+                  </button>
+                ))}
                 {Array.from({ length: Math.floor(timelineWidth / zoom / step) + 1 }, (_, index) => {
                   const second = index * step
                   return (
@@ -1940,6 +2228,47 @@ function VideoStudio({ projectId, onOpenProject, onNewProject }: { projectId: st
                   )
                 })}
               </div>
+
+              {/* Overlay tracks: drawn on top of the main track, highest first. */}
+              {overlayLanes.map(track => {
+                const lane = track === 2 ? 'v2' as const : 'v3' as const
+                const items = overlays.filter(item => (item.clip.track ?? 2) === track)
+                return (
+                  <div
+                    key={track}
+                    className="relative h-[40px] border-b border-white/[0.04]"
+                    onPointerDown={event => { if (event.target === event.currentTarget) setSelection(null) }}
+                    onDragOver={onTrackDragOver(lane)}
+                    onDragLeave={event => { if (event.currentTarget === event.target) setDropMarker(null) }}
+                    onDrop={onTrackDrop(lane)}
+                  >
+                    {!items.length ? <p className="pointer-events-none absolute inset-y-0 left-3 flex items-center text-[10px] text-muted-foreground">Drag video or a picture here to put it on top (picture-in-picture, logos, B-roll)</p> : null}
+                    {items.map(item => {
+                      const info = mediaFor(item.clip)
+                      const selected = selection?.kind === 'clip' && selection.id === item.clip.id
+                      return (
+                        <div
+                          key={item.clip.id}
+                          onPointerDown={event => {
+                            setSelection({ kind: 'clip', id: item.clip.id })
+                            const start = item.start
+                            dragStart(event, dx => updateClip(item.clip.id, { start: snap(Math.max(0, start + dx), item.clip.id) }, `drag:${item.clip.id}`), `drag:${item.clip.id}`)
+                          }}
+                          className={`absolute top-1 h-8 cursor-grab overflow-hidden rounded-md border-2 active:cursor-grabbing ${selected ? 'border-primary' : 'border-[#c9a2ff]/50 hover:border-[#c9a2ff]'}`}
+                          style={{ left: item.start * zoom, width: Math.max(8, item.length * zoom), backgroundImage: info?.thumbnail ? `url(${info.thumbnail})` : undefined, backgroundSize: 'auto 100%', backgroundRepeat: 'repeat-x', backgroundColor: '#1a1530' }}
+                          title={`${info?.name ?? 'Clip'} on V${track}: drag to move, drag the edges to trim`}
+                        >
+                          <span className="absolute inset-x-0 bottom-0 truncate bg-black/65 px-1.5 text-[9px]">{info?.name}</span>
+                          <KeyframeMarks clip={item.clip} zoom={zoom} />
+                          <span onPointerDown={event => trimOverlay(event, item.clip, 'in')} className="absolute inset-y-0 left-0 w-2 cursor-ew-resize hover:bg-primary/60" title="Drag to trim the start" />
+                          <span onPointerDown={event => trimOverlay(event, item.clip, 'out')} className="absolute inset-y-0 right-0 w-2 cursor-ew-resize hover:bg-primary/60" title="Drag to trim the end" />
+                        </div>
+                      )
+                    })}
+                    {dropMarker?.track === lane ? <span className="pointer-events-none absolute inset-y-1 z-20 w-0.5 -translate-x-1/2 rounded bg-[#c9a2ff] shadow-[0_0_10px_#c9a2ff]" style={{ left: dropMarker.x }} /> : null}
+                  </div>
+                )
+              })}
 
               {/* Video track */}
               <div
@@ -1974,6 +2303,7 @@ function VideoStudio({ projectId, onOpenProject, onNewProject }: { projectId: st
                       </span>
                       {item.clip.fadeIn ? <span className="pointer-events-none absolute left-0 top-0 h-full bg-gradient-to-r from-black/60 to-transparent" style={{ width: item.clip.fadeIn * zoom }} /> : null}
                       {item.clip.fadeOut ? <span className="pointer-events-none absolute right-0 top-0 h-full bg-gradient-to-l from-black/60 to-transparent" style={{ width: item.clip.fadeOut * zoom }} /> : null}
+                      <KeyframeMarks clip={item.clip} zoom={zoom} />
                       <span onPointerDown={event => trimClip(event, item.clip, 'in')} className="absolute inset-y-0 left-0 w-2 cursor-ew-resize bg-white/0 hover:bg-primary/60" title="Drag to trim the start" />
                       <span onPointerDown={event => trimClip(event, item.clip, 'out')} className="absolute inset-y-0 right-0 w-2 cursor-ew-resize bg-white/0 hover:bg-primary/60" title="Drag to trim the end" />
                     </div>
@@ -1996,7 +2326,7 @@ function VideoStudio({ projectId, onOpenProject, onNewProject }: { projectId: st
               </div>
 
               {/* Titles */}
-              <div className="relative h-[44px] border-b border-white/[0.04]" onPointerDown={event => { if (event.target === event.currentTarget) setSelection(null) }}>
+              <div className="relative h-[36px] border-b border-white/[0.04]" onPointerDown={event => { if (event.target === event.currentTarget) setSelection(null) }}>
                 {project.titles.map(title => {
                   const selected = selection?.kind === 'title' && selection.id === title.id
                   return (
@@ -2007,7 +2337,7 @@ function VideoStudio({ projectId, onOpenProject, onNewProject }: { projectId: st
                         const start = title.start
                         dragStart(event, dx => updateTitle(title.id, { start: snap(Math.max(0, start + dx), title.id) }, `drag:${title.id}`), `drag:${title.id}`)
                       }}
-                      className={`absolute top-2 flex h-7 cursor-grab items-center truncate rounded-md border px-2 text-[10px] font-medium ${selected ? 'border-primary bg-primary/25' : 'border-[#c4a3ff]/40 bg-[#c4a3ff]/15'}`}
+                      className={`absolute top-1 flex h-7 cursor-grab items-center truncate rounded-md border px-2 text-[10px] font-medium ${selected ? 'border-primary bg-primary/25' : 'border-[#c4a3ff]/40 bg-[#c4a3ff]/15'}`}
                       style={{ left: title.start * zoom, width: Math.max(16, title.duration * zoom) }}
                     >
                       {title.text.split('\n')[0]}
@@ -2017,19 +2347,19 @@ function VideoStudio({ projectId, onOpenProject, onNewProject }: { projectId: st
                 })}
               </div>
 
-              {(['music', 'sfx'] as const).map(lane => {
+              {(['voice', 'music', 'sfx'] as const).map(lane => {
                 const items = project.audio.filter(track => (track.lane ?? 'music') === lane)
-                const tint = lane === 'music' ? 'border-[#ffb36b]/40 bg-[#ffb36b]/15' : 'border-[#7cc7ff]/45 bg-[#7cc7ff]/15'
+                const tint = lane === 'music' ? 'border-[#ffb36b]/40 bg-[#ffb36b]/15' : lane === 'voice' ? 'border-[#ff8fa3]/45 bg-[#ff8fa3]/15' : 'border-[#7cc7ff]/45 bg-[#7cc7ff]/15'
                 return (
                   <div
                     key={lane}
-                    className="relative h-[44px]"
+                    className="relative h-[36px]"
                     onPointerDown={event => { if (event.target === event.currentTarget) setSelection(null) }}
                     onDragOver={onTrackDragOver(lane)}
                     onDragLeave={event => { if (event.currentTarget === event.target) setDropMarker(null) }}
                     onDrop={onTrackDrop(lane)}
                   >
-                    {!items.length ? <p className="pointer-events-none absolute inset-y-0 left-3 flex items-center text-[10px] text-muted-foreground">{lane === 'music' ? 'Drag music here' : 'Drag sound effects here'}</p> : null}
+                    {!items.length ? <p className="pointer-events-none absolute inset-y-0 left-3 flex items-center text-[10px] text-muted-foreground">{lane === 'music' ? 'Drag music here' : lane === 'voice' ? 'Drag a voice-over here: music gets quieter under it' : 'Drag sound effects here'}</p> : null}
                     {items.map(track => {
                       const info = media.find(item => item.id === track.mediaId)
                       const selected = selection?.kind === 'audio' && selection.id === track.id
@@ -2041,17 +2371,17 @@ function VideoStudio({ projectId, onOpenProject, onNewProject }: { projectId: st
                             const start = track.start
                             dragStart(event, dx => updateAudio(track.id, { start: snap(Math.max(0, start + dx), track.id) }, `drag:${track.id}`), `drag:${track.id}`)
                           }}
-                          className={`absolute top-2 flex h-7 cursor-grab items-center truncate rounded-md border px-2 text-[10px] ${selected ? 'border-primary bg-primary/25' : tint}`}
+                          className={`absolute top-1 flex h-7 cursor-grab items-center truncate rounded-md border px-2 text-[10px] ${selected ? 'border-primary bg-primary/25' : tint}`}
                           style={{ left: track.start * zoom, width: Math.max(16, (track.out - track.in) * zoom) }}
                           title={`${info?.name ?? 'Audio'} · select it and press S to split at the playhead`}
                         >
-                          {lane === 'music' ? '♪' : '⚡'} {info?.name}
+                          {lane === 'music' ? '♪' : lane === 'voice' ? '🎙' : '⚡'} {info?.name}
                           <span onPointerDown={event => trimAudio(event, track, 'in')} className="absolute inset-y-0 left-0 w-2 cursor-ew-resize hover:bg-primary/60" title="Drag to trim the start" />
                           <span onPointerDown={event => trimAudio(event, track, 'out')} className="absolute inset-y-0 right-0 w-2 cursor-ew-resize hover:bg-primary/60" title="Drag to trim the end" />
                         </div>
                       )
                     })}
-                    {dropMarker?.track === lane ? <span className="pointer-events-none absolute inset-y-1 z-20 w-0.5 -translate-x-1/2 rounded shadow-[0_0_10px_currentColor]" style={{ left: dropMarker.x, background: lane === 'music' ? '#ffb36b' : '#7cc7ff', color: lane === 'music' ? '#ffb36b' : '#7cc7ff' }} /> : null}
+                    {dropMarker?.track === lane ? <span className="pointer-events-none absolute inset-y-1 z-20 w-0.5 -translate-x-1/2 rounded shadow-[0_0_10px_currentColor]" style={{ left: dropMarker.x, background: lane === 'music' ? '#ffb36b' : lane === 'voice' ? '#ff8fa3' : '#7cc7ff', color: lane === 'music' ? '#ffb36b' : lane === 'voice' ? '#ff8fa3' : '#7cc7ff' }} /> : null}
                   </div>
                 )
               })}
