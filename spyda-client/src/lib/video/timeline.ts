@@ -54,6 +54,11 @@ export type Clip = {
   color?: ClipColor
   /** How an overlay clip mixes with what is under it (the Mixer page). */
   mix?: ClipMix
+  /** Overlay clips: rounded corners, a border and a drop shadow (picture-in-picture). */
+  style?: ClipStyle
+  /** Overlay clips: how they arrive and leave. */
+  enter?: ClipMove
+  exit?: ClipMove
   /** Animation: the clip's position, size, rotation and opacity at moments of its own time. */
   keyframes?: Keyframe[]
   /** Overlay clips only: the video track above the main one (2 = V2) and where it starts. */
@@ -66,6 +71,81 @@ export type ClipKey = { on: boolean; color: string; tolerance: number; softness:
 /** Show the clip only inside (or outside) a shape; position and size are fractions of the frame. */
 export type ClipMask = { shape: 'none' | 'rect' | 'ellipse'; x: number; y: number; width: number; height: number; feather: number; invert: boolean }
 export type ClipMix = { blend: BlendMode; key: ClipKey; mask: ClipMask }
+
+/** Radius as a share of the clip's height; border width likewise; shadow offset and softness likewise. */
+export type ClipStyle = { radius: number; border: number; borderColor: string; shadow: number; shadowSoftness: number; shadowX: number; shadowY: number }
+export const DEFAULT_STYLE: ClipStyle = { radius: 0, border: 0, borderColor: '#ffffff', shadow: 0, shadowSoftness: 0.08, shadowX: 0.02, shadowY: 0.03 }
+export function withStyle(style?: Partial<ClipStyle> | null): ClipStyle { return { ...DEFAULT_STYLE, ...style } }
+
+export const CLIP_MOVES = [
+  { id: 'none', name: 'None' },
+  { id: 'fade', name: 'Fade' },
+  { id: 'slide-left', name: 'Slide from left' },
+  { id: 'slide-right', name: 'Slide from right' },
+  { id: 'slide-up', name: 'Slide from below' },
+  { id: 'slide-down', name: 'Slide from above' },
+  { id: 'zoom', name: 'Zoom' },
+  { id: 'pop', name: 'Pop' },
+  { id: 'spin', name: 'Spin' },
+] as const
+export type ClipMoveType = (typeof CLIP_MOVES)[number]['id']
+export type ClipMove = { type: ClipMoveType; duration: number }
+
+/**
+ * An overlay's entrance and exit at `local` seconds into it: an offset (frame
+ * fractions), a size multiplier, a turn (degrees) and an opacity multiplier.
+ */
+export function clipMoveAt(clip: Clip, local: number, length: number) {
+  const out = { dx: 0, dy: 0, scale: 1, rotate: 0, opacity: 1 }
+  const apply = (move: ClipMove | undefined, progress: number, leaving: boolean) => {
+    if (!move || move.type === 'none' || progress >= 1) return
+    const p = Math.max(0, progress)
+    const ease = 1 - (1 - p) ** 3
+    const away = 1 - ease
+    const sign = leaving ? -1 : 1
+    switch (move.type) {
+      case 'fade': out.opacity *= ease; break
+      case 'slide-left': out.dx += -1.1 * away * sign; out.opacity *= Math.min(1, ease * 3); break
+      case 'slide-right': out.dx += 1.1 * away * sign; out.opacity *= Math.min(1, ease * 3); break
+      case 'slide-up': out.dy += 1.1 * away * sign; out.opacity *= Math.min(1, ease * 3); break
+      case 'slide-down': out.dy += -1.1 * away * sign; out.opacity *= Math.min(1, ease * 3); break
+      case 'zoom': out.scale *= 0.3 + 0.7 * ease; out.opacity *= ease; break
+      case 'pop': { const back = p >= 1 ? 1 : 1 + 2.7 * (p - 1) ** 3 + 1.7 * (p - 1) ** 2; out.scale *= Math.max(0.01, back); out.opacity *= Math.min(1, p * 4); break }
+      case 'spin': out.rotate += away * 180 * sign; out.scale *= 0.4 + 0.6 * ease; out.opacity *= ease; break
+    }
+  }
+  if (clip.enter) apply(clip.enter, local / Math.max(0.05, clip.enter.duration), false)
+  if (clip.exit) apply(clip.exit, (length - local) / Math.max(0.05, clip.exit.duration), true)
+  return out
+}
+
+/** Sound page: each audio track's channel, and the master. */
+export type SoundLane = 'video' | 'voice' | 'music' | 'sfx'
+export type Channel = { volume: number; pan: number; mute: boolean; solo: boolean; enhance: boolean }
+export type SoundMix = { lanes: Record<SoundLane, Channel>; master: number; limiter: boolean }
+export const DEFAULT_CHANNEL: Channel = { volume: 1, pan: 0, mute: false, solo: false, enhance: false }
+export function withSound(sound?: Partial<SoundMix> | null): SoundMix {
+  const lane = (id: SoundLane) => ({ ...DEFAULT_CHANNEL, ...sound?.lanes?.[id] })
+  return { lanes: { video: lane('video'), voice: lane('voice'), music: lane('music'), sfx: lane('sfx') }, master: sound?.master ?? 1, limiter: sound?.limiter ?? true }
+}
+/** A channel's gain once mute and solo are taken into account. */
+export function channelGain(sound: SoundMix, lane: SoundLane) {
+  const anySolo = (Object.values(sound.lanes) as Channel[]).some(channel => channel.solo)
+  const channel = sound.lanes[lane]
+  if (channel.mute || (anySolo && !channel.solo)) return 0
+  return channel.volume
+}
+
+/** Volume sliders: the first half of the track is 0..100%, the second half 100%..1000%. */
+export const MAX_VOLUME = 10
+export function volumeFromSlider(position: number) {
+  const p = Math.max(0, Math.min(1, position))
+  return p <= 0.5 ? p * 2 : 1 + (p - 0.5) * 2 * (MAX_VOLUME - 1)
+}
+export function sliderFromVolume(volume: number) {
+  const v = Math.max(0, Math.min(MAX_VOLUME, volume))
+  return v <= 1 ? v / 2 : 0.5 + (v - 1) / ((MAX_VOLUME - 1) * 2)
+}
 
 export const DEFAULT_KEY: ClipKey = { on: false, color: '#00b140', tolerance: 0.1, softness: 0.08, spill: 0.6 }
 export const DEFAULT_MASK: ClipMask = { shape: 'none', x: 0.5, y: 0.5, width: 0.6, height: 0.6, feather: 0.08, invert: false }
@@ -172,6 +252,8 @@ export type VideoProject = {
   markers?: Marker[]
   /** Music is lowered by `amount` (0..1) while anything plays on the voice track. */
   duck?: { on: boolean; amount: number }
+  /** The Sound page's channels. */
+  sound?: SoundMix
 }
 
 export const FORMATS = [

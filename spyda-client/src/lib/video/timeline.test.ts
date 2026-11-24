@@ -101,3 +101,36 @@ describe('mixing', () => {
     expect(mix.mask.shape).toBe('none')
   })
 })
+
+import { MAX_VOLUME, channelGain, clipMoveAt, sliderFromVolume, volumeFromSlider, withSound } from './timeline'
+
+describe('very loud volume', () => {
+  it('the first half of the slider is 0..100%, the second half goes to 1000%', () => {
+    expect(volumeFromSlider(0)).toBe(0)
+    expect(volumeFromSlider(0.5)).toBe(1)
+    expect(volumeFromSlider(1)).toBe(MAX_VOLUME)
+    for (const volume of [0, 0.3, 1, 2.5, 7, 10]) expect(volumeFromSlider(sliderFromVolume(volume))).toBeCloseTo(volume)
+  })
+  it('mute and solo decide which tracks are heard', () => {
+    const sound = withSound({ lanes: { video: { volume: 2, pan: 0, mute: false, solo: false, enhance: false } } as never })
+    expect(channelGain(sound, 'video')).toBe(2)
+    const solo = withSound({ lanes: { ...sound.lanes, voice: { ...sound.lanes.voice, solo: true } } })
+    expect(channelGain(solo, 'voice')).toBe(1)
+    expect(channelGain(solo, 'music')).toBe(0)
+    const muted = withSound({ lanes: { ...sound.lanes, music: { ...sound.lanes.music, mute: true } } })
+    expect(channelGain(muted, 'music')).toBe(0)
+  })
+})
+
+describe('overlay entrances and exits', () => {
+  const clip = { ...base, enter: { type: 'slide-left', duration: 1 }, exit: { type: 'fade', duration: 1 } } as Clip
+  it('starts off to the left and arrives in place', () => {
+    expect(clipMoveAt(clip, 0, 6).dx).toBeLessThan(-1)
+    expect(clipMoveAt(clip, 1.5, 6)).toMatchObject({ dx: 0, opacity: 1 })
+  })
+  it('fades out over its last second', () => {
+    expect(clipMoveAt(clip, 5.5, 6).opacity).toBeGreaterThan(0)
+    expect(clipMoveAt(clip, 5.5, 6).opacity).toBeLessThan(1)
+    expect(clipMoveAt(clip, 6, 6).opacity).toBeCloseTo(0)
+  })
+})

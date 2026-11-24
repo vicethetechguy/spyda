@@ -1,4 +1,4 @@
-import { Clapperboard, Download, Image as ImageIcon, Library, Palette, Scissors, Sparkles, type LucideIcon } from '../ui/icons'
+import { Clapperboard, Download, Image as ImageIcon, Library, MusicNote, Palette, Scissors, Sparkles, type LucideIcon } from '../ui/icons'
 import type { StudioPage } from '../../lib/video/studio-pages'
 
 /**
@@ -9,12 +9,13 @@ import type { StudioPage } from '../../lib/video/studio-pages'
 
 const PAGES: Array<{ id: StudioPage; label: string; icon: LucideIcon; key: string; soon?: string; hint: string }> = [
   { id: 'media', label: 'Media', icon: Library, key: '1', hint: 'Bring in and organise your files' },
-  { id: 'photo', label: 'Photo', icon: ImageIcon, key: '2', hint: 'Make a still or graphic in the canvas, then Send to video' },
+  { id: 'photo', label: 'Photo', icon: ImageIcon, key: '2', hint: 'Edit your photos: adjust, filters, crop, text, elements, background' },
   { id: 'cut', label: 'Cut', icon: Scissors, key: '3', hint: 'Rough cut, fast: add to end, insert, on top, trim to the playhead' },
   { id: 'edit', label: 'Edit', icon: Clapperboard, key: '4', hint: 'The timeline: clips, titles, music and effects' },
   { id: 'color', label: 'Color', icon: Palette, key: '5', hint: 'Make it look right: wheels, curves, scopes, before and after' },
   { id: 'mixer', label: 'Mixer', icon: Sparkles, key: '6', hint: 'Mix layers: green screen, masks, blend modes, animation' },
-  { id: 'export', label: 'Export', icon: Download, key: '7', hint: 'Presets for every platform, then download' },
+  { id: 'sound', label: 'Sound', icon: MusicNote, key: '7', hint: 'All your audio: tracks, a mixer with faders and meters, voice clean-up' },
+  { id: 'export', label: 'Export', icon: Download, key: '8', hint: 'Presets for every platform, then download' },
 ]
 
 export default function PageBar({ page, onChange }: { page: StudioPage; onChange: (page: StudioPage) => void }) {

@@ -14,7 +14,7 @@ import {
 import {
   CLIP_MOTIONS, FORMATS, TITLE_DEFAULTS, activeAt, audioFade, clipLength, clipOpacity, clipTransformAt, formatFor, formatTime, layout, makeClip, makeTitle,
   newId, sourceTime, splitAt, titleFrame,
-  DEFAULT_KEY, DEFAULT_MASK, MARKER_COLORS, OVERLAY_TRACKS, hexToRgb, withMix, type ClipKey, type ClipMask, duckingAt, keyframeValues, placeOverlays, splitAudioAt, type AudioTrackItem, type Clip, type Keyframe, type ClipMotion, type MediaItem, type Placed, type Title, type TitleAnimation, type VideoProject,
+  CLIP_MOVES, DEFAULT_KEY, DEFAULT_MASK, DEFAULT_STYLE, MARKER_COLORS, channelGain, clipMoveAt, withSound, withStyle, type ClipMoveType, type ClipStyle, type SoundLane, type SoundMix, OVERLAY_TRACKS, hexToRgb, withMix, type ClipKey, type ClipMask, duckingAt, keyframeValues, placeOverlays, splitAudioAt, type AudioTrackItem, type Clip, type Keyframe, type ClipMotion, type MediaItem, type Placed, type Title, type TitleAnimation, type VideoProject,
 } from '../lib/video/timeline'
 import { BUNDLED_FAMILIES, loadFontPreviews, previewFamily } from '../lib/fonts'
 import { renderSoundEffects } from '../lib/video/sound-effects'
@@ -26,6 +26,9 @@ import PageBar from '../components/video/PageBar'
 import { PAGE_KEYS, type StudioPage } from '../lib/video/studio-pages'
 import MediaPage from '../components/video/MediaPage'
 import ExportPage, { type ExportRecord, type ExportRequest } from '../components/video/ExportPage'
+import SoundPage from '../components/video/SoundPage'
+import PhotoPage from '../components/video/PhotoPage'
+import VolumeSlider from '../components/video/VolumeSlider'
 import {
   VIDEO_PROJECTS_EVENT, blankVideoProject, currentVideoProjectId, deleteVideoProject, forgetMediaFile, listVideoProjects,
   loadMediaFile, readVideoProject, saveVideoProject, setCurrentVideoProject, storeMediaFile, type SavedVideoProject,
@@ -68,6 +71,21 @@ function TransportGlyph({ name }: { name: 'start' | 'back' | 'forward' | 'end' }
 function colourOf(color: ClipColor): Pick<ClipLayer, 'wheels' | 'curve'> {
   const full = withColor(color)
   return { wheels: wheelsAreNeutral(full) ? null : wheelUniforms(full), curve: curvesAreNeutral(full.curves) ? null : curveLut(full.curves) }
+}
+
+/** Where a clip is and how visible, with an overlay's entrance and exit on top. */
+function movedLayer(item: Placed, t: number): Pick<ClipLayer, 'transform' | 'opacity'> {
+  const transform = clipTransformAt(item, t)
+  const opacity = clipOpacity(item, t)
+  if (!item.clip.track || (!item.clip.enter && !item.clip.exit)) return { transform, opacity }
+  const move = clipMoveAt(item.clip, t - item.start, item.length)
+  return { transform: { ...transform, x: transform.x + move.dx, y: transform.y + move.dy, scale: transform.scale * move.scale, rotate: transform.rotate + move.rotate }, opacity: opacity * move.opacity }
+}
+
+/** The renderer's inputs for an overlay's corners, border and shadow. */
+function styleOf(style: Partial<ClipStyle>): NonNullable<ClipLayer['style']> {
+  const full = withStyle(style)
+  return { radius: full.radius, border: full.border, borderColor: hexToRgb(full.borderColor), shadow: full.shadow, shadowSoftness: full.shadowSoftness, shadowX: full.shadowX, shadowY: full.shadowY }
 }
 
 /** Designs already added from the canvas (the effect can run twice in development). */
@@ -487,7 +505,8 @@ function VideoStudio({ projectId, onOpenProject, onNewProject }: { projectId: st
   const renderer = useRef<VideoRenderer | null>(null)
   const elements = useRef(new Map<string, HTMLVideoElement | HTMLImageElement>())
   const musicElements = useRef(new Map<string, HTMLAudioElement>())
-  const audio = useRef<{ context: AudioContext; recorder: MediaStreamAudioDestinationNode; gains: Map<HTMLMediaElement, GainNode> } | null>(null)
+  type Bus = { input: GainNode; highpass: BiquadFilterNode; presence: BiquadFilterNode; leveller: DynamicsCompressorNode; pan: StereoPannerNode; meter: AnalyserNode }
+  const audio = useRef<{ context: AudioContext; recorder: MediaStreamAudioDestinationNode; gains: Map<HTMLMediaElement, GainNode>; lanes: Map<HTMLMediaElement, SoundLane>; buses: Record<SoundLane, Bus>; master: GainNode; limiter: DynamicsCompressorNode; meter: AnalyserNode } | null>(null)
   const fileRef = useRef<HTMLInputElement | null>(null)
   const scrollerRef = useRef<HTMLDivElement | null>(null)
   const lastSeek = useRef(new WeakMap<HTMLMediaElement, number>())
@@ -668,10 +687,55 @@ function VideoStudio({ projectId, onOpenProject, onNewProject }: { projectId: st
   }, [mediaFor])
 
   /** Sound goes through WebAudio, so the export can record it as well as play it. */
-  const route = useCallback((element: HTMLMediaElement, volume: number) => {
+  /** Applies the Sound page's channels: each track's fader, pan, mute/solo and voice clean-up, the master and its limiter. */
+  const applySound = useCallback((sound: SoundMix) => {
+    const graph = audio.current
+    if (!graph) return
+    const now = graph.context.currentTime
+    for (const lane of ['video', 'voice', 'music', 'sfx'] as const) {
+      const bus = graph.buses[lane]
+      const channel = sound.lanes[lane]
+      bus.input.gain.setTargetAtTime(channelGain(sound, lane), now, 0.02)
+      bus.pan.pan.setTargetAtTime(channel.pan, now, 0.02)
+      // Clean up voice: cut rumble, lift clarity, even out loud and quiet words.
+      bus.highpass.frequency.setTargetAtTime(channel.enhance ? 90 : 10, now, 0.02)
+      bus.presence.gain.setTargetAtTime(channel.enhance ? 4 : 0, now, 0.02)
+      bus.leveller.ratio.setTargetAtTime(channel.enhance ? 3.5 : 1, now, 0.02)
+      bus.leveller.threshold.setTargetAtTime(channel.enhance ? -24 : 0, now, 0.02)
+    }
+    graph.master.gain.setTargetAtTime(sound.master, now, 0.02)
+    // The limiter keeps very loud boosts from crackling: peaks are held just under full scale.
+    graph.limiter.threshold.setTargetAtTime(sound.limiter ? -1.5 : 0, now, 0.02)
+    graph.limiter.ratio.setTargetAtTime(sound.limiter ? 20 : 1, now, 0.02)
+  }, [])
+
+  const route = useCallback((element: HTMLMediaElement, volume: number, lane: SoundLane = 'video') => {
     if (!audio.current) {
       const context = new AudioContext()
-      audio.current = { context, recorder: context.createMediaStreamDestination(), gains: new Map() }
+      const recorder = context.createMediaStreamDestination()
+      const master = context.createGain()
+      const limiter = context.createDynamicsCompressor()
+      limiter.knee.value = 0
+      limiter.attack.value = 0.002
+      limiter.release.value = 0.12
+      const meter = context.createAnalyser()
+      meter.fftSize = 1024
+      master.connect(limiter)
+      limiter.connect(context.destination)
+      limiter.connect(recorder)
+      limiter.connect(meter)
+      const bus = (): Bus => {
+        const input = context.createGain()
+        const highpass = context.createBiquadFilter(); highpass.type = 'highpass'; highpass.frequency.value = 10
+        const presence = context.createBiquadFilter(); presence.type = 'peaking'; presence.frequency.value = 3200; presence.Q.value = 0.9; presence.gain.value = 0
+        const leveller = context.createDynamicsCompressor(); leveller.ratio.value = 1; leveller.threshold.value = 0; leveller.attack.value = 0.01; leveller.release.value = 0.2
+        const pan = context.createStereoPanner()
+        const busMeter = context.createAnalyser(); busMeter.fftSize = 1024
+        input.connect(highpass); highpass.connect(presence); presence.connect(leveller); leveller.connect(pan); pan.connect(master); pan.connect(busMeter)
+        return { input, highpass, presence, leveller, pan, meter: busMeter }
+      }
+      audio.current = { context, recorder, gains: new Map(), lanes: new Map(), buses: { video: bus(), voice: bus(), music: bus(), sfx: bus() }, master, limiter, meter }
+      applySound(withSound(projectRef.current.sound))
     }
     const graph = audio.current
     let gain = graph.gains.get(element)
@@ -679,12 +743,32 @@ function VideoStudio({ projectId, onOpenProject, onNewProject }: { projectId: st
       const source = graph.context.createMediaElementSource(element)
       gain = graph.context.createGain()
       source.connect(gain)
-      gain.connect(graph.context.destination)
-      gain.connect(graph.recorder)
       graph.gains.set(element, gain)
+    }
+    if (graph.lanes.get(element) !== lane) {
+      gain.disconnect()
+      gain.connect(graph.buses[lane].input)
+      graph.lanes.set(element, lane)
     }
     gain.gain.value = volume
     if (graph.context.state === 'suspended') void graph.context.resume()
+  }, [applySound])
+
+  // The Sound page's channels follow the project (undo included).
+  useEffect(() => { applySound(withSound(project.sound)) }, [applySound, project.sound])
+
+  /** Loudness of each track and of the master, 0..1, for the Sound page's meters. */
+  const levels = useCallback(() => {
+    const graph = audio.current
+    const read = (analyser?: AnalyserNode) => {
+      if (!analyser) return 0
+      const data = new Float32Array(analyser.fftSize)
+      analyser.getFloatTimeDomainData(data)
+      let peak = 0
+      for (const value of data) peak = Math.max(peak, Math.abs(value))
+      return peak
+    }
+    return { video: read(graph?.buses.video.meter), voice: read(graph?.buses.voice.meter), music: read(graph?.buses.music.meter), sfx: read(graph?.buses.sfx.meter), master: read(graph?.meter) }
   }, [])
 
   /* ── drawing a frame ─────────────────────────────────────────────── */
@@ -709,10 +793,10 @@ function VideoStudio({ projectId, onOpenProject, onNewProject }: { projectId: st
         effect: item.clip.effect,
         amount: item.clip.amount,
         time: t - item.start,
-        transform: clipTransformAt(item, t),
-        opacity: clipOpacity(item, t),
+        ...movedLayer(item, t),
         ...(before || !item.clip.color ? {} : colourOf(item.clip.color)),
         ...(item.clip.mix ? mixOf(item.clip.mix) : {}),
+        ...(item.clip.track && item.clip.style ? { style: styleOf(item.clip.style) } : {}),
       }
     }
     const la = a ? layerOf(a) : null
@@ -789,7 +873,7 @@ function VideoStudio({ projectId, onOpenProject, onNewProject }: { projectId: st
       const local = t - track.start
       const on = local >= 0 && local < track.out - track.in
       if (!on) { if (!element.paused) element.pause(); continue }
-      route(element, track.volume * audioFade(track, local) * ((track.lane ?? 'music') === 'music' ? duckingAt(projectRef.current, t) : 1))
+      route(element, track.volume * audioFade(track, local) * ((track.lane ?? 'music') === 'music' ? duckingAt(projectRef.current, t) : 1), track.lane ?? 'music')
       const target = track.in + local
       if (play) {
         if (Math.abs(element.currentTime - target) > 0.3) element.currentTime = target
@@ -1073,6 +1157,15 @@ function VideoStudio({ projectId, onOpenProject, onNewProject }: { projectId: st
     } finally {
       setImporting(false)
     }
+  }
+
+  /** A new file (an edited photo) into the media library, kept on this device. */
+  const addMediaFile = async (file: File) => {
+    const item = { ...(await readMedia(file)), size: file.size, addedAt: new Date().toISOString() }
+    await storeMediaFile(item.id, file).catch(() => setNotice('This device is out of space: the photo is in the edit but will not be there after a refresh.'))
+    mediaRef.current = [...mediaRef.current, item]
+    setMedia(mediaRef.current)
+    return item
   }
 
   const removeSelected = () => {
@@ -1379,14 +1472,7 @@ function VideoStudio({ projectId, onOpenProject, onNewProject }: { projectId: st
       const target = mainAt(time) ?? placed[0]
       if (target) setSelection({ kind: 'clip', id: target.clip.id })
     }
-    if (next === 'photo') {
-      saveVideoProject(snapshotRef.current())
-      let back = '/editor/new'
-      try { back = window.sessionStorage.getItem('spyda.lastCanvas') || back } catch { /* storage off */ }
-      navigate(back)
-      return
-    }
-    if (next !== 'edit' && playing) stop()
+    if (next !== 'edit' && next !== 'sound' && playing) stop()
     if (next === 'export') {
       const output = outputRef.current
       try { if (output && placed.length) setCover(output.toDataURL('image/jpeg', 0.7)) } catch { /* the frame stays the last one */ }
@@ -1402,7 +1488,7 @@ function VideoStudio({ projectId, onOpenProject, onNewProject }: { projectId: st
     const length = to - from
     const fileBase = request.name.replace(/[^a-z0-9]+/gi, '-').replace(/^-|-$/g, '').toLowerCase() || `spyda-video-${format.id}`
     if (typeof MediaRecorder === 'undefined') { setNotice('This browser cannot record video. Try Chrome or Edge.'); return }
-    const type = ['video/mp4;codecs=avc1.42E01E,mp4a.40.2', 'video/mp4', 'video/webm;codecs=vp9,opus', 'video/webm'].find(candidate => MediaRecorder.isTypeSupported(candidate))
+    const type = ['video/mp4;codecs=avc1.640028,mp4a.40.2', 'video/mp4;codecs=avc1.4D0028,mp4a.40.2', 'video/mp4;codecs=avc1.42E01E,mp4a.40.2', 'video/mp4', 'video/webm;codecs=vp9,opus', 'video/webm'].find(candidate => MediaRecorder.isTypeSupported(candidate))
     if (!type) { setNotice('This browser cannot record video.'); return }
     // The download card records the edit, compresses it when asked, then charges for it.
     const saved = await download({
@@ -1470,9 +1556,9 @@ function VideoStudio({ projectId, onOpenProject, onNewProject }: { projectId: st
         if (next) { event.preventDefault(); goToPage(next) }
         return
       }
-      if (page !== 'edit' && page !== 'cut' && page !== 'color' && page !== 'mixer') return
-      // The Color and Mixer pages only play and move the playhead.
-      if ((page === 'color' || page === 'mixer') && !['Space', 'ArrowLeft', 'ArrowRight', 'Home', 'End'].includes(event.code)) return
+      if (page !== 'edit' && page !== 'cut' && page !== 'color' && page !== 'mixer' && page !== 'sound') return
+      // The Color, Mixer and Sound pages only play and move the playhead.
+      if ((page === 'color' || page === 'mixer' || page === 'sound') && !['Space', 'ArrowLeft', 'ArrowRight', 'Home', 'End'].includes(event.code)) return
       const mod = event.metaKey || event.ctrlKey
       const key = event.key.toLowerCase()
       if (mod && key === 'z') { event.preventDefault(); if (event.shiftKey) redo(); else undo(); return }
@@ -1792,6 +1878,39 @@ function VideoStudio({ projectId, onOpenProject, onNewProject }: { projectId: st
           onDeleteProject={id => { void deleteVideoProject(id).then(() => setProjects(listVideoProjects())) }}
         />
       ) : null}
+      {page === 'photo' ? (
+        <PhotoPage
+          photos={media.filter(item => item.kind === 'image' && !item.sfx)}
+          onImport={() => fileRef.current?.click()}
+          onSave={async (file, to) => {
+            const item = await addMediaFile(file)
+            if (to === 'end') placeMedia(item, { index: projectRef.current.clips.length })
+            if (to === 'top') placeOnTop(item)
+          }}
+        />
+      ) : null}
+      {page === 'sound' ? (
+        <SoundPage
+          media={media}
+          audio={project.audio}
+          videoClipsWithSound={[...project.clips, ...(project.overlays ?? [])].filter(clip => mediaFor(clip)?.kind === 'video' && !clip.muted).length}
+          sound={withSound(project.sound)}
+          onSound={(next, key) => change(current => ({ ...current, sound: next }), key)}
+          duck={project.duck ?? { on: false, amount: 0.6 }}
+          onDuck={next => change(current => ({ ...current, duck: next }), 'duck')}
+          time={time}
+          end={end}
+          playing={playing}
+          onPlay={play}
+          onStop={stop}
+          onSeek={seek}
+          levels={levels}
+          onAdd={(item, lane) => placeMedia(item, { at: time, lane })}
+          onUpdate={(id, patch, key) => updateAudio(id, patch, key)}
+          onRemove={id => { musicElements.current.get(id)?.pause(); change(current => ({ ...current, audio: current.audio.filter(item => item.id !== id) })) }}
+          onImport={() => fileRef.current?.click()}
+        />
+      ) : null}
       {page === 'export' ? (
         <ExportPage
           projectName={projectName}
@@ -1902,9 +2021,9 @@ function VideoStudio({ projectId, onOpenProject, onNewProject }: { projectId: st
               <p className="text-[12px] font-semibold">Source</p>
               <button type="button" onClick={() => fileRef.current?.click()} className="inline-flex h-7 items-center gap-1 rounded-md bg-white/[0.06] px-2 text-[10px] font-semibold hover:bg-white/[0.1]"><Upload className="h-3 w-3" /> Import</button>
             </div>
-            <p className="mb-3 text-[10px] leading-4 text-muted-foreground">Build the rough cut fast: pick a shot and say where it goes. Fine-tune on the Edit page.</p>
+            <p className="mb-3 text-[10px] leading-4 text-muted-foreground">Your videos. Build the rough cut fast: pick a shot and say where it goes. Fine-tune on the Edit page.</p>
             <div className="space-y-2">
-              {media.filter(item => !item.sfx).map(item => (
+              {media.filter(item => !item.sfx && item.kind === 'video').map(item => (
                 <div key={item.id} className="overflow-hidden rounded-xl border border-white/[0.08] bg-black/30">
                   <div className="flex items-center gap-2 p-1.5">
                     {item.thumbnail ? <img src={item.thumbnail} alt="" className="h-12 w-20 shrink-0 rounded-md bg-black object-contain" /> : <span className="flex h-12 w-20 shrink-0 items-center justify-center rounded-md bg-white/[0.04] text-[16px]">♪</span>}
@@ -1927,7 +2046,7 @@ function VideoStudio({ projectId, onOpenProject, onNewProject }: { projectId: st
                   )}
                 </div>
               ))}
-              {!media.some(item => !item.sfx) ? <button type="button" onClick={() => fileRef.current?.click()} className="w-full rounded-xl border border-dashed border-white/[0.14] px-4 py-8 text-[11px] text-muted-foreground hover:border-primary/50">Import footage to start cutting</button> : null}
+              {!media.some(item => !item.sfx && item.kind === 'video') ? <button type="button" onClick={() => fileRef.current?.click()} className="w-full rounded-xl border border-dashed border-white/[0.14] px-4 py-8 text-[11px] text-muted-foreground hover:border-primary/50">Import video to start cutting. Pictures are on the Photo page, sound on the Sound page.</button> : null}
             </div>
             <div className="mt-4 rounded-lg bg-white/[0.03] p-2.5 text-[10px] leading-5 text-muted-foreground">
               <p><b className="text-foreground">[</b> / <b className="text-foreground">]</b> trim the clip to start / end at the playhead</p>
@@ -2240,6 +2359,37 @@ function VideoStudio({ projectId, onOpenProject, onNewProject }: { projectId: st
                     </div>
                     <p className="text-[9px] leading-4 text-muted-foreground">Screen and Add make black disappear (light leaks, sparks, smoke). Multiply makes white disappear (paper textures, ink).</p>
                   </Section>
+                  <Section title="Picture-in-picture" action={clip.style ? <button type="button" onClick={() => updateClip(clip.id, { style: undefined })} className="text-[10px] text-muted-foreground hover:text-foreground">Reset</button> : null}>
+                    <div className="grid grid-cols-4 gap-1">
+                      {([['Top left', 0.3, -0.27, -0.27], ['Top right', 0.3, 0.27, -0.27], ['Bottom left', 0.3, -0.27, 0.27], ['Bottom right', 0.3, 0.27, 0.27], ['Centre', 0.6, 0, 0], ['Full frame', 1, 0, 0], ['Left half', 0.5, -0.25, 0], ['Right half', 0.5, 0.25, 0]] as const).map(([label, scale, x, y]) => (
+                        <button key={label} type="button" onClick={() => updateTransform(clip, { scale, x, y })} className="h-8 rounded-md bg-white/[0.05] px-0.5 text-[9px] font-semibold leading-3 hover:bg-white/[0.1]">{label}</button>
+                      ))}
+                    </div>
+                    <Slider label="Round corners" value={withStyle(clip.style).radius} min={0} max={0.5} step={0.005} reset={0} onChange={radius => updateClip(clip.id, current => ({ style: { ...withStyle(current.style), radius } }), `style:${clip.id}:radius`)} format={value => `${Math.round(value * 200)}`} />
+                    <Slider label="Border" value={withStyle(clip.style).border} min={0} max={0.08} step={0.001} reset={0} onChange={border => updateClip(clip.id, current => ({ style: { ...withStyle(current.style), border } }), `style:${clip.id}:border`)} format={value => `${Math.round(value * 1000)}`} />
+                    {withStyle(clip.style).border > 0 ? <label className="flex items-center gap-2 text-[10px] text-muted-foreground"><span className="w-[72px] shrink-0">Border colour</span><input type="color" value={withStyle(clip.style).borderColor} onChange={event => updateClip(clip.id, current => ({ style: { ...withStyle(current.style), borderColor: event.target.value } }), `style:${clip.id}:bordercolor`)} className="h-6 w-10 cursor-pointer rounded border-0 bg-transparent" /></label> : null}
+                    <Slider label="Shadow" value={withStyle(clip.style).shadow} min={0} max={1} step={0.01} reset={0} onChange={shadow => updateClip(clip.id, current => ({ style: { ...withStyle(current.style), shadow } }), `style:${clip.id}:shadow`)} format={value => `${Math.round(value * 100)}%`} />
+                    {withStyle(clip.style).shadow > 0 ? <Slider label="Shadow blur" value={withStyle(clip.style).shadowSoftness} min={0.005} max={0.3} step={0.005} reset={DEFAULT_STYLE.shadowSoftness} onChange={shadowSoftness => updateClip(clip.id, current => ({ style: { ...withStyle(current.style), shadowSoftness } }), `style:${clip.id}:shadowsoft`)} format={value => `${Math.round(value * 100)}`} /> : null}
+                  </Section>
+                  <Section title="Animate in and out">
+                    {(['enter', 'exit'] as const).map(side => {
+                      const move = clip[side]
+                      return (
+                        <div key={side} className="space-y-1">
+                          <div className="flex items-center gap-2 text-[10px] text-muted-foreground">
+                            <span className="w-[72px] shrink-0">{side === 'enter' ? 'Comes in' : 'Goes out'}</span>
+                            <SpydaSelect ariaLabel={side === 'enter' ? 'Entrance' : 'Exit'} value={move?.type ?? 'none'} onChange={(type: ClipMoveType) => updateClip(clip.id, { [side]: type === 'none' ? undefined : { type, duration: move?.duration ?? 0.6 } })} options={CLIP_MOVES.map(item => ({ value: item.id as ClipMoveType, label: side === 'exit' ? item.name.replace('from', 'to') : item.name }))} className="flex h-7 flex-1 rounded-md bg-white/[0.05] px-2 text-[11px] hover:bg-white/[0.08]" />
+                          </div>
+                          {move ? <Slider label="Takes" value={move.duration} min={0.1} max={Math.max(0.2, Math.min(4, clipLength(clip) / 2))} step={0.05} reset={0.6} onChange={duration => updateClip(clip.id, { [side]: { ...move, duration } }, `move:${clip.id}:${side}`)} format={value => `${value.toFixed(1)}s`} /> : null}
+                        </div>
+                      )
+                    })}
+                  </Section>
+                  <Section title="Look">
+                    <SpydaSelect ariaLabel="Effect" value={clip.effect} onChange={(effect: EffectId) => updateClip(clip.id, { effect })} options={EFFECTS.map(effect => ({ value: effect.id as EffectId, label: effect.name }))} className="flex h-7 w-full rounded-md bg-white/[0.05] px-2 text-[11px] hover:bg-white/[0.08]" />
+                    {clip.effect !== 'none' ? <Slider label="Intensity" value={clip.amount} min={0} max={1} step={0.01} reset={0.7} onChange={amount => updateClip(clip.id, { amount }, `clip:${clip.id}:amount`)} format={value => `${Math.round(value * 100)}%`} /> : null}
+                    <p className="text-[9px] leading-4 text-muted-foreground">Glow, glitch, VHS, neon edges, film grain and more, on this layer only. Colour it on the Color page.</p>
+                  </Section>
                   {shown ? (
                     <Section title="Position and animation">
                       <Slider label="Opacity" value={shown.opacity} min={0} max={1} step={0.01} reset={1} onChange={opacity => updateOpacity(clip, opacity)} format={value => `${Math.round(value * 100)}%`} />
@@ -2315,7 +2465,7 @@ function VideoStudio({ projectId, onOpenProject, onNewProject }: { projectId: st
                   </div>
                   {info?.kind === 'video' ? (
                     <>
-                      <Slider label="Volume" value={clip.volume} min={0} max={2} step={0.01} reset={1} onChange={volume => updateClip(clip.id, { volume })} format={value => `${Math.round(value * 100)}%`} />
+                      <VolumeSlider label="Volume" value={clip.volume} reset={1} onChange={volume => updateClip(clip.id, { volume }, `clip:${clip.id}:volume`)} />
                       <label className="flex items-center gap-2 text-[10px] text-muted-foreground"><input type="checkbox" checked={clip.muted} onChange={event => updateClip(clip.id, { muted: event.target.checked })} className="accent-[#9dfab0]" /> Mute this clip</label>
                     </>
                   ) : null}
@@ -2476,7 +2626,7 @@ function VideoStudio({ projectId, onOpenProject, onNewProject }: { projectId: st
                     <button key={lane} type="button" role="radio" aria-checked={(selectedAudio.lane ?? 'music') === lane} onClick={() => updateAudio(selectedAudio.id, { lane })} className={`h-7 rounded-md text-[10px] font-semibold ${(selectedAudio.lane ?? 'music') === lane ? 'bg-primary text-primary-foreground' : 'bg-white/[0.05] text-muted-foreground hover:text-foreground'}`}>{label}</button>
                   ))}
                 </div>
-                <Slider label="Volume" value={selectedAudio.volume} min={0} max={1.5} step={0.01} reset={0.8} onChange={volume => updateAudio(selectedAudio.id, { volume })} format={value => `${Math.round(value * 100)}%`} />
+                <VolumeSlider label="Volume" value={selectedAudio.volume} reset={0.8} onChange={volume => updateAudio(selectedAudio.id, { volume }, `audio:${selectedAudio.id}:volume`)} />
                 <Slider label="Starts at" value={selectedAudio.start} min={0} max={Math.max(1, end)} step={0.05} onChange={start => updateAudio(selectedAudio.id, { start })} format={formatTime} />
                 <Slider label="Trim start" value={selectedAudio.in} min={0} max={Math.max(0, selectedAudio.out - 0.3)} step={0.05} onChange={value => updateAudio(selectedAudio.id, { in: value })} format={formatTime} />
                 <Slider label="Trim end" value={selectedAudio.out} min={selectedAudio.in + 0.3} max={info?.duration ?? selectedAudio.out} step={0.05} reset={info?.duration ?? selectedAudio.out} onChange={value => updateAudio(selectedAudio.id, { out: value })} format={formatTime} />

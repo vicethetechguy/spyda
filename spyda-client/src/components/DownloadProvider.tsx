@@ -179,7 +179,7 @@ export function DownloadProvider({ children }: { children: ReactNode }) {
                     <Gauge className={`mt-0.5 h-4 w-4 shrink-0 ${compress ? 'text-primary' : 'text-muted-foreground'}`} />
                     <span className="min-w-0 flex-1">
                       <span className="flex items-center justify-between text-[12px] font-semibold">{request.kind === 'video' ? 'Video compressor' : 'Graphics compressor'}<span className="text-[11px] font-medium text-primary">+{COMPRESS_PRICE} credits</span></span>
-                      <span className="mt-0.5 block text-[10px] leading-4 text-muted-foreground">Cuts the file size by up to 90% while keeping it visually identical. Charged only if it saves space.</span>
+                      <span className="mt-0.5 block text-[10px] leading-4 text-muted-foreground">{request.kind === 'video' ? 'Makes the file smaller, then checks it frame by frame against the original. If any detail would be lost, it keeps your original instead. Charged only if it saves space.' : 'Cuts the file size by up to 90% while keeping it visually identical. Charged only if it saves space.'}</span>
                     </span>
                     <span className={`relative mt-0.5 h-5 w-9 shrink-0 rounded-full transition-colors ${compress ? 'bg-primary' : 'bg-white/15'}`}><span className={`absolute top-0.5 h-4 w-4 rounded-full bg-white shadow transition-[left] ${compress ? 'left-[18px]' : 'left-0.5'}`} /></span>
                   </button>

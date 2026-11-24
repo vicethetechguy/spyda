@@ -110,6 +110,8 @@ export type ClipLayer = {
   curve?: Uint8Array | null
   /** Overlay tracks only: green screen (the key colour becomes see-through). */
   key?: { color: [number, number, number]; tolerance: number; softness: number; spill: number } | null
+  /** Overlay tracks only: rounded corners, border and drop shadow, in shares of the clip's height. */
+  style?: { radius: number; border: number; borderColor: [number, number, number]; shadow: number; shadowSoftness: number; shadowX: number; shadowY: number } | null
   /** Overlay tracks only: show the clip inside a shape (frame fractions, centre and size). */
   mask?: { shape: 'rect' | 'ellipse'; x: number; y: number; width: number; height: number; feather: number; invert: boolean } | null
 }
@@ -165,6 +167,11 @@ uniform vec3 uKeyParams;   // tolerance, softness, spill
 uniform int uMask;         // 0 none, 1 rectangle, 2 ellipse
 uniform vec4 uMaskBox;     // centre x, y and size w, h (frame fractions)
 uniform vec2 uMaskEdge;    // feather, invert
+uniform float uSrcAspect;  // the clip's own width / height
+uniform vec2 uRound;       // corner radius, border width (shares of the clip height)
+uniform vec3 uBorderColor;
+uniform vec4 uShadow;      // offset x, y, softness, strength
+float sdRoundBox(vec2 p, vec2 b, float r) { vec2 q = abs(p) - b + r; return length(max(q, 0.0)) + min(max(q.x, q.y), 0.0) - r; }
 
 float hash(vec2 p) { return fract(sin(dot(p, vec2(127.1, 311.7))) * 43758.5453); }
 float luma(vec3 c) { return dot(c, vec3(0.2126, 0.7152, 0.0722)); }
@@ -368,17 +375,28 @@ void main() {
   vec2 s = q * uFit.xy + uFit.zw;
   bool inside = s.x >= 0.0 && s.y >= 0.0 && s.x <= 1.0 && s.y <= 1.0;
   if (uOverlay == 1) {
-    if (!inside) { outColor = vec4(0.0); return; }
-    vec3 o = look(colour(grade(spatial(uTex, uFit, q, uFx, uAmt, uTime), uGrade, vUv)), vUv, uFx, uAmt, uTime);
-    // Soften the edge by a pixel so a scaled-down overlay is not jagged.
-    vec2 edge = min(s, 1.0 - s) / max(fwidth(s), vec2(1e-5));
-    float a = clamp(min(edge.x, edge.y), 0.0, 1.0) * clamp(uOpacity, 0.0, 1.0);
+    // The clip as a (rounded) box in its own units: height 1, width its aspect.
+    vec2 box = vec2(uSrcAspect, 1.0) * 0.5;
+    vec2 P = (s - 0.5) * vec2(uSrcAspect, 1.0);
+    float radius = min(uRound.x, 0.5 * min(uSrcAspect, 1.0));
+    float dist = sdRoundBox(P, box, radius);
+    float aa = max(fwidth(dist), 1e-5);
+    float body = 1.0 - smoothstep(-aa, aa, dist);
+    float shadow = 0.0;
+    if (uShadow.w > 0.0) {
+      float ds = sdRoundBox(P - uShadow.xy, box, radius);
+      shadow = (1.0 - smoothstep(-uShadow.z, uShadow.z, ds)) * uShadow.w;
+    }
+    if (body <= 0.0 && shadow <= 0.0) { outColor = vec4(0.0); return; }
+    vec3 o = body > 0.0 ? look(colour(grade(spatial(uTex, uFit, q, uFx, uAmt, uTime), uGrade, vUv)), vUv, uFx, uAmt, uTime) : vec3(0.0);
+    float rim = uRound.y > 0.0 ? smoothstep(-uRound.y - aa, -uRound.y + aa, dist) : 0.0;
+    float a = body * clamp(uOpacity, 0.0, 1.0);
     if (uHasKey == 1) {
       // Distance from the key colour in colour (not brightness), so shadows on the screen still key.
       vec2 cc = vec2(-0.1146 * o.r - 0.3854 * o.g + 0.5 * o.b, 0.5 * o.r - 0.4542 * o.g - 0.0458 * o.b);
       vec2 kc = vec2(-0.1146 * uKey.r - 0.3854 * uKey.g + 0.5 * uKey.b, 0.5 * uKey.r - 0.4542 * uKey.g - 0.0458 * uKey.b);
       float d = distance(cc, kc);
-      a *= smoothstep(uKeyParams.x, uKeyParams.x + max(uKeyParams.y, 0.001), d);
+      a *= mix(smoothstep(uKeyParams.x, uKeyParams.x + max(uKeyParams.y, 0.001), d), 1.0, rim);
       // Spill: take the key colour's cast out of what remains.
       float strongest = max(max(uKey.r, uKey.g), uKey.b);
       if (uKey.g >= strongest) o.g = mix(o.g, min(o.g, max(o.r, o.b)), uKeyParams.z);
@@ -394,9 +412,13 @@ void main() {
         vec2 m = 1.0 - smoothstep(vec2(1.0 - feather), vec2(1.0 + feather * 0.25), abs(p));
         inside = m.x * m.y;
       }
-      a *= uMaskEdge.y > 0.5 ? 1.0 - inside : inside;
+      float shown = uMaskEdge.y > 0.5 ? 1.0 - inside : inside;
+      a *= shown;
+      shadow *= shown;
     }
-    outColor = vec4(clamp(o, 0.0, 1.0) * a, a);
+    o = mix(o, uBorderColor, rim);
+    shadow *= clamp(uOpacity, 0.0, 1.0) * (1.0 - a);
+    outColor = vec4(clamp(o, 0.0, 1.0) * a, a + shadow);
     return;
   }
   vec3 c = inside ? spatial(uTex, uFit, q, uFx, uAmt, uTime) : (uBlurBg == 1 ? backdrop(vUv) : vec3(0.0));
@@ -688,6 +710,11 @@ export class VideoRenderer {
       gl.uniform3fv(this.u(program, 'uKey'), key.color)
       gl.uniform3f(this.u(program, 'uKeyParams'), key.tolerance, key.softness, key.spill)
     }
+    const style = overlay ? layer.style : null
+    gl.uniform1f(this.u(program, 'uSrcAspect'), layer.width / Math.max(1, layer.height))
+    gl.uniform2f(this.u(program, 'uRound'), style?.radius ?? 0, style?.border ?? 0)
+    gl.uniform3fv(this.u(program, 'uBorderColor'), style?.borderColor ?? [1, 1, 1])
+    gl.uniform4f(this.u(program, 'uShadow'), style?.shadowX ?? 0, style?.shadowY ?? 0, Math.max(0.001, style?.shadowSoftness ?? 0.05), style?.shadow ?? 0)
     const mask = overlay ? layer.mask : null
     gl.uniform1i(this.u(program, 'uMask'), mask ? (mask.shape === 'ellipse' ? 2 : 1) : 0)
     if (mask) {

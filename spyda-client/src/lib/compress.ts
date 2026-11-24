@@ -93,39 +93,104 @@ export function canCompressVideo() {
   return typeof window !== 'undefined' && 'VideoEncoder' in window && 'VideoDecoder' in window
 }
 
+/** Frames of a video at some moments, small, for comparing two encodes. */
+async function framesAt(blob: Blob, moments: number[], width = 480) {
+  const url = URL.createObjectURL(blob)
+  const video = document.createElement('video')
+  video.muted = true
+  video.preload = 'auto'
+  video.src = url
+  try {
+    await new Promise<void>((resolve, reject) => { video.onloadeddata = () => resolve(); video.onerror = () => reject(new Error('unreadable')) })
+    const height = Math.max(2, Math.round((width * video.videoHeight) / Math.max(1, video.videoWidth)))
+    const canvas = document.createElement('canvas')
+    canvas.width = width
+    canvas.height = height
+    const context = canvas.getContext('2d', { willReadFrequently: true })!
+    const frames: Uint8ClampedArray[] = []
+    for (const at of moments) {
+      await new Promise<void>(resolve => { video.onseeked = () => resolve(); video.currentTime = Math.min(Math.max(0, at), Math.max(0, video.duration - 0.05)) })
+      context.drawImage(video, 0, 0, width, height)
+      frames.push(context.getImageData(0, 0, width, height).data)
+    }
+    return frames
+  } finally {
+    URL.revokeObjectURL(url)
+  }
+}
+
+/** How close two frames are, in dB (PSNR on brightness): 40+ looks the same, under 36 starts to show. */
+export function framePsnr(a: Uint8ClampedArray, b: Uint8ClampedArray) {
+  const n = Math.min(a.length, b.length)
+  let sum = 0, count = 0
+  for (let i = 0; i < n; i += 4) {
+    const la = 0.299 * a[i] + 0.587 * a[i + 1] + 0.114 * a[i + 2]
+    const lb = 0.299 * b[i] + 0.587 * b[i + 1] + 0.114 * b[i + 2]
+    sum += (la - lb) ** 2
+    count++
+  }
+  const mse = sum / Math.max(1, count)
+  return mse <= 1e-6 ? 99 : 10 * Math.log10((255 * 255) / mse)
+}
+
+/** The bitrate a first attempt uses: never below what keeps H.264 crisp at this size. */
+export function videoTargetBitrate(pixels: number, fps: number, sourceBitrate: number) {
+  // 0.08 bits per pixel per frame keeps footage and motion graphics clean (1080p30: about 5 Mbps).
+  const floor = pixels * fps * 0.08
+  return Math.round(Math.max(floor, sourceBitrate * 0.35))
+}
+
+/**
+ * Re-encodes a video as H.264 MP4, smaller but visually the same. Each try is
+ * checked against the original, frame by frame; if detail is lost it tries again
+ * at a higher bitrate, and if saving space would cost quality the original is kept.
+ */
 export async function compressVideo(blob: Blob, name: string, onProgress?: (progress: number) => void): Promise<CompressResult> {
   const keep: CompressResult = { blob, name, before: blob.size, after: blob.size, compressed: false }
   if (!canCompressVideo()) return keep
   const { ALL_FORMATS, BlobSource, BufferTarget, Conversion, Input, Mp4OutputFormat, Output, Quality, canEncodeAudio } = await import('mediabunny')
-  const input = new Input({ source: new BlobSource(blob), formats: ALL_FORMATS })
-  const track = await input.getPrimaryVideoTrack()
+  const probe = new Input({ source: new BlobSource(blob), formats: ALL_FORMATS })
+  const track = await probe.getPrimaryVideoTrack()
   if (!track) return keep
-  const duration = Math.max(0.1, await input.computeDuration())
+  const duration = Math.max(0.1, await probe.computeDuration())
   const stats = await track.computePacketStats(120).catch(() => null)
   const fps = Math.min(60, Math.max(12, stats?.averagePacketRate || 30))
   const pixels = track.displayWidth * track.displayHeight
   const source = (blob.size * 8) / duration
-  // Bits per pixel per frame: 0.055 keeps motion graphics and footage crisp in
-  // H.264; a quarter of the recording's bitrate when that is higher still.
-  const floor = pixels * fps * 0.055
-  const bitrate = Math.round(Math.min(source * 0.5, Math.max(floor, source * 0.25)))
   const aac = await canEncodeAudio('aac').catch(() => false)
+  const moments = [0.15, 0.4, 0.65, 0.9].map(f => f * duration)
+  const original = await framesAt(blob, moments).catch(() => null)
 
-  const output = new Output({ format: new Mp4OutputFormat({ fastStart: 'in-memory' }), target: new BufferTarget() })
-  const conversion = await Conversion.init({
-    input,
-    output,
-    showWarnings: false,
-    video: { codec: 'avc', quality: new Quality({ bitrate, bitrateMode: 'variable' }), keyFrameInterval: 2, forceTranscode: true },
-    audio: aac ? { codec: 'aac', quality: new Quality({ bitrate: 160_000 }) } : { codec: 'opus', quality: new Quality({ bitrate: 128_000 }) },
-  })
-  if (!conversion.isValid) return keep
-  conversion.onProgress = progress => onProgress?.(progress)
-  await conversion.execute()
-  const buffer = (output.target as InstanceType<typeof BufferTarget>).buffer
-  if (!buffer || buffer.byteLength > blob.size * 0.9) return keep
-  const result = new Blob([buffer], { type: 'video/mp4' })
-  return { blob: result, name: swapExtension(name, 'mp4'), before: blob.size, after: result.size, compressed: true }
+  let bitrate = videoTargetBitrate(pixels, fps, source)
+  for (let attempt = 0; attempt < 3; attempt++) {
+    // Not worth it: this would barely save space, so the original stays as it is.
+    if (bitrate > source * 0.8) return keep
+    const input = new Input({ source: new BlobSource(blob), formats: ALL_FORMATS })
+    const output = new Output({ format: new Mp4OutputFormat({ fastStart: 'in-memory' }), target: new BufferTarget() })
+    const conversion = await Conversion.init({
+      input,
+      output,
+      showWarnings: false,
+      video: { codec: 'avc', quality: new Quality({ bitrate, bitrateMode: 'variable' }), keyFrameInterval: 2, forceTranscode: true },
+      audio: aac ? { codec: 'aac', quality: new Quality({ bitrate: 192_000 }) } : { codec: 'opus', quality: new Quality({ bitrate: 160_000 }) },
+    })
+    if (!conversion.isValid) return keep
+    const base = attempt / 3
+    conversion.onProgress = progress => onProgress?.(Math.min(0.97, base + progress / 3))
+    await conversion.execute()
+    const buffer = (output.target as InstanceType<typeof BufferTarget>).buffer
+    if (!buffer || buffer.byteLength > blob.size * 0.85) return keep
+    const result = new Blob([buffer], { type: 'video/mp4' })
+    // Compare with the original: every sampled frame has to look the same.
+    const after = original ? await framesAt(result, moments).catch(() => null) : null
+    const worst = original && after ? Math.min(...original.map((frame, index) => framePsnr(frame, after[index] ?? frame))) : 99
+    if (worst >= 39) {
+      onProgress?.(1)
+      return { blob: result, name: swapExtension(name, 'mp4'), before: blob.size, after: result.size, compressed: true }
+    }
+    bitrate = Math.round(bitrate * 1.7)
+  }
+  return keep
 }
 
 export function formatBytes(bytes: number) {
