@@ -86,3 +86,18 @@ describe('music under the voice track', () => {
     expect(duckingAt({ ...project, duck: { on: false, amount: 0.6 } }, 6)).toBe(1)
   })
 })
+
+import { DEFAULT_KEY, hexToRgb, withMix } from './timeline'
+
+describe('mixing', () => {
+  it('reads colours from hex', () => {
+    expect(hexToRgb('#00b140').map(v => Math.round(v * 255))).toEqual([0, 177, 64])
+    expect(hexToRgb('fff')).toEqual([1, 1, 1])
+  })
+  it('fills in missing mix settings with safe defaults', () => {
+    const mix = withMix({ key: { on: true } as never })
+    expect(mix.blend).toBe('normal')
+    expect(mix.key).toMatchObject({ on: true, color: DEFAULT_KEY.color, tolerance: DEFAULT_KEY.tolerance })
+    expect(mix.mask.shape).toBe('none')
+  })
+})

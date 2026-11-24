@@ -588,22 +588,40 @@ export default function Editor() {
   }, [design, download, project?.name, setSelectedId])
 
   /** The marketplace cover: the design as buyers will see it, without selection handles. */
-  const makeCover = useCallback(async () => {
+  const makeCover = useCallback(async (size = 900, type: 'image/jpeg' | 'image/png' = 'image/jpeg') => {
     const stage = stageRef.current
     if (!stage || !design) throw new Error('The canvas is not ready yet.')
     setSelectedId(null)
     await new Promise(resolve => window.setTimeout(resolve, 80))
-    const width = 900
+    const width = size
     const height = Math.round(width * ((design.canvas.height || stage.height()) / (design.canvas.width || stage.width())))
     const rendered = stage.toCanvas({ pixelRatio: Math.max(1, width / stage.width()) })
     const output = document.createElement('canvas')
     output.width = width
     output.height = height
     output.getContext('2d')?.drawImage(rendered, 0, 0, width, height)
-    const blob = await new Promise<Blob | null>(resolve => output.toBlob(resolve, 'image/jpeg', 0.88))
+    const blob = await new Promise<Blob | null>(resolve => output.toBlob(resolve, type, 0.88))
     if (!blob) throw new Error('The cover could not be made.')
     return blob
   }, [design, setSelectedId])
+
+  /** Photo page: the design, at full size, goes into the video studio as a clip. */
+  const [sending, setSending] = useState(false)
+  const sendToVideo = useCallback(async () => {
+    if (!design || !project) return
+    setSending(true)
+    try {
+      const still = await makeCover(Math.max(720, Math.min(3840, design.canvas.width || 1080)), 'image/png')
+      const key = await putAsset(still)
+      persist(design)
+      try { window.sessionStorage.setItem('spyda.lastCanvas', window.location.pathname) } catch { /* storage off */ }
+      navigate(`/video?still=${encodeURIComponent(key)}&name=${encodeURIComponent(project.name.slice(0, 60))}`)
+    } catch (error) {
+      setNotice({ tone: 'error', text: error instanceof Error ? error.message : 'The design could not be sent to the video.' })
+    } finally {
+      setSending(false)
+    }
+  }, [design, makeCover, navigate, persist, project])
 
   /** The editable design for the marketplace: saved first, then packed with its pictures. */
   const makePackage = useCallback(async () => {
@@ -1645,6 +1663,7 @@ export default function Editor() {
         { label: 'Export JPEG', onSelect: () => exportAs('jpeg'), disabled: !design || exporting },
         { label: 'Export settings…', onSelect: () => setPage('deliver') },
         { label: 'Sell on the marketplace…', onSelect: () => setSellOpen(true), disabled: !design },
+        { label: 'Send to video', onSelect: () => { void sendToVideo() }, disabled: !design || sending },
         { separator: true },
         { label: 'Save and close', onSelect: exitCanvas },
       ],
@@ -1792,7 +1811,7 @@ export default function Editor() {
 
   return (
     <main className="figma-editor mac-ui flex min-h-[100dvh] flex-col bg-[#0b0c0e] text-foreground lg:h-[100dvh] lg:overflow-hidden">
-      {sellOpen ? <SellDesignDialog kind="flyer" defaultName={project.name} makePreview={makeCover} makePackage={makePackage} onClose={() => setSellOpen(false)} /> : null}
+      {sellOpen ? <SellDesignDialog kind="flyer" defaultName={project.name} makePreview={() => makeCover()} makePackage={makePackage} onClose={() => setSellOpen(false)} /> : null}
       <CreateDesignDialog open={createOpen} onClose={() => setCreateOpen(false)} current={null} onChat={() => { setCreateOpen(false); exitCanvas() }} />
       {/* Menu bar */}
       <header className="mac-menubar flex h-9 shrink-0 items-center gap-1 border-b border-white/[0.06] bg-[#111214] px-1.5">
@@ -1827,6 +1846,9 @@ export default function Editor() {
           </button>
         </div>
         <div className="ml-auto flex shrink-0 items-center gap-1.5 sm:ml-0">
+          <button type="button" onClick={() => { void sendToVideo() }} disabled={!design || sending} title="Put this design into the video studio as a clip (Photo page)" className="hidden h-7 items-center gap-1.5 rounded-md border border-primary/30 bg-primary/[0.08] px-2.5 text-[11px] font-semibold text-primary transition-colors hover:bg-primary/[0.15] disabled:opacity-40 md:inline-flex">
+            {sending ? <Loader2 className="h-3 w-3 animate-spin" aria-hidden /> : <Clapperboard className="h-3 w-3" aria-hidden />} Send to video
+          </button>
           <button type="button" onClick={exitCanvas} title="Save and leave canvas mode" className="inline-flex h-7 items-center gap-1.5 rounded-md border border-white/[0.1] px-2.5 text-[11px] font-semibold text-foreground/90 transition-colors hover:bg-white/[0.08]">
             <LogOut className="h-3 w-3" aria-hidden /> Done
           </button>

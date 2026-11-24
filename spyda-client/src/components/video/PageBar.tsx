@@ -9,11 +9,11 @@ import type { StudioPage } from '../../lib/video/studio-pages'
 
 const PAGES: Array<{ id: StudioPage; label: string; icon: LucideIcon; key: string; soon?: string; hint: string }> = [
   { id: 'media', label: 'Media', icon: Library, key: '1', hint: 'Bring in and organise your files' },
-  { id: 'photo', label: 'Photo', icon: ImageIcon, key: '2', hint: 'Make stills and graphics in the canvas' },
+  { id: 'photo', label: 'Photo', icon: ImageIcon, key: '2', hint: 'Make a still or graphic in the canvas, then Send to video' },
   { id: 'cut', label: 'Cut', icon: Scissors, key: '3', hint: 'Rough cut, fast: add to end, insert, on top, trim to the playhead' },
   { id: 'edit', label: 'Edit', icon: Clapperboard, key: '4', hint: 'The timeline: clips, titles, music and effects' },
   { id: 'color', label: 'Color', icon: Palette, key: '5', hint: 'Make it look right: wheels, curves, scopes, before and after' },
-  { id: 'mixer', label: 'Mixer', icon: Sparkles, key: '6', soon: 'Layers on top of a clip: text, shapes, masks, green screen', hint: 'Effects and motion graphics' },
+  { id: 'mixer', label: 'Mixer', icon: Sparkles, key: '6', hint: 'Mix layers: green screen, masks, blend modes, animation' },
   { id: 'export', label: 'Export', icon: Download, key: '7', hint: 'Presets for every platform, then download' },
 ]
 

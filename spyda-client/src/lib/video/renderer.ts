@@ -108,7 +108,23 @@ export type ClipLayer = {
   wheels?: { lift: [number, number, number]; gamma: [number, number, number]; gain: [number, number, number] } | null
   /** Curves as a 256-entry RGBA table, or null for none. */
   curve?: Uint8Array | null
+  /** Overlay tracks only: green screen (the key colour becomes see-through). */
+  key?: { color: [number, number, number]; tolerance: number; softness: number; spill: number } | null
+  /** Overlay tracks only: show the clip inside a shape (frame fractions, centre and size). */
+  mask?: { shape: 'rect' | 'ellipse'; x: number; y: number; width: number; height: number; feather: number; invert: boolean } | null
 }
+
+export const BLEND_MODES = [
+  { id: 'normal', name: 'Normal' },
+  { id: 'multiply', name: 'Multiply' },
+  { id: 'screen', name: 'Screen' },
+  { id: 'overlay', name: 'Overlay' },
+  { id: 'add', name: 'Add (glow)' },
+  { id: 'darken', name: 'Darken' },
+  { id: 'lighten', name: 'Lighten' },
+  { id: 'difference', name: 'Difference' },
+] as const
+export type BlendMode = (typeof BLEND_MODES)[number]['id']
 
 const VERTEX = `#version 300 es
 in vec2 aPos;
@@ -143,6 +159,12 @@ uniform vec3 uGamma;
 uniform vec3 uGain;
 uniform int uHasCurve;
 uniform sampler2D uCurve;  // 256 x 1: red, green and blue curves
+uniform int uHasKey;       // green screen
+uniform vec3 uKey;
+uniform vec3 uKeyParams;   // tolerance, softness, spill
+uniform int uMask;         // 0 none, 1 rectangle, 2 ellipse
+uniform vec4 uMaskBox;     // centre x, y and size w, h (frame fractions)
+uniform vec2 uMaskEdge;    // feather, invert
 
 float hash(vec2 p) { return fract(sin(dot(p, vec2(127.1, 311.7))) * 43758.5453); }
 float luma(vec3 c) { return dot(c, vec3(0.2126, 0.7152, 0.0722)); }
@@ -351,12 +373,61 @@ void main() {
     // Soften the edge by a pixel so a scaled-down overlay is not jagged.
     vec2 edge = min(s, 1.0 - s) / max(fwidth(s), vec2(1e-5));
     float a = clamp(min(edge.x, edge.y), 0.0, 1.0) * clamp(uOpacity, 0.0, 1.0);
+    if (uHasKey == 1) {
+      // Distance from the key colour in colour (not brightness), so shadows on the screen still key.
+      vec2 cc = vec2(-0.1146 * o.r - 0.3854 * o.g + 0.5 * o.b, 0.5 * o.r - 0.4542 * o.g - 0.0458 * o.b);
+      vec2 kc = vec2(-0.1146 * uKey.r - 0.3854 * uKey.g + 0.5 * uKey.b, 0.5 * uKey.r - 0.4542 * uKey.g - 0.0458 * uKey.b);
+      float d = distance(cc, kc);
+      a *= smoothstep(uKeyParams.x, uKeyParams.x + max(uKeyParams.y, 0.001), d);
+      // Spill: take the key colour's cast out of what remains.
+      float strongest = max(max(uKey.r, uKey.g), uKey.b);
+      if (uKey.g >= strongest) o.g = mix(o.g, min(o.g, max(o.r, o.b)), uKeyParams.z);
+      else if (uKey.b >= strongest) o.b = mix(o.b, min(o.b, max(o.r, o.g)), uKeyParams.z);
+      else o.r = mix(o.r, min(o.r, max(o.g, o.b)), uKeyParams.z);
+    }
+    if (uMask > 0) {
+      vec2 p = (vUv - uMaskBox.xy) / max(uMaskBox.zw * 0.5, vec2(0.001));
+      float feather = max(uMaskEdge.x, 0.001);
+      float inside;
+      if (uMask == 2) inside = 1.0 - smoothstep(1.0 - feather, 1.0 + feather * 0.25, length(p));
+      else {
+        vec2 m = 1.0 - smoothstep(vec2(1.0 - feather), vec2(1.0 + feather * 0.25), abs(p));
+        inside = m.x * m.y;
+      }
+      a *= uMaskEdge.y > 0.5 ? 1.0 - inside : inside;
+    }
     outColor = vec4(clamp(o, 0.0, 1.0) * a, a);
     return;
   }
   vec3 c = inside ? spatial(uTex, uFit, q, uFx, uAmt, uTime) : (uBlurBg == 1 ? backdrop(vUv) : vec3(0.0));
   c = look(colour(grade(c, uGrade, vUv)), vUv, uFx, uAmt, uTime);
   outColor = vec4(clamp(c, 0.0, 1.0) * clamp(uOpacity, 0.0, 1.0), 1.0);
+}`
+
+/** Pass 3b: an overlay laid over the frame with a blend mode (reads the frame so far). */
+const BLEND_FRAGMENT = `#version 300 es
+precision highp float;
+in vec2 vUv;
+out vec4 outColor;
+uniform sampler2D uLayer;
+uniform sampler2D uBase;
+uniform int uMode;
+vec3 overlayMix(vec3 b, vec3 l) { return mix(2.0 * b * l, 1.0 - 2.0 * (1.0 - b) * (1.0 - l), step(0.5, b)); }
+void main() {
+  vec4 top = texture(uLayer, vec2(vUv.x, 1.0 - vUv.y));
+  // The copied frame is stored bottom row first, like the clip textures.
+  vec3 base = texture(uBase, vec2(vUv.x, 1.0 - vUv.y)).rgb;
+  float a = top.a;
+  vec3 l = a > 0.0 ? top.rgb / a : vec3(0.0);
+  vec3 m = l;
+  if (uMode == 1) m = base * l;
+  else if (uMode == 2) m = 1.0 - (1.0 - base) * (1.0 - l);
+  else if (uMode == 3) m = overlayMix(base, l);
+  else if (uMode == 4) m = min(base + l, 1.0);
+  else if (uMode == 5) m = min(base, l);
+  else if (uMode == 6) m = max(base, l);
+  else if (uMode == 7) m = abs(base - l);
+  outColor = vec4(mix(base, m, a), 1.0);
 }`
 
 /** Pass 3: an overlay track's finished clip, laid over the frame (premultiplied alpha). */
@@ -512,6 +583,8 @@ export class VideoRenderer {
   private clipProgram: WebGLProgram
   private mixProgram: WebGLProgram
   private overlayProgram: WebGLProgram
+  private blendProgram: WebGLProgram
+  private baseTexture: WebGLTexture
   private source: WebGLTexture
   private curveTexture: WebGLTexture
   /** Finished clips A and B, each with its framebuffer. */
@@ -527,6 +600,7 @@ export class VideoRenderer {
     this.clipProgram = link(gl, CLIP_FRAGMENT)
     this.mixProgram = link(gl, MIX_FRAGMENT)
     this.overlayProgram = link(gl, OVERLAY_FRAGMENT)
+    this.blendProgram = link(gl, BLEND_FRAGMENT)
     const buffer = gl.createBuffer()
     gl.bindBuffer(gl.ARRAY_BUFFER, buffer)
     gl.bufferData(gl.ARRAY_BUFFER, new Float32Array([-1, -1, 1, -1, -1, 1, -1, 1, 1, -1, 1, 1]), gl.STATIC_DRAW)
@@ -539,6 +613,7 @@ export class VideoRenderer {
     gl.uniform1i(this.u(this.mixProgram, 'uA'), 1)
     gl.uniform1i(this.u(this.mixProgram, 'uB'), 2)
     this.curveTexture = this.makeTexture()
+    this.baseTexture = this.makeTexture()
     gl.useProgram(this.clipProgram)
     gl.uniform1i(this.u(this.clipProgram, 'uTex'), 0)
     gl.uniform1i(this.u(this.clipProgram, 'uCurve'), 4)
@@ -607,6 +682,18 @@ export class VideoRenderer {
     gl.uniform3fv(this.u(program, 'uGamma'), wheels?.gamma ?? [0, 0, 0])
     gl.uniform3fv(this.u(program, 'uGain'), wheels?.gain ?? [0, 0, 0])
     gl.uniform1i(this.u(program, 'uHasCurve'), layer.curve ? 1 : 0)
+    const key = overlay ? layer.key : null
+    gl.uniform1i(this.u(program, 'uHasKey'), key ? 1 : 0)
+    if (key) {
+      gl.uniform3fv(this.u(program, 'uKey'), key.color)
+      gl.uniform3f(this.u(program, 'uKeyParams'), key.tolerance, key.softness, key.spill)
+    }
+    const mask = overlay ? layer.mask : null
+    gl.uniform1i(this.u(program, 'uMask'), mask ? (mask.shape === 'ellipse' ? 2 : 1) : 0)
+    if (mask) {
+      gl.uniform4f(this.u(program, 'uMaskBox'), mask.x, mask.y, mask.width, mask.height)
+      gl.uniform2f(this.u(program, 'uMaskEdge'), mask.feather, mask.invert ? 1 : 0)
+    }
     if (layer.curve) {
       gl.activeTexture(gl.TEXTURE4)
       gl.bindTexture(gl.TEXTURE_2D, this.curveTexture)
@@ -649,10 +736,28 @@ export class VideoRenderer {
   }
 
   /** Lays one overlay-track clip over the frame `draw` just made (call it after `draw`, bottom track first). */
-  drawOverlay(layer: ClipLayer) {
+  drawOverlay(layer: ClipLayer, blend: BlendMode = 'normal') {
     const gl = this.gl
     this.fitLayers()
     this.renderClip(0, layer, true)
+    if (blend !== 'normal') {
+      // Blend modes read the frame so far: copy it, then mix the overlay into it.
+      gl.bindFramebuffer(gl.FRAMEBUFFER, null)
+      gl.activeTexture(gl.TEXTURE5)
+      gl.bindTexture(gl.TEXTURE_2D, this.baseTexture)
+      gl.copyTexImage2D(gl.TEXTURE_2D, 0, gl.RGBA, 0, 0, this.canvas.width, this.canvas.height, 0)
+      const program = this.blendProgram
+      gl.useProgram(program)
+      gl.viewport(0, 0, this.canvas.width, this.canvas.height)
+      gl.activeTexture(gl.TEXTURE3)
+      gl.bindTexture(gl.TEXTURE_2D, this.layers[0].texture)
+      gl.uniform1i(this.u(program, 'uLayer'), 3)
+      gl.uniform1i(this.u(program, 'uBase'), 5)
+      gl.uniform1i(this.u(program, 'uMode'), Math.max(0, BLEND_MODES.findIndex(mode => mode.id === blend)))
+      gl.drawArrays(gl.TRIANGLES, 0, 6)
+      gl.activeTexture(gl.TEXTURE0)
+      return
+    }
     const program = this.overlayProgram
     gl.useProgram(program)
     gl.bindFramebuffer(gl.FRAMEBUFFER, null)

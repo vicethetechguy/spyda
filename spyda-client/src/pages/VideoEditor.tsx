@@ -14,10 +14,11 @@ import {
 import {
   CLIP_MOTIONS, FORMATS, TITLE_DEFAULTS, activeAt, audioFade, clipLength, clipOpacity, clipTransformAt, formatFor, formatTime, layout, makeClip, makeTitle,
   newId, sourceTime, splitAt, titleFrame,
-  MARKER_COLORS, OVERLAY_TRACKS, duckingAt, keyframeValues, placeOverlays, splitAudioAt, type AudioTrackItem, type Clip, type Keyframe, type ClipMotion, type MediaItem, type Placed, type Title, type TitleAnimation, type VideoProject,
+  DEFAULT_KEY, DEFAULT_MASK, MARKER_COLORS, OVERLAY_TRACKS, hexToRgb, withMix, type ClipKey, type ClipMask, duckingAt, keyframeValues, placeOverlays, splitAudioAt, type AudioTrackItem, type Clip, type Keyframe, type ClipMotion, type MediaItem, type Placed, type Title, type TitleAnimation, type VideoProject,
 } from '../lib/video/timeline'
 import { BUNDLED_FAMILIES, loadFontPreviews, previewFamily } from '../lib/fonts'
 import { renderSoundEffects } from '../lib/video/sound-effects'
+import { BLEND_MODES } from '../lib/video/renderer'
 import { NEUTRAL_COLOR, NEUTRAL_WHEEL, autoBalance, curveLut, curvesAreNeutral, pictureStats, wheelUniforms, wheelsAreNeutral, withColor, type ClipColor } from '../lib/video/color'
 import { ColorWheel, CurvesEditor, Scopes } from '../components/video/ColorTools'
 import SellDesignDialog from '../components/marketplace/SellDesignDialog'
@@ -67,6 +68,18 @@ function TransportGlyph({ name }: { name: 'start' | 'back' | 'forward' | 'end' }
 function colourOf(color: ClipColor): Pick<ClipLayer, 'wheels' | 'curve'> {
   const full = withColor(color)
   return { wheels: wheelsAreNeutral(full) ? null : wheelUniforms(full), curve: curvesAreNeutral(full.curves) ? null : curveLut(full.curves) }
+}
+
+/** Designs already added from the canvas (the effect can run twice in development). */
+const handledStills = new Set<string>()
+
+/** The renderer's inputs for an overlay clip's green screen and mask. */
+function mixOf(mix: NonNullable<Clip['mix']>): Pick<ClipLayer, 'key' | 'mask'> {
+  const full = withMix(mix)
+  return {
+    key: full.key.on ? { color: hexToRgb(full.key.color), tolerance: full.key.tolerance, softness: full.key.softness, spill: full.key.spill } : null,
+    mask: full.mask.shape === 'none' ? null : { shape: full.mask.shape, x: full.mask.x, y: full.mask.y, width: full.mask.width, height: full.mask.height, feather: full.mask.feather, invert: full.mask.invert },
+  }
 }
 
 /** A clip's keyframes, as diamonds along the bottom of its block on the timeline. */
@@ -468,6 +481,9 @@ function VideoStudio({ projectId, onOpenProject, onNewProject }: { projectId: st
   const scopeAt = useRef(0)
   const scopeCanvas = useRef<HTMLCanvasElement | null>(null)
   const [lookClipboard, setLookClipboard] = useState<{ grade: Grade; color: ClipColor } | null>(null)
+  const [picking, setPicking] = useState(false)
+  const pickingRef = useRef(picking)
+  pickingRef.current = picking
   const renderer = useRef<VideoRenderer | null>(null)
   const elements = useRef(new Map<string, HTMLVideoElement | HTMLImageElement>())
   const musicElements = useRef(new Map<string, HTMLAudioElement>())
@@ -696,6 +712,7 @@ function VideoStudio({ projectId, onOpenProject, onNewProject }: { projectId: st
         transform: clipTransformAt(item, t),
         opacity: clipOpacity(item, t),
         ...(before || !item.clip.color ? {} : colourOf(item.clip.color)),
+        ...(item.clip.mix ? mixOf(item.clip.mix) : {}),
       }
     }
     const la = a ? layerOf(a) : null
@@ -704,7 +721,7 @@ function VideoStudio({ projectId, onOpenProject, onNewProject }: { projectId: st
     if (!(a && !la)) {
       gl.draw(la, la && lb ? lb : null, a?.clip.transition.type ?? 'cut', progress)
       const above = overlaysRef.current.filter(item => t >= item.start && t < item.end).sort((x, y) => (x.clip.track ?? 2) - (y.clip.track ?? 2))
-      for (const item of above) { const layer = layerOf(item); if (layer) gl.drawOverlay(layer) }
+      for (const item of above) { const layer = layerOf(item); if (layer) gl.drawOverlay(layer, item.clip.mix?.blend ?? 'normal') }
     }
     const context = output.getContext('2d')!
     context.drawImage(glCanvas.current, 0, 0, output.width, output.height)
@@ -713,7 +730,7 @@ function VideoStudio({ projectId, onOpenProject, onNewProject }: { projectId: st
     if (pageRef.current === 'color' && compare !== 'off' && !(a && !la)) {
       gl.draw(a ? layerOf(a, true) : null, b ? layerOf(b, true) : null, a?.clip.transition.type ?? 'cut', progress)
       const above = overlaysRef.current.filter(item => t >= item.start && t < item.end).sort((x, y) => (x.clip.track ?? 2) - (y.clip.track ?? 2))
-      for (const item of above) { const layer = layerOf(item, true); if (layer) gl.drawOverlay(layer) }
+      for (const item of above) { const layer = layerOf(item, true); if (layer) gl.drawOverlay(layer, item.clip.mix?.blend ?? 'normal') }
       const split = compare === 'split' ? wipeRef.current : 1
       const sw = glCanvas.current.width * split
       if (sw > 0) context.drawImage(glCanvas.current, 0, 0, sw, glCanvas.current.height, 0, 0, output.width * split, output.height)
@@ -1185,6 +1202,26 @@ function VideoStudio({ projectId, onOpenProject, onNewProject }: { projectId: st
     return encodePackage({ kind: 'video', name: 'Spyda video project', data, files })
   }
 
+  // A design sent from the canvas (the Photo page) arrives as `/video?still=<key>&name=…`: it goes at the end of the edit.
+  useEffect(() => {
+    const params = new URLSearchParams(window.location.search)
+    const key = params.get('still')
+    if (!key || handledStills.has(key)) return
+    handledStills.add(key)
+    void (async () => {
+      const blob = await getAssetBlob(key).catch(() => undefined)
+      if (!blob) { setNotice('That design is no longer on this device. Send it again from the canvas.'); return }
+      const name = (params.get('name') || 'Design').replace(/[\\/:*?"<>|]+/g, ' ').trim() || 'Design'
+      await importFiles([new File([blob], `${name}.png`, { type: blob.type || 'image/png' })], { index: projectRef.current.clips.length })
+      void deleteAsset(key)
+      setPage('edit')
+      navigate('/video', { replace: true })
+      setNotice(`“${name}” is at the end of your edit. To lay it over a clip instead, use On top on the Cut page.`)
+    })()
+    // Runs once, when the studio opens with a design to add.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [])
+
   // A project bought on the marketplace arrives as `/video?open=<key>`.
   useEffect(() => {
     const key = new URLSearchParams(window.location.search).get('open')
@@ -1315,7 +1352,29 @@ function VideoStudio({ projectId, onOpenProject, onNewProject }: { projectId: st
     overlays: (current.overlays ?? []).map(clip => ({ ...clip, grade: { ...look.grade }, color: structuredClone(look.color) })),
   }))
 
+  /* ── Mixer page ── */
+  const setMix = (clip: Clip, patch: { blend?: NonNullable<Clip['mix']>['blend']; key?: Partial<ClipKey>; mask?: Partial<ClipMask> }, key?: string) => updateClip(clip.id, current => {
+    const mix = withMix(current.mix)
+    return { mix: { blend: patch.blend ?? mix.blend, key: { ...mix.key, ...patch.key }, mask: { ...mix.mask, ...patch.mask } } }
+  }, key ?? `mix:${clip.id}:${Object.keys(patch).join(',')}`)
+  /** A clip on the main track goes up to V2, where it can be keyed, masked and blended. */
+  const moveToOverlay = (clip: Clip) => {
+    const item = placed.find(entry => entry.clip.id === clip.id)
+    if (!item) return
+    change(current => ({ ...current, clips: current.clips.filter(entry => entry.id !== clip.id), overlays: [...(current.overlays ?? []), { ...clip, track: 2, start: item.start, transition: { type: 'cut', duration: 0 } }] }))
+    setNotice('Moved to V2. Put something on the main track (V1) to show underneath it.')
+  }
+  const layersHere = [
+    ...overlays.filter(item => time >= item.start && time < item.end).sort((x, y) => (y.clip.track ?? 2) - (x.clip.track ?? 2)),
+    ...(mainAt(time) ? [mainAt(time)!] : []),
+  ]
+
   const goToPage = (next: StudioPage) => {
+    setPicking(false)
+    if (next === 'mixer' && !(selection?.kind === 'clip' && overlays.some(item => item.clip.id === selection.id))) {
+      const top = overlays.find(item => time >= item.start && time < item.end) ?? overlays[0]
+      if (top) setSelection({ kind: 'clip', id: top.clip.id })
+    }
     if (next === 'color' && selection?.kind !== 'clip') {
       const target = mainAt(time) ?? placed[0]
       if (target) setSelection({ kind: 'clip', id: target.clip.id })
@@ -1411,9 +1470,9 @@ function VideoStudio({ projectId, onOpenProject, onNewProject }: { projectId: st
         if (next) { event.preventDefault(); goToPage(next) }
         return
       }
-      if (page !== 'edit' && page !== 'cut' && page !== 'color') return
-      // The Color page only plays and moves the playhead.
-      if (page === 'color' && !['Space', 'ArrowLeft', 'ArrowRight', 'Home', 'End'].includes(event.code)) return
+      if (page !== 'edit' && page !== 'cut' && page !== 'color' && page !== 'mixer') return
+      // The Color and Mixer pages only play and move the playhead.
+      if ((page === 'color' || page === 'mixer') && !['Space', 'ArrowLeft', 'ArrowRight', 'Home', 'End'].includes(event.code)) return
       const mod = event.metaKey || event.ctrlKey
       const key = event.key.toLowerCase()
       if (mod && key === 'z') { event.preventDefault(); if (event.shiftKey) redo(); else undo(); return }
@@ -1561,6 +1620,21 @@ function VideoStudio({ projectId, onOpenProject, onNewProject }: { projectId: st
 
   const onPreviewPointerDown = (event: ReactPointerEvent<HTMLCanvasElement>) => {
     const rect = event.currentTarget.getBoundingClientRect()
+    if (pickingRef.current && selectedClip) {
+      const canvas = event.currentTarget
+      const px = Math.round(((event.clientX - rect.left) / rect.width) * canvas.width), py = Math.round(((event.clientY - rect.top) / rect.height) * canvas.height)
+      const data = canvas.getContext('2d')?.getImageData(Math.max(0, px - 2), Math.max(0, py - 2), 5, 5).data
+      if (data) {
+        let r = 0, g = 0, b = 0
+        for (let i = 0; i < data.length; i += 4) { r += data[i]; g += data[i + 1]; b += data[i + 2] }
+        const n = data.length / 4
+        const hex = `#${[r, g, b].map(value => Math.round(value / n).toString(16).padStart(2, '0')).join('')}`
+        setMix(selectedClip, { key: { on: true, color: hex } })
+        setNotice(`Keyed out ${hex.toUpperCase()}. Raise Tolerance if some of it is left, lower it if too much disappears.`)
+      }
+      setPicking(false)
+      return
+    }
     const x0 = event.clientX, y0 = event.clientY
     const title = selectedTitle
     const clip = selection?.kind === 'clip' ? selectedClip : null
@@ -1736,7 +1810,51 @@ function VideoStudio({ projectId, onOpenProject, onNewProject }: { projectId: st
           history={exportsDone}
         />
       ) : null}
-      <div className={`mac-workspace min-h-0 flex-1 ${page === 'edit' || page === 'cut' || page === 'color' ? 'flex' : 'hidden'}`}>
+      <div className={`mac-workspace min-h-0 flex-1 ${page === 'edit' || page === 'cut' || page === 'color' || page === 'mixer' ? 'flex' : 'hidden'}`}>
+        {page === 'mixer' ? (
+          <aside className="mac-sidebar flex w-[270px] shrink-0 flex-col overflow-y-auto border-r border-white/[0.06] bg-[#111214] p-3">
+            <p className="text-[12px] font-semibold">Layers at the playhead</p>
+            <p className="mb-3 text-[10px] leading-4 text-muted-foreground">Top of the list is in front. Pick a layer on V2 or V3 to key out a green screen, mask it or blend it with what is under it.</p>
+            <ul className="space-y-1">
+              {project.titles.filter(title => time >= title.start && time < title.start + title.duration).map(title => (
+                <li key={title.id}>
+                  <button type="button" onClick={() => { setSelection({ kind: 'title', id: title.id }); goToPage('edit') }} className="flex w-full items-center gap-2 rounded-lg border border-white/[0.06] px-2 py-1.5 text-left hover:border-white/20" title="Titles are edited on the Edit page">
+                    <span className="flex h-8 w-12 shrink-0 items-center justify-center rounded bg-white/[0.05] text-[13px] font-bold">T</span>
+                    <span className="min-w-0"><span className="block truncate text-[11px] font-medium">{title.text.split('\n')[0] || 'Title'}</span><span className="block text-[9px] text-muted-foreground">Title · edit on the Edit page</span></span>
+                  </button>
+                </li>
+              ))}
+              {layersHere.map(item => {
+                const info = mediaFor(item.clip)
+                const active = selection?.kind === 'clip' && selection.id === item.clip.id
+                const mix = withMix(item.clip.mix)
+                const onMain = !item.clip.track
+                return (
+                  <li key={item.clip.id}>
+                    <button type="button" onClick={() => setSelection({ kind: 'clip', id: item.clip.id })} className={`flex w-full items-center gap-2 rounded-lg border px-2 py-1.5 text-left ${active ? 'border-primary/50 bg-primary/10' : 'border-white/[0.06] hover:border-white/20'}`}>
+                      {info?.thumbnail ? <img src={info.thumbnail} alt="" className="h-8 w-12 shrink-0 rounded bg-black object-cover" /> : <span className="h-8 w-12 shrink-0 rounded bg-white/[0.05]" />}
+                      <span className="min-w-0">
+                        <span className="block truncate text-[11px] font-medium">{info?.name ?? 'Clip'}</span>
+                        <span className="block text-[9px] text-muted-foreground">{onMain ? 'V1 · main track' : `V${item.clip.track}`}{mix.key.on ? ' · green screen' : ''}{mix.mask.shape !== 'none' ? ' · mask' : ''}{mix.blend !== 'normal' ? ` · ${BLEND_MODES.find(mode => mode.id === mix.blend)?.name}` : ''}</span>
+                      </span>
+                    </button>
+                  </li>
+                )
+              })}
+              {!layersHere.length ? <li className="rounded-lg bg-white/[0.02] px-2 py-3 text-[10px] text-muted-foreground">Nothing at the playhead. Move it over a clip, or add one on top below.</li> : null}
+            </ul>
+            <p className="mb-1.5 mt-4 text-[10px] font-semibold uppercase tracking-[0.14em] text-muted-foreground">Add on top, at the playhead</p>
+            <div className="grid grid-cols-3 gap-1.5">
+              {media.filter(item => !item.sfx && item.kind !== 'audio').map(item => (
+                <button key={item.id} type="button" onClick={() => placeOnTop(item)} title={`Put ${item.name} on top at the playhead`} className="overflow-hidden rounded-md border border-white/[0.08] hover:border-primary/50">
+                  {item.thumbnail ? <img src={item.thumbnail} alt="" className="aspect-video w-full bg-black object-cover" /> : <span className="block aspect-video bg-white/[0.05]" />}
+                  <span className="block truncate px-1 py-0.5 text-[8px]">{item.name}</span>
+                </button>
+              ))}
+            </div>
+            {!media.some(item => !item.sfx && item.kind !== 'audio') ? <button type="button" onClick={() => fileRef.current?.click()} className="mt-1 w-full rounded-lg border border-dashed border-white/[0.14] px-3 py-4 text-[10px] text-muted-foreground hover:border-primary/50">Import a green-screen clip or a graphic</button> : null}
+          </aside>
+        ) : null}
         {page === 'color' ? (() => {
           const clip = selectedClip && selection?.kind === 'clip' ? selectedClip : null
           const info = clip ? mediaFor(clip) : null
@@ -2062,6 +2180,82 @@ function VideoStudio({ projectId, onOpenProject, onNewProject }: { projectId: st
         </section>
 
         {/* Right: inspector */}
+        {page === 'mixer' ? (() => {
+          const clip = selectedClip && selection?.kind === 'clip' ? selectedClip : null
+          const isOverlay = Boolean(clip && project.overlays?.some(item => item.id === clip.id))
+          const mix = withMix(clip?.mix)
+          const move = { ...IDENTITY_TRANSFORM, ...clip?.transform }
+          const shown = clip ? { ...move, opacity: clip.opacity ?? 1, ...(keyframeValues(clip, localTime(clip)) ?? {}) } : null
+          return (
+            <aside className="mac-sidebar flex w-[300px] shrink-0 flex-col overflow-y-auto border-l border-white/[0.06] bg-[#111214]">
+              {!clip ? <p className="p-4 text-[12px] leading-5 text-muted-foreground">Pick a layer on the left.</p> : !isOverlay ? (
+                <div className="space-y-3 p-4">
+                  <p className="text-[12px] font-semibold">{mediaFor(clip)?.name ?? 'Clip'} is on the main track</p>
+                  <p className="text-[11px] leading-5 text-muted-foreground">Green screen, masks and blend modes mix a layer with what is under it, so they work on V2 and V3. Move this clip up, then put the background on the main track.</p>
+                  <button type="button" onClick={() => moveToOverlay(clip)} className="inline-flex h-9 w-full items-center justify-center rounded-lg bg-primary text-[12px] font-semibold text-primary-foreground">Move it up to V2</button>
+                </div>
+              ) : (
+                <>
+                  <div className="flex items-center gap-2 border-b border-white/[0.06] px-3 py-3">
+                    {mediaFor(clip)?.thumbnail ? <img src={mediaFor(clip)!.thumbnail!} alt="" className="h-9 w-14 rounded bg-black object-contain" /> : null}
+                    <div className="min-w-0"><p className="truncate text-[12px] font-semibold">{mediaFor(clip)?.name ?? 'Clip'}</p><p className="text-[10px] text-muted-foreground">On V{clip.track ?? 2}</p></div>
+                  </div>
+                  <Section title="Green screen" action={mix.key.on ? <button type="button" onClick={() => setMix(clip, { key: { on: false } })} className="text-[10px] text-muted-foreground hover:text-foreground">Turn off</button> : null}>
+                    <div className="grid grid-cols-3 gap-1">
+                      <button type="button" onClick={() => setMix(clip, { key: { on: true, color: '#00b140' } })} className={`h-8 rounded-md text-[10px] font-semibold ${mix.key.on && mix.key.color === '#00b140' ? 'bg-primary text-primary-foreground' : 'bg-white/[0.05] hover:bg-white/[0.1]'}`}>Green</button>
+                      <button type="button" onClick={() => setMix(clip, { key: { on: true, color: '#0047bb' } })} className={`h-8 rounded-md text-[10px] font-semibold ${mix.key.on && mix.key.color === '#0047bb' ? 'bg-primary text-primary-foreground' : 'bg-white/[0.05] hover:bg-white/[0.1]'}`}>Blue</button>
+                      <button type="button" onClick={() => setPicking(value => !value)} aria-pressed={picking} title="Then click the screen colour in the preview" className={`h-8 rounded-md text-[10px] font-semibold ${picking ? 'bg-[#ffe066] text-black' : 'bg-white/[0.05] hover:bg-white/[0.1]'}`}>{picking ? 'Click preview…' : 'Pick colour'}</button>
+                    </div>
+                    {mix.key.on ? (
+                      <>
+                        <label className="flex items-center gap-2 text-[10px] text-muted-foreground"><span className="w-[72px] shrink-0">Key colour</span><input type="color" value={mix.key.color} onChange={event => setMix(clip, { key: { color: event.target.value } }, `mix:${clip.id}:keycolor`)} className="h-6 w-10 cursor-pointer rounded border-0 bg-transparent" /><span className="font-mono text-foreground/80">{mix.key.color.toUpperCase()}</span></label>
+                        <Slider label="Tolerance" value={mix.key.tolerance} min={0} max={0.5} step={0.005} reset={DEFAULT_KEY.tolerance} onChange={tolerance => setMix(clip, { key: { tolerance } }, `mix:${clip.id}:tolerance`)} format={value => `${Math.round(value * 200)}`} />
+                        <Slider label="Softness" value={mix.key.softness} min={0} max={0.4} step={0.005} reset={DEFAULT_KEY.softness} onChange={softness => setMix(clip, { key: { softness } }, `mix:${clip.id}:softness`)} format={value => `${Math.round(value * 250)}`} />
+                        <Slider label="Remove spill" value={mix.key.spill} min={0} max={1} step={0.01} reset={DEFAULT_KEY.spill} onChange={spill => setMix(clip, { key: { spill } }, `mix:${clip.id}:spill`)} format={value => `${Math.round(value * 100)}%`} />
+                      </>
+                    ) : <p className="text-[9px] leading-4 text-muted-foreground">Filmed in front of a green or blue screen? Pick its colour and it disappears, showing the track below.</p>}
+                  </Section>
+                  <Section title="Mask">
+                    <div className="grid grid-cols-3 gap-1">
+                      {([['none', 'None'], ['rect', 'Rectangle'], ['ellipse', 'Circle']] as const).map(([shape, label]) => (
+                        <button key={shape} type="button" onClick={() => setMix(clip, { mask: { shape } })} className={`h-8 rounded-md text-[10px] font-semibold ${mix.mask.shape === shape ? 'bg-primary text-primary-foreground' : 'bg-white/[0.05] hover:bg-white/[0.1]'}`}>{label}</button>
+                      ))}
+                    </div>
+                    {mix.mask.shape !== 'none' ? (
+                      <>
+                        <Slider label="Centre X" value={mix.mask.x} min={0} max={1} step={0.005} reset={0.5} onChange={x => setMix(clip, { mask: { x } }, `mix:${clip.id}:mx`)} format={value => `${Math.round(value * 100)}`} />
+                        <Slider label="Centre Y" value={mix.mask.y} min={0} max={1} step={0.005} reset={0.5} onChange={y => setMix(clip, { mask: { y } }, `mix:${clip.id}:my`)} format={value => `${Math.round(value * 100)}`} />
+                        <Slider label="Width" value={mix.mask.width} min={0.02} max={1.5} step={0.005} reset={0.6} onChange={width => setMix(clip, { mask: { width } }, `mix:${clip.id}:mw`)} format={value => `${Math.round(value * 100)}%`} />
+                        <Slider label="Height" value={mix.mask.height} min={0.02} max={1.5} step={0.005} reset={0.6} onChange={height => setMix(clip, { mask: { height } }, `mix:${clip.id}:mh`)} format={value => `${Math.round(value * 100)}%`} />
+                        <Slider label="Soft edge" value={mix.mask.feather} min={0} max={0.8} step={0.01} reset={DEFAULT_MASK.feather} onChange={feather => setMix(clip, { mask: { feather } }, `mix:${clip.id}:mf`)} format={value => `${Math.round(value * 100)}`} />
+                        <label className="flex items-center gap-2 text-[10px] text-muted-foreground"><input type="checkbox" checked={mix.mask.invert} onChange={event => setMix(clip, { mask: { invert: event.target.checked } })} className="accent-[#9dfab0]" /> Show outside the shape instead</label>
+                      </>
+                    ) : <p className="text-[9px] leading-4 text-muted-foreground">Show the clip only inside a rectangle or a circle: a round face-cam, a spotlight, a split screen.</p>}
+                  </Section>
+                  <Section title="Blend">
+                    <div className="grid grid-cols-2 gap-1">
+                      {BLEND_MODES.map(mode => (
+                        <button key={mode.id} type="button" onClick={() => setMix(clip, { blend: mode.id })} className={`h-8 rounded-md text-[10px] font-semibold ${mix.blend === mode.id ? 'bg-primary text-primary-foreground' : 'bg-white/[0.05] hover:bg-white/[0.1]'}`}>{mode.name}</button>
+                      ))}
+                    </div>
+                    <p className="text-[9px] leading-4 text-muted-foreground">Screen and Add make black disappear (light leaks, sparks, smoke). Multiply makes white disappear (paper textures, ink).</p>
+                  </Section>
+                  {shown ? (
+                    <Section title="Position and animation">
+                      <Slider label="Opacity" value={shown.opacity} min={0} max={1} step={0.01} reset={1} onChange={opacity => updateOpacity(clip, opacity)} format={value => `${Math.round(value * 100)}%`} />
+                      <Slider label="Scale" value={shown.scale} min={0.05} max={4} step={0.01} reset={1} onChange={scale => updateTransform(clip, { scale })} format={value => `${Math.round(value * 100)}%`} />
+                      <Slider label="Position X" value={shown.x} min={-1} max={1} step={0.005} onChange={x => updateTransform(clip, { x })} format={value => `${Math.round(value * 100)}`} />
+                      <Slider label="Position Y" value={shown.y} min={-1} max={1} step={0.005} onChange={y => updateTransform(clip, { y })} format={value => `${Math.round(value * 100)}`} />
+                      <Slider label="Rotate" value={shown.rotate} min={-180} max={180} step={1} onChange={rotate => updateTransform(clip, { rotate })} format={value => `${Math.round(value)}°`} />
+                      <button type="button" onClick={() => addKeyframe(clip)} className="inline-flex h-8 w-full items-center justify-center gap-1.5 rounded-md bg-white/[0.06] text-[11px] font-semibold hover:bg-white/[0.1]"><span className="inline-block h-2.5 w-2.5 rotate-45 rounded-[1px] border border-current" /> Add keyframe here</button>
+                      <p className="text-[9px] leading-4 text-muted-foreground">{clip.keyframes?.length ? `${clip.keyframes.length} keyframes: changes here are keyed at the playhead.` : 'Drag the layer in the preview to place it.'}</p>
+                    </Section>
+                  ) : null}
+                </>
+              )}
+            </aside>
+          )
+        })() : null}
         {page === 'color' ? (
           <aside className="mac-sidebar flex w-[300px] shrink-0 flex-col gap-4 overflow-y-auto border-l border-white/[0.06] bg-[#111214] p-3">
             <div>
@@ -2318,7 +2512,7 @@ function VideoStudio({ projectId, onOpenProject, onNewProject }: { projectId: st
       </div>
 
       {/* Timeline */}
-      <div className={`mac-timeline shrink-0 border-t border-white/[0.06] bg-[#0f1012] ${page === 'edit' || page === 'cut' ? '' : 'hidden'}`} style={{ height: 24 + 78 + 36 * 4 + 40 * overlayLanes.length + 38 }}>
+      <div className={`mac-timeline shrink-0 border-t border-white/[0.06] bg-[#0f1012] ${page === 'edit' || page === 'cut' || page === 'mixer' ? '' : 'hidden'}`} style={{ height: 24 + 78 + 36 * 4 + 40 * overlayLanes.length + 38 }}>
         <div className="flex h-full">
           <div className="shrink-0 border-r border-white/[0.06] pt-6 text-[10px] text-muted-foreground" style={{ width: TRACK_HEAD }}>
             {overlayLanes.map(track => <p key={track} className="flex h-[40px] items-center gap-1.5 px-3" title={`Video track ${track}: drawn on top of the tracks below it`}><Layers className="h-3.5 w-3.5" /> V{track}</p>)}

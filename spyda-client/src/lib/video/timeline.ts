@@ -1,5 +1,5 @@
 import type { ClipColor } from './color'
-import { IDENTITY_TRANSFORM, NEUTRAL_GRADE, type ClipFit, type ClipTransform, type EffectId, type Grade, type TransitionId } from './renderer'
+import { IDENTITY_TRANSFORM, NEUTRAL_GRADE, type BlendMode, type ClipFit, type ClipTransform, type EffectId, type Grade, type TransitionId } from './renderer'
 
 /**
  * The video editor's timeline: a main track of clips (video or still image)
@@ -52,11 +52,33 @@ export type Clip = {
   opacity?: number
   /** Colour wheels and curves, on top of `grade` (the Color page). */
   color?: ClipColor
+  /** How an overlay clip mixes with what is under it (the Mixer page). */
+  mix?: ClipMix
   /** Animation: the clip's position, size, rotation and opacity at moments of its own time. */
   keyframes?: Keyframe[]
   /** Overlay clips only: the video track above the main one (2 = V2) and where it starts. */
   track?: number
   start?: number
+}
+
+/** Green screen: pixels near `color` become see-through. */
+export type ClipKey = { on: boolean; color: string; tolerance: number; softness: number; spill: number }
+/** Show the clip only inside (or outside) a shape; position and size are fractions of the frame. */
+export type ClipMask = { shape: 'none' | 'rect' | 'ellipse'; x: number; y: number; width: number; height: number; feather: number; invert: boolean }
+export type ClipMix = { blend: BlendMode; key: ClipKey; mask: ClipMask }
+
+export const DEFAULT_KEY: ClipKey = { on: false, color: '#00b140', tolerance: 0.1, softness: 0.08, spill: 0.6 }
+export const DEFAULT_MASK: ClipMask = { shape: 'none', x: 0.5, y: 0.5, width: 0.6, height: 0.6, feather: 0.08, invert: false }
+
+export function withMix(mix?: Partial<ClipMix> | null): ClipMix {
+  return { blend: mix?.blend ?? 'normal', key: { ...DEFAULT_KEY, ...mix?.key }, mask: { ...DEFAULT_MASK, ...mix?.mask } }
+}
+
+export function hexToRgb(hex: string): [number, number, number] {
+  const clean = hex.replace('#', '')
+  const full = clean.length === 3 ? clean.split('').map(c => c + c).join('') : clean.padEnd(6, '0').slice(0, 6)
+  const value = Number.parseInt(full, 16)
+  return [((value >> 16) & 255) / 255, ((value >> 8) & 255) / 255, (value & 255) / 255]
 }
 
 /** One moment of a clip's animation; `at` is seconds from the clip's start on the timeline. */
