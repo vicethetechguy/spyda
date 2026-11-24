@@ -152,7 +152,7 @@ export default function MotionCard({ motion, onRetry, onFix }: MotionCardProps) 
   if (motion.status === 'failed' || !motion.code) {
     return (
       <div className="mt-1 w-full max-w-md rounded-[22px] border border-destructive/30 bg-destructive/10 p-4">
-        <p className="text-sm text-red-200">{motion.error || 'The motion design could not be made.'}</p>
+        <p className="text-sm text-red-200 [overflow-wrap:anywhere]">{motion.error || 'The motion design could not be made.'}</p>
         <button type="button" onClick={onRetry} className="mt-3 inline-flex h-9 items-center gap-1.5 rounded-full bg-primary px-4 text-xs font-semibold text-primary-foreground">
           <RefreshCw className="h-3.5 w-3.5" /> Try again
         </button>

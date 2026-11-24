@@ -16,7 +16,7 @@ vi.mock('../../api/_utils.js', () => ({
 vi.mock('../../api/_ocr_service.js', () => ({ runOcr: async () => ({ enabled: false, fullText: '', words: [] }) }))
 vi.mock('../../api/_qa.js', () => ({ runGenerationQa: async () => ({ ok: true, passed: true, score: 1 }) }))
 
-const { setBillingDb, requireUser, readModelMode, isByok, withGenerationCharge } = await import('../../api/_billing.js')
+const { setBillingDb, requireUser, readModelMode, isByok, withGenerationCharge, friendlyProviderError } = await import('../../api/_billing.js')
 const chat = (await import('../../api/chat.js')).default
 const generate = (await import('../../api/generate.js')).default
 const analyze = (await import('../../api/analyze.js')).default
@@ -134,6 +134,14 @@ describe('server-side generation charge', () => {
     generateDesign.mockReset()
   })
   afterEach(() => setBillingDb(null))
+
+  it('hides a provider billing problem behind a plain message', () => {
+    const raw = 'You have no credits remaining. Add credits to continue using the API at https://platform.openai.com/settings/organization/billing'
+    expect(friendlyProviderError(raw)).toMatch(/unavailable right now.*refunded/)
+    expect(friendlyProviderError(raw)).not.toMatch(/openai\.com/)
+    expect(friendlyProviderError('Rate limit reached for gpt-image-2')).toMatch(/very busy/)
+    expect(friendlyProviderError('Import the flyer first.')).toBe('Import the flyer first.')
+  })
 
   it('reads the model mode and own key from the request', () => {
     expect(readModelMode({ headers: { 'x-spyda-model-mode': 'groq' } })).toBe('groq')

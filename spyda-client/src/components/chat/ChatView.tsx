@@ -441,7 +441,7 @@ function EditCard({ edit, cost, imagesOff, canAfford, onGenerate, onDecline, onO
         </div>
       </div>
       {edit.status === 'failed' && edit.error ? (
-        <p className="mt-3 rounded-xl border border-destructive/30 bg-destructive/10 px-3 py-2 text-xs text-red-200">{edit.error}</p>
+        <p className="mt-3 rounded-xl border border-destructive/30 bg-destructive/10 px-3 py-2 text-xs leading-5 text-red-200 [overflow-wrap:anywhere]">{edit.error}</p>
       ) : null}
       <div className="mt-3.5 flex flex-wrap items-center gap-2">
         {imagesOff ? null : canAfford ? (
@@ -471,7 +471,7 @@ function EditCard({ edit, cost, imagesOff, canAfford, onGenerate, onDecline, onO
 }
 
 /** `live` runs the liquid-metal mark; only the newest reply gets it, so a long chat holds one WebGL context, not one per message. */
-function MessageRow({ message, live = false, children }: { message: ChatMessage; live?: boolean; children?: React.ReactNode }) {
+function MessageRow({ message, live = false, loading = false, children }: { message: ChatMessage; live?: boolean; loading?: boolean; children?: React.ReactNode }) {
   if (message.role === 'user') {
     return (
       <div className="flex justify-end">
@@ -493,12 +493,12 @@ function MessageRow({ message, live = false, children }: { message: ChatMessage;
 
   return (
     <div className="flex gap-3">
-      <div className="mt-0.5 flex h-8 w-8 shrink-0 items-center justify-center rounded-full border border-primary/25 bg-[#0b1412]">
-        <BrandMark size={22} animated={live} />
+      <div className={`brand-ring mt-0.5 flex h-8 w-8 shrink-0 items-center justify-center rounded-full border bg-[#0b1412] ${loading ? 'brand-ring--on border-transparent' : 'border-primary/25'}`}>
+        <BrandMark size={22} animated={live || loading} />
       </div>
       <div className="min-w-0 flex-1">
         {message.error ? (
-          <p className="rounded-2xl border border-destructive/30 bg-destructive/10 px-4 py-3 text-sm text-red-200">{message.text}</p>
+          <p className="rounded-2xl border border-destructive/30 bg-destructive/10 px-4 py-3 text-sm text-red-200 [overflow-wrap:anywhere]">{message.text}</p>
         ) : (
           <ChatMarkdown text={message.text} />
         )}
@@ -511,7 +511,7 @@ function MessageRow({ message, live = false, children }: { message: ChatMessage;
 function ThinkingRow() {
   return (
     <div className="flex items-center gap-3" role="status" aria-label="Spyda is thinking">
-      <div className="flex h-8 w-8 items-center justify-center rounded-full border border-primary/25 bg-[#0b1412]"><BrandMark size={22} animated /></div>
+      <div className="brand-ring brand-ring--on flex h-8 w-8 items-center justify-center rounded-full border border-transparent bg-[#0b1412]"><BrandMark size={22} animated /></div>
       <div className="flex gap-1.5">
         {[0, 1, 2].map(dot => (
           <span key={dot} className="h-2 w-2 rounded-full bg-primary/70 motion-safe:animate-bounce" style={{ animationDelay: `${dot * 140}ms` }} />
@@ -976,7 +976,7 @@ export default function ChatView({ modelProvider, headerSlot, seed, onOpenWallet
               Import a design you like and tell me what to change. I will make it yours, or animate it with Claude. Every credit you use builds your SPYDA rewards.
             </p>
             <div className="mt-8 text-left">{composer}</div>
-            {notice ? <p className="mt-3 text-xs text-red-200">{notice}</p> : null}
+            {notice ? <p className="mt-3 text-xs text-red-200 [overflow-wrap:anywhere]">{notice}</p> : null}
             <div className="mt-5 grid gap-3 text-left sm:grid-cols-3">
               {SUGGESTIONS.map(item => (
                 <button
@@ -997,7 +997,7 @@ export default function ChatView({ modelProvider, headerSlot, seed, onOpenWallet
           <div ref={scrollRef} className="relative min-h-0 flex-1 overflow-y-auto px-4 pt-6">
             <div className="mx-auto flex max-w-3xl flex-col gap-7 pb-6">
               {messages.map((message, index) => (
-                <MessageRow key={message.id} message={message} live={!thinking && index === lastReplyIndex}>
+                <MessageRow key={message.id} message={message} live={!thinking && index === lastReplyIndex} loading={message.edit?.status === 'generating' || message.motion?.status === 'generating'}>
                   {message.error && index === messages.length - 1 ? (
                     <button type="button" onClick={retryLast} className="mt-2 inline-flex items-center gap-1.5 text-xs font-semibold text-primary"><RefreshCw className="h-3.5 w-3.5" /> Try again</button>
                   ) : null}
@@ -1041,7 +1041,7 @@ export default function ChatView({ modelProvider, headerSlot, seed, onOpenWallet
           </div>
           <div className="relative px-4 pb-4 pt-2">
             <div className="mx-auto max-w-3xl">
-              {notice ? <p className="mb-2 text-xs text-red-200">{notice}</p> : null}
+              {notice ? <p className="mb-2 text-xs text-red-200 [overflow-wrap:anywhere]">{notice}</p> : null}
               {composer}
             </div>
           </div>

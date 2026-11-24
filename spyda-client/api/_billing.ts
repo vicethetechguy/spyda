@@ -165,7 +165,22 @@ export function billingSummary(charge: GenerationCharge) {
   };
 }
 
+/**
+ * An AI provider's account problem (no credits, quota, billing, rate limit)
+ * is Spyda's to fix, not the user's: say so plainly instead of passing on the
+ * provider's message and its billing link. The charge was already refunded.
+ */
+export function friendlyProviderError(message: string): string {
+  if (/no credits|insufficient_quota|exceeded your current quota|billing|quota/i.test(message)) {
+    return "Spyda's image service is unavailable right now. Your credits were refunded. Please try again a little later.";
+  }
+  if (/rate limit|too many requests/i.test(message)) {
+    return 'Spyda is very busy right now. Your credits were refunded. Please try again in a minute.';
+  }
+  return message;
+}
+
 export function sendError(res: any, error: any, fallback: string) {
   if (error instanceof HttpError) return res.status(error.status).json({ ok: false, error: error.message });
-  return res.status(500).json({ ok: false, error: String(error?.message || fallback) });
+  return res.status(500).json({ ok: false, error: friendlyProviderError(String(error?.message || fallback)) });
 }

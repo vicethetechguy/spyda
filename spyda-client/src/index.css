@@ -865,7 +865,9 @@
    card's own background and only shows round its edge. */
 .faq-card { position: relative; }
 .faq-card::before,
-.faq-card::after {
+.faq-card::after,
+.brand-ring::before,
+.brand-ring::after {
   content: '';
   position: absolute;
   inset: -1px;
@@ -875,16 +877,23 @@
   background: conic-gradient(from var(--faq-bolt), transparent 0deg, transparent 190deg, rgba(157, 250, 176, 0.35) 250deg, #9dfab0 310deg, #ffffff 334deg, #8bd3ff 350deg, transparent 360deg);
   transition: opacity 300ms ease;
 }
-.faq-card::before {
+.faq-card::before,
+.brand-ring::before {
   padding: 2px;
   -webkit-mask: linear-gradient(#000 0 0) content-box, linear-gradient(#000 0 0);
   -webkit-mask-composite: xor;
   mask: linear-gradient(#000 0 0) content-box exclude, linear-gradient(#000 0 0);
 }
-.faq-card::after {
+.faq-card::after,
+.brand-ring::after {
   z-index: -1;
   filter: blur(14px);
 }
+/* The reply avatar: the same light, looping while Spyda thinks or generates. */
+.brand-ring { position: relative; }
+.brand-ring::after { filter: blur(6px); }
+.brand-ring--on::before { opacity: 1; animation: faq-bolt 1.6s linear infinite; }
+.brand-ring--on::after { opacity: 0.7; animation: faq-bolt 1.6s linear infinite; }
 .faq-card--open::before { opacity: 1; animation: faq-bolt 2.6s linear infinite; }
 .faq-card--open::after { opacity: 0.45; animation: faq-bolt 2.6s linear infinite; }
 /* The first lap is quick, like a strike, then it settles into a steady run. */
@@ -893,7 +902,9 @@
 @keyframes faq-bolt { to { --faq-bolt: 360deg; } }
 @keyframes faq-bolt-strike { from { --faq-bolt: -360deg; } to { --faq-bolt: 0deg; } }
 @media (prefers-reduced-motion: reduce) {
-  .faq-card--open::before, .faq-card--open::after { animation: none; }
+  .faq-card--open::before, .faq-card--open::after, .brand-ring--on::before, .brand-ring--on::after { animation: none; }
+  .brand-ring--on::before { background: linear-gradient(135deg, #9dfab0, #8bd3ff); }
+  .brand-ring--on::after { opacity: 0; }
   .faq-card--open::before { background: linear-gradient(135deg, #9dfab0, #8bd3ff); }
   .faq-card--open::after { opacity: 0; }
 }

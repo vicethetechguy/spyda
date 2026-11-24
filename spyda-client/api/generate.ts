@@ -1,6 +1,6 @@
 import { generateDesign } from './_utils.js';
 import { runGenerationQa } from './_qa.js';
-import { HttpError, billingSummary, isByok, readModelMode, requireUser, withGenerationCharge } from './_billing.js';
+import { HttpError, billingSummary, friendlyProviderError, isByok, readModelMode, requireUser, withGenerationCharge } from './_billing.js';
 import formidable from 'formidable';
 import { readFile } from 'node:fs/promises';
 
@@ -161,7 +161,7 @@ export default async function handler(req: any, res: any) {
       ok: false,
       error: isUploadLimit
         ? 'The generation package was too large. Spyda has reduced image uploads, but try again with smaller replacement images if this repeats.'
-        : message,
+        : friendlyProviderError(message),
     });
   }
 }
