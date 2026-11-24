@@ -948,7 +948,7 @@
   .mac-ui .mac-tabs { background: rgba(255, 255, 255, 0.025) !important; border-bottom-color: var(--mac-edge) !important; padding-top: 6px; height: 34px; }
   .mac-ui .mac-tabs .editor-doc-tab { border-radius: 9px 9px 0 0; }
   .mac-ui .mac-timeline { margin: 0 10px 10px; }
-  .mac-ui .mac-sidebar > * { background-color: transparent; }
+  .mac-ui .mac-sidebar > *:not(button) { background-color: transparent; }
   .mac-ui .mac-statusbar { background: transparent !important; border-top-color: transparent !important; }
 }
 
@@ -956,3 +956,12 @@
 .video-transport { container-type: inline-size; }
 .video-transport .transport-label { display: none; }
 @container (min-width: 900px) { .video-transport .transport-label { display: inline; } }
+
+/* Video studio page bar: floats on the desktop like a dock. */
+.mac-ui .mac-pagebar { background: transparent !important; border-top-color: transparent !important; }
+.mac-ui .mac-pagebar [role="tablist"] {
+  background: rgba(32, 33, 38, 0.66) !important;
+  -webkit-backdrop-filter: blur(28px) saturate(1.7);
+  backdrop-filter: blur(28px) saturate(1.7);
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.12), 0 14px 40px -18px rgba(0, 0, 0, 0.8), inset 0 0 0 1px rgba(255, 255, 255, 0.08);
+}

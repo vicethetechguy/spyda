@@ -19,6 +19,11 @@ export type MediaItem = {
   thumbnail: string | null
   /** One of Spyda's built-in sound effects, not a file the user imported. */
   sfx?: boolean
+  /** Media page organisation. */
+  favourite?: boolean
+  folder?: string | null
+  size?: number
+  addedAt?: string
 }
 
 export type Clip = {

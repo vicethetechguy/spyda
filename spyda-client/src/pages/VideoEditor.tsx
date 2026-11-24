@@ -19,6 +19,14 @@ import {
 import { BUNDLED_FAMILIES, loadFontPreviews, previewFamily } from '../lib/fonts'
 import { renderSoundEffects } from '../lib/video/sound-effects'
 import SellDesignDialog from '../components/marketplace/SellDesignDialog'
+import PageBar from '../components/video/PageBar'
+import { PAGE_KEYS, type StudioPage } from '../lib/video/studio-pages'
+import MediaPage from '../components/video/MediaPage'
+import ExportPage, { type ExportRecord, type ExportRequest } from '../components/video/ExportPage'
+import {
+  VIDEO_PROJECTS_EVENT, blankVideoProject, currentVideoProjectId, deleteVideoProject, forgetMediaFile, listVideoProjects,
+  loadMediaFile, readVideoProject, saveVideoProject, setCurrentVideoProject, storeMediaFile, type SavedVideoProject,
+} from '../lib/video/video-projects'
 import { decodePackage, encodePackage, type PackageFile } from '../lib/design-package'
 import { deleteAsset, getAssetBlob } from '../lib/asset-store'
 
@@ -390,11 +398,20 @@ function tickStep(zoom: number) {
   return [0.1, 0.25, 0.5, 1, 2, 5, 10, 15, 30, 60, 120, 300, 600].find(step => step * zoom >= 64) ?? 600
 }
 
-export default function VideoEditor() {
+function VideoStudio({ projectId, onOpenProject, onNewProject }: { projectId: string; onOpenProject: (id: string) => void; onNewProject: () => void }) {
   const navigate = useNavigate()
   const download = useDownload()
-  const [format, setFormat] = useState<Format>(FORMATS[0])
-  const [project, setProject] = useState<VideoProject>({ width: 1920, height: 1080, clips: [], titles: [], audio: [] })
+  // The saved project this studio opened (a blank one when it is new).
+  const [initial] = useState<SavedVideoProject>(() => readVideoProject(projectId) ?? { ...blankVideoProject(), id: projectId })
+  const [format, setFormat] = useState<Format>(() => FORMATS.find(item => item.id === initial.format) ?? FORMATS[0])
+  const [project, setProject] = useState<VideoProject>(initial.project)
+  const [projectName, setProjectName] = useState(initial.name)
+  const [folders, setFolders] = useState<string[]>(initial.folders ?? [])
+  const [page, setPage] = useState<StudioPage>(() => (initial.project.clips.length ? 'edit' : 'media'))
+  const [loaded, setLoaded] = useState(false)
+  const [projects, setProjects] = useState<SavedVideoProject[]>(() => listVideoProjects())
+  const [exportsDone, setExportsDone] = useState<ExportRecord[]>([])
+  const [cover, setCover] = useState<string | null>(initial.cover ?? null)
   const [media, setMedia] = useState<MediaItem[]>([])
   const [selection, setSelection] = useState<Selection>(null)
   const [time, setTime] = useState(0)
@@ -411,8 +428,8 @@ export default function VideoEditor() {
   const [importing, setImporting] = useState(false)
   const [dropping, setDropping] = useState(false)
   const [dropMarker, setDropMarker] = useState<{ track: 'video' | AudioLane; x: number } | null>(null)
-  const [quality, setQuality] = useState<(typeof QUALITIES)[number]['value']>('high')
-  const [fps, setFps] = useState<(typeof FRAME_RATES)[number]>(30)
+  const [quality, setQuality] = useState<(typeof QUALITIES)[number]['value']>(() => QUALITIES.find(item => item.value === initial.quality)?.value ?? 'high')
+  const [fps, setFps] = useState<(typeof FRAME_RATES)[number]>(() => FRAME_RATES.find(rate => rate === initial.fps) ?? 30)
   const [, setHistoryTick] = useState(0)
   const [scrollLeft, setScrollLeft] = useState(0)
 
@@ -801,7 +818,7 @@ export default function VideoEditor() {
       const items: MediaItem[] = []
       for (const { effect, file } of effects) {
         if (mediaRef.current.some(item => item.sfx && item.name === effect.name)) continue
-        try { items.push({ ...(await readMedia(file)), sfx: true }) } catch { /* skip one that will not decode */ }
+        try { items.push({ ...(await readMedia(file)), id: `sfx-${effect.id}`, sfx: true }) } catch { /* skip one that will not decode */ }
       }
       if (cancelled) { for (const item of items) URL.revokeObjectURL(item.url); return }
       mediaRef.current = [...mediaRef.current, ...items]
@@ -809,6 +826,72 @@ export default function VideoEditor() {
     })
     return () => { cancelled = true }
   }, [])
+
+  // The project's own files come back from this device's storage.
+  useEffect(() => {
+    let cancelled = false
+    void (async () => {
+      const items: MediaItem[] = []
+      let missing = 0
+      for (const meta of initial.media) {
+        if (meta.sfx) continue
+        const blob = await loadMediaFile(meta.id).catch(() => undefined)
+        if (!blob) { missing += 1; continue }
+        items.push({ ...meta, url: URL.createObjectURL(blob) })
+      }
+      if (cancelled) { for (const item of items) URL.revokeObjectURL(item.url); return }
+      mediaRef.current = [...items, ...mediaRef.current.filter(item => !items.some(entry => entry.id === item.id))]
+      setMedia(mediaRef.current)
+      setLoaded(true)
+      if (missing) setNotice(`${missing} ${missing === 1 ? 'file' : 'files'} of this project are no longer on this device. Import ${missing === 1 ? 'it' : 'them'} again to fill the gaps.`)
+    })()
+    return () => { cancelled = true }
+    // Loads once, for the project this studio opened.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [])
+
+  const snapshot = useCallback((): SavedVideoProject => ({
+    id: projectId,
+    name: projectName.trim() || 'Untitled video',
+    createdAt: initial.createdAt,
+    updatedAt: new Date().toISOString(),
+    format: format.id,
+    fps,
+    quality,
+    project,
+    media: media.filter(item => !item.sfx).map(({ url: _url, ...rest }) => rest),
+    folders,
+    cover: media.find(item => item.id === project.clips[0]?.mediaId)?.thumbnail ?? cover ?? null,
+  }), [cover, folders, format.id, fps, initial.createdAt, media, project, projectId, projectName, quality])
+  const snapshotRef = useRef(snapshot)
+  snapshotRef.current = snapshot
+  const [saveState, setSaveState] = useState<'saved' | 'saving' | 'failed'>('saved')
+  useEffect(() => {
+    if (!loaded) return
+    setSaveState('saving')
+    const timer = window.setTimeout(() => {
+      const ok = saveVideoProject(snapshotRef.current())
+      setSaveState(ok ? 'saved' : 'failed')
+      if (ok) setCurrentVideoProject(projectId)
+    }, 500)
+    return () => window.clearTimeout(timer)
+  }, [loaded, snapshot, projectId])
+  // Leaving the page saves straight away, not after the delay.
+  useEffect(() => {
+    const flush = () => { if (loaded) saveVideoProject(snapshotRef.current()) }
+    window.addEventListener('beforeunload', flush)
+    return () => { window.removeEventListener('beforeunload', flush); flush() }
+  }, [loaded])
+  useEffect(() => {
+    const refresh = () => setProjects(listVideoProjects())
+    window.addEventListener(VIDEO_PROJECTS_EVENT, refresh)
+    return () => window.removeEventListener(VIDEO_PROJECTS_EVENT, refresh)
+  }, [])
+
+  const updateMedia = (id: string, patch: Partial<MediaItem>) => {
+    mediaRef.current = mediaRef.current.map(item => (item.id === id ? { ...item, ...patch } : item))
+    setMedia(mediaRef.current)
+  }
 
   const previewSound = (item: MediaItem) => {
     previewAudio.current?.pause()
@@ -827,7 +910,8 @@ export default function VideoEditor() {
     let index = place?.index
     try {
       for (const file of usable) {
-        const item = await readMedia(file)
+        const item = { ...(await readMedia(file)), size: file.size, addedAt: new Date().toISOString() }
+        void storeMediaFile(item.id, file).catch(() => setNotice('This device is out of space: the file is in the edit but will not be there after a refresh.'))
         mediaRef.current = [...mediaRef.current, item]
         setMedia(mediaRef.current)
         if (place) {
@@ -976,7 +1060,8 @@ export default function VideoEditor() {
           const existing = meta?.sfx ? mediaRef.current.find(item => item.sfx && item.name === meta.name) : undefined
           if (existing) { ids.set(file.key, existing.id); continue }
           const item = await readMedia(new File([file.blob], `${meta?.name ?? file.name}.${(file.type.split('/')[1] || 'bin').replace(/[^a-z0-9]/gi, '')}`, { type: file.type }))
-          const named = { ...item, name: meta?.name ?? item.name, sfx: meta?.sfx }
+          const named = { ...item, name: meta?.name ?? item.name, sfx: meta?.sfx, size: file.blob.size, addedAt: new Date().toISOString() }
+          if (!named.sfx) void storeMediaFile(named.id, file.blob).catch(() => undefined)
           ids.set(file.key, named.id)
           added.push(named)
         }
@@ -997,7 +1082,10 @@ export default function VideoEditor() {
         history.current = { past: [], future: [], key: '', at: 0 }
         projectRef.current = next
         setProject(next)
-        setNotice('Opened your copy of this project. Edit anything, then export.')
+        setProjectName('Marketplace project')
+        setPage('edit')
+        setLoaded(true)
+        setNotice('Opened your copy of this project. It is saved on this device: edit anything, then export.')
         void deleteAsset(key)
         navigate('/video', { replace: true })
       } catch (error) {
@@ -1022,15 +1110,35 @@ export default function VideoEditor() {
     })
   }
 
-  const exportVideo = async () => {
+  const goToPage = (next: StudioPage) => {
+    if (next === 'photo') {
+      saveVideoProject(snapshotRef.current())
+      let back = '/editor/new'
+      try { back = window.sessionStorage.getItem('spyda.lastCanvas') || back } catch { /* storage off */ }
+      navigate(back)
+      return
+    }
+    if (next !== 'edit' && playing) stop()
+    if (next === 'export') {
+      const output = outputRef.current
+      try { if (output && placed.length) setCover(output.toDataURL('image/jpeg', 0.7)) } catch { /* the frame stays the last one */ }
+    }
+    setPage(next)
+  }
+
+  const exportVideo = async (request: ExportRequest = { from: 0, to: end, name: projectName }) => {
     const output = outputRef.current
     if (!output || !placed.length || exporting != null) return
+    const from = Math.max(0, Math.min(request.from, end))
+    const to = Math.max(from + 0.1, Math.min(request.to, end))
+    const length = to - from
+    const fileBase = request.name.replace(/[^a-z0-9]+/gi, '-').replace(/^-|-$/g, '').toLowerCase() || `spyda-video-${format.id}`
     if (typeof MediaRecorder === 'undefined') { setNotice('This browser cannot record video. Try Chrome or Edge.'); return }
     const type = ['video/mp4;codecs=avc1.42E01E,mp4a.40.2', 'video/mp4', 'video/webm;codecs=vp9,opus', 'video/webm'].find(candidate => MediaRecorder.isTypeSupported(candidate))
     if (!type) { setNotice('This browser cannot record video.'); return }
     // The download card records the edit, compresses it when asked, then charges for it.
     const saved = await download({
-      name: `spyda-video-${format.id}.${type.includes('mp4') ? 'mp4' : 'webm'}`,
+      name: `${fileBase}.${type.includes('mp4') ? 'mp4' : 'webm'}`,
       kind: 'video',
       title: 'Download your video',
       produce: async report => {
@@ -1040,8 +1148,8 @@ export default function VideoEditor() {
         try {
           // Make sure the sound graph exists before recording starts.
           for (const item of placed) { const element = elementFor(item.clip); if (element instanceof HTMLVideoElement) route(element, item.clip.muted ? 0 : item.clip.volume) }
-          await sync(0, false)
-          draw(0)
+          await sync(from, false)
+          draw(from)
           const stream = output.captureStream(fps)
           const recorderAudio = audio.current?.recorder.stream.getAudioTracks() ?? []
           for (const track of recorderAudio) stream.addTrack(track)
@@ -1052,15 +1160,16 @@ export default function VideoEditor() {
           const finished = new Promise<void>(resolve => { recorder.onstop = () => resolve() })
           recorder.start(250)
           const startedAt = performance.now()
-          await sync(0, true)
+          await sync(from, true)
           await new Promise<void>(resolve => {
             const frame = () => {
-              const t = (performance.now() - startedAt) / 1000
-              if (t >= end) { resolve(); return }
+              const t = from + (performance.now() - startedAt) / 1000
+              if (t >= to) { resolve(); return }
               void sync(t, true)
               draw(t)
-              setExporting(t / end)
-              report(t / end, 'Rendering your video…')
+              const done = (t - from) / length
+              setExporting(done)
+              report(done, 'Rendering your video…')
               setTime(t)
               requestAnimationFrame(frame)
             }
@@ -1069,14 +1178,17 @@ export default function VideoEditor() {
           recorder.stop()
           await finished
           for (const track of recorderAudio) stream.removeTrack(track)
-          return new Blob(chunks, { type: type.split(';')[0] })
+          const result = new Blob(chunks, { type: type.split(';')[0] })
+          const megabytes = result.size / 1024 / 1024
+          setExportsDone(current => [{ name: `${fileBase}.${type.includes('mp4') ? 'mp4' : 'webm'}`, length, size: megabytes < 1 ? `${Math.max(1, Math.round(result.size / 1024))} KB` : `${megabytes.toFixed(1)} MB`, at: new Date().toISOString() }, ...current].slice(0, 8))
+          return result
         } finally {
           stop()
           setExporting(null)
         }
       },
     })
-    if (saved) setNotice(`Exported a ${formatTime(end)} video at ${project.width} × ${project.height}, ${fps} fps.`)
+    if (saved) setNotice(`Exported a ${formatTime(length)} video at ${project.width} × ${project.height}, ${fps} fps.`)
   }
 
   /* ── keyboard ────────────────────────────────────────────────────── */
@@ -1085,6 +1197,12 @@ export default function VideoEditor() {
     const onKey = (event: KeyboardEvent) => {
       const typing = /^(INPUT|TEXTAREA|SELECT)$/.test((event.target as HTMLElement | null)?.tagName ?? '') || (event.target as HTMLElement | null)?.getAttribute('role') === 'combobox'
       if (typing || exporting != null) return
+      if (event.shiftKey && !event.metaKey && !event.ctrlKey && /^Digit[1-7]$/.test(event.code)) {
+        const next = PAGE_KEYS[event.code.slice(5)]
+        if (next) { event.preventDefault(); goToPage(next) }
+        return
+      }
+      if (page !== 'edit') return
       const mod = event.metaKey || event.ctrlKey
       const key = event.key.toLowerCase()
       if (mod && key === 'z') { event.preventDefault(); if (event.shiftKey) redo(); else undo(); return }
@@ -1273,6 +1391,7 @@ export default function VideoEditor() {
   const removeMedia = (item: MediaItem) => {
     if (usage.get(item.id) || item.sfx) return
     URL.revokeObjectURL(item.url)
+    void forgetMediaFile(item.id)
     mediaRef.current = mediaRef.current.filter(entry => entry.id !== item.id)
     setMedia(mediaRef.current)
   }
@@ -1296,9 +1415,20 @@ export default function VideoEditor() {
         <button type="button" onClick={() => navigate('/workspace')} aria-label="Back to Spyda AI" className="flex h-8 w-8 items-center justify-center rounded-md hover:bg-white/[0.08]">
           <img src="/assets/spyda-logo.png" alt="" className="h-5 w-5 object-contain" />
         </button>
-        <div className="flex items-center gap-2">
-          <Clapperboard className="h-4 w-4 text-primary" />
-          <h1 className="text-[13px] font-semibold">Video editor</h1>
+        <div className="flex min-w-0 items-center gap-2">
+          <Clapperboard className="h-4 w-4 shrink-0 text-primary" />
+          <input
+            value={projectName}
+            onChange={event => setProjectName(event.target.value)}
+            onBlur={() => { if (!projectName.trim()) setProjectName('Untitled video') }}
+            onKeyDown={event => { event.stopPropagation(); if (event.key === 'Enter') (event.target as HTMLInputElement).blur() }}
+            aria-label="Project name"
+            title="Click to rename this project"
+            className="w-[170px] min-w-0 rounded-md bg-transparent px-1.5 py-1 text-[13px] font-semibold outline-none hover:bg-white/[0.05] focus:bg-white/[0.07] focus:ring-1 focus:ring-primary/50"
+          />
+          <span className={`hidden shrink-0 text-[10px] md:inline ${saveState === 'failed' ? 'text-amber-300' : 'text-muted-foreground'}`} title={saveState === 'failed' ? 'This device has no room left to save the project' : 'Saved on this device'}>
+            {saveState === 'saving' ? 'Saving…' : saveState === 'failed' ? 'Not saved' : 'Saved'}
+          </span>
         </div>
         <div role="tablist" aria-label="Editor" className="ml-3 hidden items-center gap-0.5 rounded-lg bg-black/30 p-0.5 sm:flex">
           <button type="button" role="tab" aria-selected="false" onClick={() => { let back = '/editor/new'; try { back = window.sessionStorage.getItem('spyda.lastCanvas') || back } catch { /* storage off */ } navigate(back) }} title="Switch to Canvas mode" className="inline-flex h-6 items-center gap-1.5 rounded-md px-2.5 text-[11px] font-medium text-muted-foreground hover:text-foreground">
@@ -1329,14 +1459,51 @@ export default function VideoEditor() {
           <button type="button" onClick={() => navigate('/workspace')} className="inline-flex h-8 items-center gap-1.5 rounded-md border border-white/[0.1] px-3 text-[11px] font-semibold hover:bg-white/[0.08]">
             <LogOut className="h-3.5 w-3.5" /> Done
           </button>
-          <button type="button" onClick={() => { void exportVideo() }} disabled={!placed.length || exporting != null} className="inline-flex h-8 items-center gap-1.5 rounded-md bg-primary px-3 text-[11px] font-semibold text-primary-foreground disabled:opacity-50">
+          <button type="button" onClick={() => goToPage('export')} disabled={exporting != null} title="Open the Export page" className="inline-flex h-8 items-center gap-1.5 rounded-md bg-primary px-3 text-[11px] font-semibold text-primary-foreground disabled:opacity-50">
             {exporting != null ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Download className="h-3.5 w-3.5" />}
             {exporting != null ? `Exporting ${Math.round(exporting * 100)}%` : 'Export video'}
           </button>
         </div>
       </header>
 
-      <div className="mac-workspace flex min-h-0 flex-1">
+      {page === 'media' ? (
+        <MediaPage
+          media={media}
+          usage={usage}
+          folders={folders}
+          onFoldersChange={setFolders}
+          importing={importing}
+          onImport={() => fileRef.current?.click()}
+          onAdd={item => placeMedia(item, item.kind === 'audio' ? { at: time } : {})}
+          onLocate={item => { goToPage('edit'); locateMedia(item) }}
+          onRemove={removeMedia}
+          onUpdate={updateMedia}
+          projects={projects}
+          projectId={projectId}
+          onOpenProject={id => { saveVideoProject(snapshotRef.current()); onOpenProject(id) }}
+          onNewProject={() => { saveVideoProject(snapshotRef.current()); onNewProject() }}
+          onDeleteProject={id => { void deleteVideoProject(id).then(() => setProjects(listVideoProjects())) }}
+        />
+      ) : null}
+      {page === 'export' ? (
+        <ExportPage
+          projectName={projectName}
+          format={format.id}
+          onFormat={id => setFormat(FORMATS.find(item => item.id === id) ?? FORMATS[0])}
+          fps={fps}
+          onFps={setFps}
+          quality={quality}
+          qualities={QUALITIES}
+          onQuality={value => setQuality((QUALITIES.find(item => item.value === value) ?? QUALITIES[1]).value)}
+          end={end}
+          clipCount={placed.length}
+          cover={cover}
+          exporting={exporting}
+          onExport={request => { void exportVideo(request) }}
+          history={exportsDone}
+        />
+      ) : null}
+      <div className={`mac-workspace min-h-0 flex-1 ${page === 'edit' ? 'flex' : 'hidden'}`}>
         {/* Left: media, effects, transitions, titles */}
         <aside className="mac-sidebar flex w-[280px] shrink-0 flex-col border-r border-white/[0.06] bg-[#111214]">
           <div role="tablist" className="grid grid-cols-5 gap-0.5 border-b border-white/[0.06] p-1">
@@ -1741,7 +1908,7 @@ export default function VideoEditor() {
       </div>
 
       {/* Timeline */}
-      <div className="mac-timeline h-[268px] shrink-0 border-t border-white/[0.06] bg-[#0f1012]">
+      <div className={`mac-timeline h-[268px] shrink-0 border-t border-white/[0.06] bg-[#0f1012] ${page === 'edit' ? '' : 'hidden'}`}>
         <div className="flex h-full">
           <div className="shrink-0 border-r border-white/[0.06] pt-6 text-[10px] text-muted-foreground" style={{ width: TRACK_HEAD }}>
             <p className="flex h-[78px] items-center gap-1.5 px-3"><Clapperboard className="h-3.5 w-3.5" /> Video</p>
@@ -1900,6 +2067,30 @@ export default function VideoEditor() {
           </div>
         </div>
       </div>
+      <PageBar page={page} onChange={goToPage} />
     </main>
   )
+}
+
+/**
+ * The video studio opens the project you were last working on (or a new one),
+ * and reopens itself fresh whenever you switch project from the Media page.
+ */
+export default function VideoEditor() {
+  const [projectId, setProjectId] = useState(() => {
+    const opening = new URLSearchParams(window.location.search).has('open')
+    const current = currentVideoProjectId()
+    if (!opening && current && readVideoProject(current)) return current
+    const fresh = blankVideoProject(opening ? 'Marketplace project' : 'Untitled video')
+    saveVideoProject(fresh)
+    setCurrentVideoProject(fresh.id)
+    return fresh.id
+  })
+  const open = (id: string) => { setCurrentVideoProject(id); setProjectId(id) }
+  const create = () => {
+    const fresh = blankVideoProject(`Untitled video ${listVideoProjects().length + 1}`)
+    saveVideoProject(fresh)
+    open(fresh.id)
+  }
+  return <VideoStudio key={projectId} projectId={projectId} onOpenProject={open} onNewProject={create} />
 }
