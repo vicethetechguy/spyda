@@ -5,6 +5,7 @@ import CreateDesignDialog from '../components/CreateDesignDialog'
 import {
   ArrowLeft, ChevronDown, Clapperboard, Clock, Copy, Download, Eye, Image as ImageIcon, Layers, Loader2, LogOut, Maximize2, Move, Palette, Play, Plus,
   Redo2, Sparkles, Square, Trash2, Type, Undo2, Wand2, X, type LucideIcon,
+  DesignTools, Motion,
 } from '../components/ui/icons'
 import type Konva from 'konva'
 import {
@@ -1172,11 +1173,11 @@ export default function Editor() {
   const blankCanvas = live.every(object => object.kind === 'background')
 
   const pages: { id: EditorPage; label: string; icon: LucideIcon }[] = [
-    { id: 'design', label: 'Design', icon: Layers },
+    { id: 'design', label: 'Design', icon: DesignTools },
     { id: 'text', label: 'Text', icon: Type },
     { id: 'colour', label: 'Colour', icon: Palette },
     { id: 'media', label: 'Media', icon: ImageIcon },
-    { id: 'animate', label: 'Animate', icon: Clapperboard },
+    { id: 'animate', label: 'Animate', icon: Motion },
     { id: 'ai', label: 'Spyda AI', icon: Sparkles },
     { id: 'deliver', label: 'Deliver', icon: Download },
     { id: 'history', label: 'History', icon: Clock },
@@ -1935,10 +1936,6 @@ export default function Editor() {
                 playing={playing}
                 onPlaybackEnd={stopPlaying}
                 onTextChange={(objectId, text) => applyIntent({ objectId, property: 'text', value: text })}
-                onTextAlign={(objectId, patch) => {
-                  if (patch.textAlign) applyIntent({ objectId, property: 'textAlign', value: patch.textAlign })
-                  if (patch.verticalAlign) applyIntent({ objectId, property: 'typography', value: { verticalAlign: patch.verticalAlign } })
-                }}
                 onContextMenu={(id, x, y) => setContextMenu({ id, x, y })}
                 missingFonts={missingFonts}
                 stageRef={stageRef}

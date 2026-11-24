@@ -2,7 +2,7 @@ import { useEffect, useRef, useState, type KeyboardEvent, type ReactNode } from 
 import type { DesignEditIntent } from '../../core/constraint-engine'
 import type { DesignObject, PercentBox } from '../../core/design-document'
 import { BUNDLED_FAMILIES, loadFontPreviews, previewFamily } from '../../lib/fonts'
-import { ArrowDown, ArrowUp, Copy, ImagePlus, Layers, Loader2, Lock, Sparkles, Trash2, Wand2 } from '../ui/icons'
+import { ArrowDown, ArrowUp, Copy, ImagePlus, Loader2, Lock, Shapes, Sparkles, Trash2, Wand2 } from '../ui/icons'
 import EffectsPanel from './EffectsPanel'
 import ImageColorsPanel from './ImageColorsPanel'
 import { TextAlignControls, type HorizontalAlign } from './TextAlignControls'
@@ -121,7 +121,7 @@ function NumberField({ label, value, onCommit, step = 1, min, max, suffix, disab
 
   return (
     <label title={title} className={`flex h-7 min-w-0 items-center gap-1.5 rounded-md bg-white/[0.04] px-2 focus-within:ring-1 focus-within:ring-primary/60 ${disabled ? 'opacity-40' : ''}`}>
-      <span className="w-3 shrink-0 text-[10px] text-muted-foreground">{label}</span>
+      <span className="min-w-3 shrink-0 text-[10px] text-muted-foreground">{label}</span>
       <input
         inputMode="decimal"
         value={draft}
@@ -268,7 +268,7 @@ export default function PropertiesPanel({
     <div className="text-[11px]">
       <div className="flex items-center gap-2 px-0.5 pb-2">
         <span className="flex h-6 w-6 items-center justify-center rounded-md bg-white/[0.06] text-muted-foreground">
-          {isPicture ? <ImagePlus className="h-3.5 w-3.5" /> : isText ? <span className="font-heading text-[11px] font-bold">T</span> : <Layers className="h-3.5 w-3.5" />}
+          {isPicture ? <ImagePlus className="h-3.5 w-3.5" /> : isText ? <span className="font-heading text-[11px] font-bold">T</span> : <Shapes className="h-3.5 w-3.5" />}
         </span>
         <div className="min-w-0">
           <p className="truncate text-[12px] font-semibold">{object.name}</p>
@@ -290,6 +290,20 @@ export default function PropertiesPanel({
               </IconButton>
             ))}
           </div>
+        </Section>
+      ) : null}
+
+      {isText ? (
+        <Section title="Align text">
+          <TextAlignControls
+            textAlign={(object.style.textAlign as HorizontalAlign | null) ?? 'left'}
+            verticalAlign={typography.verticalAlign ?? 'middle'}
+            disabled={locked}
+            onChange={patch => {
+              if (patch.textAlign && can('textAlign')) onIntent({ objectId: object.id, property: 'textAlign', value: patch.textAlign })
+              if (patch.verticalAlign) onTypography({ verticalAlign: patch.verticalAlign })
+            }}
+          />
         </Section>
       ) : null}
 
@@ -315,7 +329,8 @@ export default function PropertiesPanel({
             </button>
           </div>
           <NumberField
-            label="°"
+            label="Rotate"
+            suffix="°"
             title="Rotation"
             value={object.transform.rotation}
             min={-360}
@@ -334,32 +349,34 @@ export default function PropertiesPanel({
         </div>
       </Section>
 
-      <Section title="Layer">
-        <div className="grid grid-cols-2 gap-1.5">
-          <NumberField
-            label="%"
-            title="Opacity"
-            value={object.transform.opacity * 100}
-            min={0}
-            max={100}
-            onCommit={percent => onIntent({ objectId: object.id, property: 'opacity', value: percent / 100 })}
-            disabled={!can('opacity')}
-          />
-          {rounded ? (
-            <NumberField
-              label="◜"
-              title="Corner radius"
-              value={object.style.borderRadius ?? 0}
-              min={0}
-              onCommit={radius => onIntent({ objectId: object.id, property: 'borderRadius', value: radius })}
-              disabled={!can('borderRadius')}
-            />
-          ) : null}
-        </div>
-        {rounded && can('borderRadius') ? (
+      <Section title="Opacity">
+        <NumberField
+          label="Opacity"
+          title="How see-through the layer is: 100% is solid"
+          value={object.transform.opacity * 100}
+          min={0}
+          max={100}
+          suffix="%"
+          onCommit={percent => onIntent({ objectId: object.id, property: 'opacity', value: percent / 100 })}
+          disabled={!can('opacity')}
+        />
+      </Section>
+
+      {rounded ? (
+      <Section title="Round corners">
+        <NumberField
+          label="Radius"
+          title="How round the corners are"
+          value={object.style.borderRadius ?? 0}
+          min={0}
+          suffix="px"
+          onCommit={radius => onIntent({ objectId: object.id, property: 'borderRadius', value: radius })}
+          disabled={!can('borderRadius')}
+        />
+        {can('borderRadius') ? (
           <input
             type="range"
-            aria-label="Corner radius"
+            aria-label="Round corners"
             min={0}
             max={Math.round(Math.min(toPx(bounds.width, 'x'), toPx(bounds.height, 'y')) / 2)}
             value={Math.min(object.style.borderRadius ?? 0, Math.round(Math.min(toPx(bounds.width, 'x'), toPx(bounds.height, 'y')) / 2))}
@@ -368,6 +385,7 @@ export default function PropertiesPanel({
           />
         ) : null}
       </Section>
+      ) : null}
 
       {can('fill') || (isBackground && object.protection.editableProperties.includes('fill')) ? (
         <Section title="Fill">
@@ -380,7 +398,7 @@ export default function PropertiesPanel({
           <div className="space-y-1.5">
             <ColourField value={object.style.stroke} onCommit={value => onIntent({ objectId: object.id, property: 'stroke', value: value ?? '' })} />
             {object.style.stroke && can('strokeWidth') ? (
-              <NumberField label="W" title="Stroke width" value={object.style.strokeWidth ?? 1} min={0} max={200} onCommit={width => onIntent({ objectId: object.id, property: 'strokeWidth', value: width })} />
+              <NumberField label="Width" title="Stroke width" value={object.style.strokeWidth ?? 1} min={0} max={200} onCommit={width => onIntent({ objectId: object.id, property: 'strokeWidth', value: width })} />
             ) : null}
           </div>
         </Section>
@@ -421,18 +439,8 @@ export default function PropertiesPanel({
                 className="flex h-7 rounded-md bg-white/[0.04] px-2 text-[11px] hover:bg-white/[0.08]"
                 options={['300', '400', '500', '600', '700', '800'].map(weight => ({ value: weight, label: WEIGHT_NAMES[weight], style: { fontWeight: Number(weight) } }))}
               />
-              <NumberField label="S" title="Font size" value={object.style.fontSize ?? 48} min={6} max={600} onCommit={size => onIntent({ objectId: object.id, property: 'fontSize', value: size })} disabled={!can('fontSize')} />
+              <NumberField label="Size" title="Font size" value={object.style.fontSize ?? 48} min={6} max={600} onCommit={size => onIntent({ objectId: object.id, property: 'fontSize', value: size })} disabled={!can('fontSize')} />
             </div>
-            {/* Alignment: across the box and inside it (also on the canvas, above the text). */}
-            <TextAlignControls
-              textAlign={(object.style.textAlign as HorizontalAlign | null) ?? 'left'}
-              verticalAlign={typography.verticalAlign ?? 'middle'}
-              disabled={locked}
-              onChange={patch => {
-                if (patch.textAlign && can('textAlign')) onIntent({ objectId: object.id, property: 'textAlign', value: patch.textAlign })
-                if (patch.verticalAlign) onTypography({ verticalAlign: patch.verticalAlign })
-              }}
-            />
             {/* Type style: bold, italic, underline, strikethrough and letter case. */}
             <div className="space-y-1.5">
               <div className="flex gap-1.5">

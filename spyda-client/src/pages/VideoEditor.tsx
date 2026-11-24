@@ -2,6 +2,7 @@ import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, typ
 import { useNavigate } from 'react-router-dom'
 import {
   Clapperboard, Copy, Download, ImagePlus, Layers, Loader2, LogOut, Maximize2, Palette, Pause, Play, Plus, Redo2, Sparkles, Trash2, Type, Undo2, Upload, Wand2, X,
+  ListCheck, Transition,
 } from '../components/ui/icons'
 import SpydaSelect from '../components/ui/SpydaSelect'
 import { useDownload } from '../components/DownloadProvider'
@@ -1069,9 +1070,9 @@ export default function VideoEditor() {
   const step = tickStep(zoom)
   const tabs: Array<{ id: LeftTab; label: string; icon: typeof Layers }> = [
     { id: 'media', label: 'Media', icon: ImagePlus },
-    { id: 'timeline', label: 'In use', icon: Clapperboard },
+    { id: 'timeline', label: 'In use', icon: ListCheck },
     { id: 'effects', label: 'Effects', icon: Sparkles },
-    { id: 'transitions', label: 'Transitions', icon: Layers },
+    { id: 'transitions', label: 'Transitions', icon: Transition },
     { id: 'titles', label: 'Titles', icon: Type },
   ]
   // Where each imported file is used: clips on the video track, items on the music track.
