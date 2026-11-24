@@ -2,7 +2,7 @@ import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, typ
 import { useNavigate } from 'react-router-dom'
 import {
   Clapperboard, Copy, Download, ImagePlus, Layers, Loader2, LogOut, Maximize2, Palette, Pause, Play, Plus, Redo2, Sparkles, Trash2, Type, Undo2, Upload, Wand2, X,
-  ListCheck, Transition, Zap,
+  ListCheck, Store, Transition, Zap,
 } from '../components/ui/icons'
 import SpydaSelect from '../components/ui/SpydaSelect'
 import { useDownload } from '../components/DownloadProvider'
@@ -18,6 +18,18 @@ import {
 } from '../lib/video/timeline'
 import { BUNDLED_FAMILIES, loadFontPreviews, previewFamily } from '../lib/fonts'
 import { renderSoundEffects } from '../lib/video/sound-effects'
+import SellDesignDialog from '../components/marketplace/SellDesignDialog'
+import { decodePackage, encodePackage, type PackageFile } from '../lib/design-package'
+import { deleteAsset, getAssetBlob } from '../lib/asset-store'
+
+/** What a video project package carries besides the media files. */
+type VideoPackageData = {
+  format: string
+  fps: number
+  quality: string
+  project: VideoProject
+  media: Array<{ key: string; name: string; kind: MediaItem['kind']; sfx?: boolean }>
+}
 
 /**
  * Spyda's video editor: import clips, cut them on a timeline, frame and move
@@ -787,7 +799,8 @@ export default function VideoEditor() {
     let cancelled = false
     void renderSoundEffects().then(async effects => {
       const items: MediaItem[] = []
-      for (const { file } of effects) {
+      for (const { effect, file } of effects) {
+        if (mediaRef.current.some(item => item.sfx && item.name === effect.name)) continue
         try { items.push({ ...(await readMedia(file)), sfx: true }) } catch { /* skip one that will not decode */ }
       }
       if (cancelled) { for (const item of items) URL.revokeObjectURL(item.url); return }
@@ -915,6 +928,88 @@ export default function VideoEditor() {
   const target = selectedClip ?? (placed.length ? activeAt(placed, time).a?.clip ?? null : null)
 
   /* ── export ──────────────────────────────────────────────────────── */
+
+  const [sellOpen, setSellOpen] = useState(false)
+
+  /** The cover buyers see: the frame under the playhead (the first frame if it is at the end). */
+  const makeVideoCover = async () => {
+    const output = outputRef.current
+    if (!output) throw new Error('The preview is not ready yet.')
+    if (time >= end - 0.05) await seek(Math.min(0.5, end / 2))
+    return new Promise<Blob>((resolve, reject) => output.toBlob(blob => (blob ? resolve(blob) : reject(new Error('The cover could not be made.'))), 'image/jpeg', 0.88))
+  }
+
+  /** The whole edit and only the media it uses, as one Spyda design file. */
+  const makeVideoPackage = async () => {
+    const current = projectRef.current
+    const used = new Set([...current.clips.map(clip => clip.mediaId), ...current.audio.map(track => track.mediaId)])
+    const items = mediaRef.current.filter(item => used.has(item.id))
+    const files: PackageFile[] = []
+    for (const item of items) {
+      const blob = await fetch(item.url).then(response => response.blob())
+      files.push({ key: item.id, name: item.name, type: blob.type || (item.kind === 'audio' ? 'audio/wav' : item.kind === 'image' ? 'image/png' : 'video/mp4'), blob })
+    }
+    const data: VideoPackageData = {
+      format: format.id, fps, quality, project: current,
+      media: items.map(item => ({ key: item.id, name: item.name, kind: item.kind, sfx: item.sfx })),
+    }
+    return encodePackage({ kind: 'video', name: 'Spyda video project', data, files })
+  }
+
+  // A project bought on the marketplace arrives as `/video?open=<key>`.
+  useEffect(() => {
+    const key = new URLSearchParams(window.location.search).get('open')
+    if (!key) return
+    let cancelled = false
+    void (async () => {
+      try {
+        setImporting(true)
+        const blob = await getAssetBlob(key)
+        if (!blob) throw new Error('That project is no longer on this device. Open it again from the marketplace.')
+        const pkg = await decodePackage(blob)
+        if (pkg.kind !== 'video') throw new Error('That design is a flyer. It opens in the canvas.')
+        const data = pkg.data as VideoPackageData
+        const ids = new Map<string, string>()
+        const added: MediaItem[] = []
+        for (const file of pkg.files) {
+          const meta = data.media.find(item => item.key === file.key)
+          const existing = meta?.sfx ? mediaRef.current.find(item => item.sfx && item.name === meta.name) : undefined
+          if (existing) { ids.set(file.key, existing.id); continue }
+          const item = await readMedia(new File([file.blob], `${meta?.name ?? file.name}.${(file.type.split('/')[1] || 'bin').replace(/[^a-z0-9]/gi, '')}`, { type: file.type }))
+          const named = { ...item, name: meta?.name ?? item.name, sfx: meta?.sfx }
+          ids.set(file.key, named.id)
+          added.push(named)
+        }
+        if (cancelled) return
+        mediaRef.current = [...mediaRef.current, ...added]
+        setMedia(mediaRef.current)
+        const remap = (id: string) => ids.get(id) ?? id
+        const next: VideoProject = {
+          ...data.project,
+          clips: data.project.clips.map(clip => ({ ...clip, mediaId: remap(clip.mediaId) })),
+          audio: data.project.audio.map(track => ({ ...track, mediaId: remap(track.mediaId) })),
+        }
+        const nextFormat = FORMATS.find(item => item.id === data.format)
+        if (nextFormat) setFormat(nextFormat)
+        if (FRAME_RATES.includes(data.fps as (typeof FRAME_RATES)[number])) setFps(data.fps as (typeof FRAME_RATES)[number])
+        const nextQuality = QUALITIES.find(item => item.value === data.quality)
+        if (nextQuality) setQuality(nextQuality.value)
+        history.current = { past: [], future: [], key: '', at: 0 }
+        projectRef.current = next
+        setProject(next)
+        setNotice('Opened your copy of this project. Edit anything, then export.')
+        void deleteAsset(key)
+        navigate('/video', { replace: true })
+      } catch (error) {
+        if (!cancelled) setNotice(error instanceof Error ? error.message : 'That project could not be opened.')
+      } finally {
+        if (!cancelled) setImporting(false)
+      }
+    })()
+    return () => { cancelled = true }
+    // Runs once, when the editor opens with a project to load.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [])
 
   const saveFrame = () => {
     const output = outputRef.current
@@ -1194,6 +1289,7 @@ export default function VideoEditor() {
       onDragLeave={event => { if (event.currentTarget === event.target) setDropping(false) }}
       onDrop={event => { event.preventDefault(); setDropping(false); setDropMarker(null); if (event.dataTransfer.files.length) void importFiles([...event.dataTransfer.files]) }}
     >
+      {sellOpen ? <SellDesignDialog kind="video" defaultName={`${format.name.split(' · ')[0]} video`} makePreview={makeVideoCover} makePackage={makeVideoPackage} onClose={() => setSellOpen(false)} /> : null}
       {/* Top bar */}
       <header className="mac-menubar flex h-11 shrink-0 items-center gap-2 border-b border-white/[0.06] bg-[#111214] px-2">
         <WindowControls onClose={() => navigate('/workspace')} onFit={() => setZoomState(current => ({ ...current, fit: true }))} fitLabel="Fit the whole edit in the timeline" />
@@ -1227,6 +1323,9 @@ export default function VideoEditor() {
         <div className="ml-auto flex items-center gap-1.5">
           <SpydaSelect ariaLabel="Frame rate" value={fps} onChange={setFps} options={FRAME_RATES.map(rate => ({ value: rate, label: `${rate} fps` }))} className="hidden h-8 rounded-md bg-white/[0.06] px-2.5 text-[11px] hover:bg-white/[0.1] md:inline-flex" />
           <SpydaSelect ariaLabel="Export quality" value={quality} onChange={setQuality} options={QUALITIES.map(item => ({ value: item.value, label: `${item.label} quality` }))} menuWidth={170} className="hidden h-8 rounded-md bg-white/[0.06] px-2.5 text-[11px] hover:bg-white/[0.1] md:inline-flex" />
+          <button type="button" onClick={() => setSellOpen(true)} disabled={!placed.length} title="Sell this project, editable, on the marketplace" className="inline-flex h-8 items-center gap-1.5 rounded-md border border-primary/30 bg-primary/[0.08] px-3 text-[11px] font-semibold text-primary hover:bg-primary/[0.15] disabled:opacity-40">
+            <Store className="h-3.5 w-3.5" /> Sell
+          </button>
           <button type="button" onClick={() => navigate('/workspace')} className="inline-flex h-8 items-center gap-1.5 rounded-md border border-white/[0.1] px-3 text-[11px] font-semibold hover:bg-white/[0.08]">
             <LogOut className="h-3.5 w-3.5" /> Done
           </button>

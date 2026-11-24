@@ -5,7 +5,7 @@ import CreateDesignDialog from '../components/CreateDesignDialog'
 import {
   ArrowLeft, ChevronDown, Clapperboard, Clock, Copy, Download, Eye, Image as ImageIcon, Layers, Loader2, LogOut, Maximize2, Move, Palette, Play, Plus,
   Redo2, Sparkles, Square, Trash2, Type, Undo2, Wand2, X, type LucideIcon,
-  DesignTools, Motion,
+  DesignTools, Motion, Store,
 } from '../components/ui/icons'
 import type Konva from 'konva'
 import {
@@ -53,6 +53,8 @@ import AssistPanel, { type AssistEntry } from '../components/editor/AssistPanel'
 import CanvasToolbar from '../components/editor/CanvasToolbar'
 import EditorMenuBar, { type EditorMenu } from '../components/editor/EditorMenuBar'
 import WindowControls from '../components/editor/WindowControls'
+import SellDesignDialog from '../components/marketplace/SellDesignDialog'
+import { packFlyer } from '../lib/design-package'
 import { hasMotion, magicAnimation, playLength } from '../lib/canvas-fx'
 
 /**
@@ -329,6 +331,7 @@ export default function Editor() {
 
   // + Create: save this design first, then choose what to make next.
   const [createOpen, setCreateOpen] = useState(false)
+  const [sellOpen, setSellOpen] = useState(false)
   const openCreate = useCallback(() => {
     if (design && edited.current) persist(design)
     setCreateOpen(true)
@@ -583,6 +586,33 @@ export default function Editor() {
       setExporting(false)
     }
   }, [design, download, project?.name, setSelectedId])
+
+  /** The marketplace cover: the design as buyers will see it, without selection handles. */
+  const makeCover = useCallback(async () => {
+    const stage = stageRef.current
+    if (!stage || !design) throw new Error('The canvas is not ready yet.')
+    setSelectedId(null)
+    await new Promise(resolve => window.setTimeout(resolve, 80))
+    const width = 900
+    const height = Math.round(width * ((design.canvas.height || stage.height()) / (design.canvas.width || stage.width())))
+    const rendered = stage.toCanvas({ pixelRatio: Math.max(1, width / stage.width()) })
+    const output = document.createElement('canvas')
+    output.width = width
+    output.height = height
+    output.getContext('2d')?.drawImage(rendered, 0, 0, width, height)
+    const blob = await new Promise<Blob | null>(resolve => output.toBlob(resolve, 'image/jpeg', 0.88))
+    if (!blob) throw new Error('The cover could not be made.')
+    return blob
+  }, [design, setSelectedId])
+
+  /** The editable design for the marketplace: saved first, then packed with its pictures. */
+  const makePackage = useCallback(async () => {
+    if (!projectId || !design) throw new Error('Nothing to sell yet.')
+    persist(design)
+    const saved = readProject(projectId)
+    if (!saved) throw new Error('This design could not be read.')
+    return packFlyer(saved)
+  }, [design, persist, projectId])
 
   /** Pen tool: points in canvas percent until the path closes or Enter ends it. */
   const finishPen = useCallback((points: [number, number][], closed: boolean) => {
@@ -1508,6 +1538,13 @@ export default function Editor() {
     ) : <p className="px-0.5 text-[11px] text-muted-foreground">Every edit lands here. Click one to go back to it.</p>,
     deliver: (
       <div className="space-y-3">
+        <button type="button" onClick={() => setSellOpen(true)} disabled={!design} className="flex w-full items-center gap-2.5 rounded-lg border border-primary/25 bg-primary/[0.07] px-3 py-2.5 text-left transition-colors hover:bg-primary/[0.12] disabled:opacity-40">
+          <Store className="h-4 w-4 shrink-0 text-primary" />
+          <span className="min-w-0">
+            <span className="block text-[12px] font-semibold">Sell on the marketplace</span>
+            <span className="block text-[10px] leading-4 text-muted-foreground">Buyers get this design editable, every layer, and you earn credits.</span>
+          </span>
+        </button>
         <div>
           {sectionLabel('Format')}
           <div className="grid grid-cols-2 gap-1.5">
@@ -1607,6 +1644,7 @@ export default function Editor() {
         { label: 'Export PNG', onSelect: () => exportAs('png'), disabled: !design || exporting },
         { label: 'Export JPEG', onSelect: () => exportAs('jpeg'), disabled: !design || exporting },
         { label: 'Export settings…', onSelect: () => setPage('deliver') },
+        { label: 'Sell on the marketplace…', onSelect: () => setSellOpen(true), disabled: !design },
         { separator: true },
         { label: 'Save and close', onSelect: exitCanvas },
       ],
@@ -1754,6 +1792,7 @@ export default function Editor() {
 
   return (
     <main className="figma-editor mac-ui flex min-h-[100dvh] flex-col bg-[#0b0c0e] text-foreground lg:h-[100dvh] lg:overflow-hidden">
+      {sellOpen ? <SellDesignDialog kind="flyer" defaultName={project.name} makePreview={makeCover} makePackage={makePackage} onClose={() => setSellOpen(false)} /> : null}
       <CreateDesignDialog open={createOpen} onClose={() => setCreateOpen(false)} current={null} onChat={() => { setCreateOpen(false); exitCanvas() }} />
       {/* Menu bar */}
       <header className="mac-menubar flex h-9 shrink-0 items-center gap-1 border-b border-white/[0.06] bg-[#111214] px-1.5">

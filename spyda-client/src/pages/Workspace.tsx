@@ -168,7 +168,10 @@ export default function Workspace() {
   const navigate = useNavigate()
   // Desktop opens on the icon rail; the full list is one click away.
   const [sidebarOpen, setSidebarOpen] = useState(false)
-  const [activeId, setActiveId] = useState('canvas')
+  // `?view=templates` (from "Sell on the marketplace" in an editor) opens that page.
+  const [activeId, setActiveId] = useState(() => {
+    try { return new URLSearchParams(window.location.search).get('view') || 'canvas' } catch { return 'canvas' }
+  })
   const [aiModel, setAiModel] = useState<AiModel>(AI_MODELS[1])
   const [topbarSlot, setTopbarSlot] = useState<HTMLElement | null>(null)
   const [chatSeed, setChatSeed] = useState<ChatSeed | null>(null)

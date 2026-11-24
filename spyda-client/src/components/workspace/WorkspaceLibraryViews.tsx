@@ -1,7 +1,7 @@
 import { fetchBlob, useDownload } from '../DownloadProvider'
 import SpydaSelect from '../ui/SpydaSelect'
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
-import { Link } from 'react-router-dom'
+import { Link, useNavigate } from 'react-router-dom'
 import {
   AlertTriangle,
   Clapperboard,
@@ -30,6 +30,7 @@ import {
 import type { LegacyBreakdown as BreakdownResult } from '../../core/design-document'
 import type { AtomBox } from '../../lib/design'
 import { useAuth } from '../../lib/AuthContext'
+import { decodePackage, stashPackage, unpackFlyer } from '../../lib/design-package'
 import { supabase } from '../../lib/supabase'
 import {
   TEMPLATE_LISTING_FEE,
@@ -41,6 +42,7 @@ import {
   listTemplate,
   purchaseTemplate,
   templateFileUrl,
+  fetchDesignPackage,
   uploadTemplateFile,
   uploadTemplateImage,
   type MarketplaceKind,
@@ -327,6 +329,7 @@ type DisplayTemplate = {
 
 export function TemplatesView({ onUseTemplate }: { onUseTemplate: (source: string, name: string) => Promise<void> }) {
   const saveFile = useDownload()
+  const navigate = useNavigate()
   const { user } = useAuth()
   const [search, setSearch] = useState('')
   const [category, setCategory] = useState('All')
@@ -419,6 +422,19 @@ export function TemplatesView({ onUseTemplate }: { onUseTemplate: (source: strin
         await purchaseTemplate(item.template.id)
         setPurchased(prev => new Set(prev).add(item.template!.id))
       }
+      if (item.template?.editable) {
+        // Editable designs open as the buyer's own copy in the editor.
+        const pkg = await fetchDesignPackage(item.template)
+        const decoded = await decodePackage(pkg)
+        if (decoded.kind === 'flyer') {
+          const projectId = await unpackFlyer(decoded, item.name)
+          navigate(`/editor/${encodeURIComponent(projectId)}`)
+        } else {
+          const key = await stashPackage(pkg)
+          navigate(`/video?open=${encodeURIComponent(key)}`)
+        }
+        return
+      }
       if (item.section === 'motion' && item.template) {
         // Motion designs are delivered as their file, through the download card.
         const url = await templateFileUrl(item.template)
@@ -451,7 +467,7 @@ export function TemplatesView({ onUseTemplate }: { onUseTemplate: (source: strin
       <PageIntro
         eyebrow="Template marketplace"
         title="Templates"
-        copy="Flyers and motion designs from Spyda and the community. List your own, set a price in Spyda credits, and earn every time someone gets it."
+        copy="Flyers, motion designs and editable projects from Spyda and the community. Sell your own from the canvas or video editor (Sell on the marketplace), set a price in Spyda credits, and earn every time someone gets it."
         action={(
           <button type="button" onClick={() => setShowList(true)} className="inline-flex h-10 items-center gap-2 rounded-lg bg-primary px-4 text-xs font-semibold text-primary-foreground">
             <Plus className="h-4 w-4" /> {section === 'motion' ? 'List a motion design' : 'List a flyer'}
@@ -500,6 +516,9 @@ export function TemplatesView({ onUseTemplate }: { onUseTemplate: (source: strin
             <article key={item.key} className="group flex flex-col overflow-hidden rounded-lg border border-white/[0.08] bg-surface">
               <div className="relative aspect-[4/5] overflow-hidden bg-[#0a0a0c]">
                 <img src={item.source} alt={`${item.name} template`} className="h-full w-full object-cover transition-transform duration-300 group-hover:scale-[1.02]" />
+                {item.template?.editable && (
+                  <span className="absolute bottom-2 left-2 inline-flex items-center gap-1 rounded bg-primary/90 px-2 py-1 text-[9px] font-semibold uppercase text-primary-foreground" title={item.section === 'motion' ? 'Opens in the video editor with every clip, title and sound' : 'Opens in the canvas with every layer'}>Editable</span>
+                )}
                 {item.section === 'motion' && (
                   <span aria-hidden="true" className="pointer-events-none absolute inset-0 flex items-center justify-center">
                     <span className="flex h-12 w-12 items-center justify-center rounded-full bg-black/60 text-white ring-1 ring-white/20 backdrop-blur"><Play className="ml-0.5 h-5 w-5" /></span>
@@ -526,7 +545,9 @@ export function TemplatesView({ onUseTemplate }: { onUseTemplate: (source: strin
                 <p className="mt-1 text-[10px] uppercase text-muted-foreground">{item.category}</p>
                 <button type="button" disabled={applying !== null} onClick={() => handleUse(item)} className="mt-3 inline-flex h-9 w-full items-center justify-center gap-1.5 rounded-lg bg-primary text-xs font-semibold text-primary-foreground disabled:opacity-50">
                   {isApplying ? <Loader2 className="h-4 w-4 animate-spin" /> : item.section === 'motion' ? <Download className="h-4 w-4" /> : <LayoutTemplate className="h-4 w-4" />}
-                  {item.section === 'motion'
+                  {item.template?.editable
+                    ? paid ? <>Get · {item.price.toLocaleString()}<SpydaCreditMark className="h-3.5 w-3.5" /></> : item.section === 'motion' ? 'Open in video editor' : 'Open in canvas'
+                    : item.section === 'motion'
                     ? paid ? <>Get · {item.price.toLocaleString()}<SpydaCreditMark className="h-3.5 w-3.5" /></> : 'Download'
                     : paid ? <>Use · {item.price.toLocaleString()}<SpydaCreditMark className="h-3.5 w-3.5" /></> : 'Use template'}
                 </button>

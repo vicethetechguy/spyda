@@ -9,6 +9,8 @@ export type MarketplaceTemplate = {
   /** The deliverable in the private bucket (motion video or HTML). */
   file_path?: string | null
   file_type?: string | null
+  /** An editable Spyda design (layers, or a video project) the buyer opens in the editor. */
+  editable?: boolean | null
   owner_id: string
   name: string
   category: string
@@ -96,6 +98,8 @@ export async function listTemplate(input: {
   kind?: MarketplaceKind
   filePath?: string
   fileType?: string
+  /** The file is a Spyda design package the buyer opens in the editor. */
+  editable?: boolean
 }): Promise<MarketplaceTemplate> {
   const { data, error } = await supabase.rpc('list_marketplace_template', {
     p_name: input.name,
@@ -105,7 +109,9 @@ export async function listTemplate(input: {
     p_image_path: input.imagePath,
     p_description: input.description ?? null,
     // Flyers keep the original call shape, so they still list before the motion migration lands.
-    ...(input.kind === 'motion' ? { p_kind: 'motion', p_file_path: input.filePath ?? null, p_file_type: input.fileType ?? null } : {}),
+    ...(input.kind === 'motion' || input.editable ? { p_kind: input.kind ?? 'flyer', p_file_path: input.filePath ?? null, p_file_type: input.fileType ?? null } : {}),
+    // Sent only for editable designs, so other listings work before the editable-designs migration lands.
+    ...(input.editable ? { p_editable: true } : {}),
   })
   if (error) throw new Error(error.message)
   const template = (Array.isArray(data) ? data[0] : data) as MarketplaceTemplate | null
@@ -129,4 +135,22 @@ export async function deleteTemplate(template: MarketplaceTemplate): Promise<voi
   if (template.file_path) {
     await supabase.storage.from('template-files').remove([template.file_path]).catch(() => undefined)
   }
+}
+
+/** Uploads a Spyda design package (an editable design) to the private bucket. */
+export async function uploadDesignPackage(userId: string, pkg: Blob): Promise<{ path: string; type: string }> {
+  if (pkg.size > MOTION_FILE_LIMIT) throw new Error(`This design is ${Math.round(pkg.size / 1024 / 1024)} MB with its media. The marketplace takes up to ${MOTION_FILE_LIMIT / 1024 / 1024} MB: trim or remove clips you do not use and try again.`)
+  const type = 'application/vnd.spyda.design'
+  const path = `${userId}/${Date.now()}-${Math.random().toString(36).slice(2, 8)}.spyda`
+  const { error } = await supabase.storage.from('template-files').upload(path, pkg, { cacheControl: '3600', upsert: false, contentType: type })
+  if (error) throw new Error(error.message)
+  return { path, type }
+}
+
+/** Downloads an editable design the reader owns or bought. */
+export async function fetchDesignPackage(template: MarketplaceTemplate): Promise<Blob> {
+  if (!template.file_path) throw new Error('This listing has no design file.')
+  const { data, error } = await supabase.storage.from('template-files').download(template.file_path)
+  if (error || !data) throw new Error(error?.message || 'The design could not be downloaded.')
+  return data
 }
