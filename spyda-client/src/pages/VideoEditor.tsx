@@ -6,6 +6,7 @@ import {
 } from '../components/ui/icons'
 import SpydaSelect from '../components/ui/SpydaSelect'
 import { useDownload } from '../components/DownloadProvider'
+import WindowControls from '../components/editor/WindowControls'
 import {
   EFFECTS, IDENTITY_TRANSFORM, NEUTRAL_GRADE, TRANSITIONS, VideoRenderer,
   type ClipFit, type ClipLayer, type ClipTransform, type EffectId, type Grade, type TransitionId,
@@ -1108,13 +1109,14 @@ export default function VideoEditor() {
 
   return (
     <main
-      className="spyda-editor flex h-[100dvh] flex-col overflow-hidden bg-[#0b0c0e] text-foreground"
+      className="spyda-editor mac-ui flex h-[100dvh] flex-col overflow-hidden bg-[#0b0c0e] text-foreground"
       onDragOver={event => { if ([...event.dataTransfer.types].includes('Files')) { event.preventDefault(); setDropping(true) } }}
       onDragLeave={event => { if (event.currentTarget === event.target) setDropping(false) }}
       onDrop={event => { event.preventDefault(); setDropping(false); setDropMarker(null); if (event.dataTransfer.files.length) void importFiles([...event.dataTransfer.files]) }}
     >
       {/* Top bar */}
-      <header className="flex h-11 shrink-0 items-center gap-2 border-b border-white/[0.06] bg-[#111214] px-2">
+      <header className="mac-menubar flex h-11 shrink-0 items-center gap-2 border-b border-white/[0.06] bg-[#111214] px-2">
+        <WindowControls onClose={() => navigate('/workspace')} onFit={() => setZoomState(current => ({ ...current, fit: true }))} fitLabel="Fit the whole edit in the timeline" />
         <button type="button" onClick={() => navigate('/workspace')} aria-label="Back to Spyda AI" className="flex h-8 w-8 items-center justify-center rounded-md hover:bg-white/[0.08]">
           <img src="/assets/spyda-logo.png" alt="" className="h-5 w-5 object-contain" />
         </button>
@@ -1155,9 +1157,9 @@ export default function VideoEditor() {
         </div>
       </header>
 
-      <div className="flex min-h-0 flex-1">
+      <div className="mac-workspace flex min-h-0 flex-1">
         {/* Left: media, effects, transitions, titles */}
-        <aside className="flex w-[280px] shrink-0 flex-col border-r border-white/[0.06] bg-[#111214]">
+        <aside className="mac-sidebar flex w-[280px] shrink-0 flex-col border-r border-white/[0.06] bg-[#111214]">
           <div role="tablist" className="grid grid-cols-5 gap-0.5 border-b border-white/[0.06] p-1">
             {tabs.map(item => (
               <button key={item.id} type="button" role="tab" aria-selected={tab === item.id} onClick={() => setTab(item.id)} className={`flex flex-col items-center gap-0.5 rounded-md py-1.5 text-[9px] font-medium ${tab === item.id ? 'bg-white/[0.08] text-foreground' : 'text-muted-foreground hover:text-foreground'}`}>
@@ -1308,7 +1310,7 @@ export default function VideoEditor() {
         </aside>
 
         {/* Centre: preview and transport */}
-        <section className="flex min-w-0 flex-1 flex-col">
+        <section className="mac-window flex min-w-0 flex-1 flex-col">
           <div ref={previewRef} className="relative flex min-h-0 flex-1 items-center justify-center bg-[#16171a] p-4">
             <canvas
               ref={node => {
@@ -1360,7 +1362,7 @@ export default function VideoEditor() {
         </section>
 
         {/* Right: inspector */}
-        <aside className="w-[300px] shrink-0 overflow-y-auto border-l border-white/[0.06] bg-[#111214]">
+        <aside className="mac-sidebar w-[300px] shrink-0 overflow-y-auto border-l border-white/[0.06] bg-[#111214]">
           {selectedClip && selection?.kind === 'clip' ? (() => {
             const clip = selectedClip
             const info = mediaFor(clip)
@@ -1549,7 +1551,7 @@ export default function VideoEditor() {
       </div>
 
       {/* Timeline */}
-      <div className="h-[224px] shrink-0 border-t border-white/[0.06] bg-[#0f1012]">
+      <div className="mac-timeline h-[224px] shrink-0 border-t border-white/[0.06] bg-[#0f1012]">
         <div className="flex h-full">
           <div className="shrink-0 border-r border-white/[0.06] pt-6 text-[10px] text-muted-foreground" style={{ width: TRACK_HEAD }}>
             <p className="flex h-[78px] items-center gap-1.5 px-3"><Clapperboard className="h-3.5 w-3.5" /> Video</p>

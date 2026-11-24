@@ -1,5 +1,5 @@
 import { blankBreakdown, CANVAS_PRESETS, type CanvasPreset } from './editor-objects'
-import { readProjects, saveProject } from './project-store'
+import { patchProject, readProjects, saveProject, type StoredProject } from './project-store'
 
 /**
  * Opening Canvas mode goes straight to a canvas: the most recent design that
@@ -40,4 +40,45 @@ export function createBlankCanvasProject(preset: CanvasPreset = CANVAS_PRESETS[0
 /** Where the Canvas mode button goes: the latest design, or a fresh blank canvas. */
 export function canvasModePath() {
   return `/editor/${encodeURIComponent(latestCanvasProjectId() ?? createBlankCanvasProject())}`
+}
+
+/**
+ * Pages: a design can have several pages of the same size, side by side as
+ * tabs. Each page is its own saved project that shares a `pageGroup` with the
+ * first one, so it saves, exports and undoes on its own.
+ */
+export function designPages(projectId: string): StoredProject[] {
+  const projects = readProjects()
+  const current = projects.find(project => project.id === projectId)
+  if (!current) return []
+  const group = typeof current.pageGroup === 'string' ? current.pageGroup : null
+  if (!group) return [current]
+  return projects
+    .filter(project => project.pageGroup === group)
+    .sort((a, b) => Number(a.pageNumber ?? 1) - Number(b.pageNumber ?? 1))
+}
+
+/** Adds a blank page of the same size to the design `projectId` belongs to, and returns its id. */
+export function addDesignPage(projectId: string, size: { width: number; height: number }): string | null {
+  const current = readProjects().find(project => project.id === projectId)
+  if (!current) return null
+  const group = typeof current.pageGroup === 'string' ? current.pageGroup : current.id
+  if (current.pageGroup !== group) patchProject(current.id, { pageGroup: group, pageNumber: 1 })
+  const pages = readProjects().filter(project => project.pageGroup === group)
+  const nextNumber = Math.max(1, ...pages.map(page => Number(page.pageNumber ?? 1))) + 1
+  const id = newProjectId()
+  const now = new Date().toISOString()
+  const baseName = current.name.replace(/ · Page \d+$/, '')
+  saveProject({
+    id,
+    name: `${baseName} · Page ${nextNumber}`,
+    createdAt: now,
+    updatedAt: now,
+    referencePreview: null,
+    generatedImage: null,
+    breakdown: blankBreakdown({ id: 'page', name: 'Page', detail: '', width: Math.round(size.width), height: Math.round(size.height) }),
+    pageGroup: group,
+    pageNumber: nextNumber,
+  })
+  return id
 }

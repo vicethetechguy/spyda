@@ -41,7 +41,8 @@ import {
   undo,
   type IntentHistory,
 } from '../lib/intent-history'
-import { patchProject, readProject, type StoredProject } from '../lib/project-store'
+import { PROJECTS_UPDATED_EVENT, patchProject, readProject, type StoredProject } from '../lib/project-store'
+import { addDesignPage, designPages } from '../lib/canvas-launch'
 import LayerCanvas from '../components/editor/LayerCanvas'
 import PropertiesPanel from '../components/editor/PropertiesPanel'
 import SelectionPanel, { type AlignMode } from '../components/editor/SelectionPanel'
@@ -51,6 +52,7 @@ import { useAssetImages } from '../components/editor/useAssetImages'
 import AssistPanel, { type AssistEntry } from '../components/editor/AssistPanel'
 import CanvasToolbar from '../components/editor/CanvasToolbar'
 import EditorMenuBar, { type EditorMenu } from '../components/editor/EditorMenuBar'
+import WindowControls from '../components/editor/WindowControls'
 import { hasMotion, magicAnimation, playLength } from '../lib/canvas-fx'
 
 /**
@@ -296,10 +298,28 @@ export default function Editor() {
   }, [project?.breakdown, projectId])
 
   /** Leave canvas mode: save what is on the canvas now (not after the autosave delay), then back to Spyda AI. */
+  // Pages of this design, side by side as tabs; refreshed when projects change.
+  const [designTabs, setDesignTabs] = useState(() => (projectId ? designPages(projectId) : []))
+  useEffect(() => {
+    if (!projectId) return
+    const refresh = () => setDesignTabs(designPages(projectId))
+    refresh()
+    window.addEventListener(PROJECTS_UPDATED_EVENT, refresh)
+    return () => window.removeEventListener(PROJECTS_UPDATED_EVENT, refresh)
+  }, [projectId])
+
   const exitCanvas = useCallback(() => {
     if (design && edited.current) persist(design)
     navigate('/workspace')
   }, [design, navigate, persist])
+
+  /** Adds a blank page of the same size beside this one and opens it. */
+  const addPage = () => {
+    if (!projectId || !design) return
+    if (edited.current) persist(design)
+    const id = addDesignPage(projectId, { width: design.canvas.width || 1080, height: design.canvas.height || 1350 })
+    if (id) navigate(`/editor/${encodeURIComponent(id)}`)
+  }
 
   /** Leave for another route, saving first, like closing a document. */
   const leaveTo = useCallback((path: string) => {
@@ -1733,10 +1753,11 @@ export default function Editor() {
   const iconButton = 'flex h-7 w-7 items-center justify-center rounded-md text-muted-foreground transition-colors hover:bg-white/[0.08] hover:text-foreground disabled:opacity-30'
 
   return (
-    <main className="figma-editor flex min-h-[100dvh] flex-col bg-[#0b0c0e] text-foreground lg:h-[100dvh] lg:overflow-hidden">
+    <main className="figma-editor mac-ui flex min-h-[100dvh] flex-col bg-[#0b0c0e] text-foreground lg:h-[100dvh] lg:overflow-hidden">
       <CreateDesignDialog open={createOpen} onClose={() => setCreateOpen(false)} current={null} onChat={() => { setCreateOpen(false); exitCanvas() }} />
       {/* Menu bar */}
-      <header className="flex h-9 shrink-0 items-center gap-1 border-b border-white/[0.06] bg-[#111214] px-1.5">
+      <header className="mac-menubar flex h-9 shrink-0 items-center gap-1 border-b border-white/[0.06] bg-[#111214] px-1.5">
+        <WindowControls onClose={exitCanvas} onFit={() => setZoom(1)} fitLabel="Fit the artboard to the window" />
         <button
           type="button"
           onClick={exitCanvas}
@@ -1783,7 +1804,7 @@ export default function Editor() {
       </header>
 
       {/* Context bar: studio pages, the selection, undo and zoom */}
-      <div className="flex h-10 shrink-0 items-center gap-2 overflow-x-auto border-b border-white/[0.06] bg-[#0f1012] px-2 [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
+      <div className="mac-toolbar flex h-10 shrink-0 items-center gap-2 overflow-x-auto border-b border-white/[0.06] bg-[#0f1012] px-2 [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
         <div role="tablist" aria-label="Canvas pages" className="flex shrink-0 items-center gap-0.5 rounded-lg bg-black/30 p-0.5">
           {pages.map((item, index) => (
             <button
@@ -1845,9 +1866,9 @@ export default function Editor() {
         </div>
       </div>
 
-      <div className="flex min-h-0 flex-1 flex-col lg:flex-row">
+      <div className="mac-workspace flex min-h-0 flex-1 flex-col lg:flex-row">
         {/* Tool column */}
-        <nav aria-label="Tools" className="hidden w-11 shrink-0 flex-col items-center border-r border-white/[0.06] bg-[#111214] py-2 lg:flex">
+        <nav aria-label="Tools" className="mac-dock hidden w-11 shrink-0 flex-col items-center border-r border-white/[0.06] bg-[#111214] py-2 lg:flex">
           <CanvasToolbar
             orientation="vertical"
             onSelectTool={() => { setSelectedId(null); setPenPoints(null) }}
@@ -1860,15 +1881,36 @@ export default function Editor() {
         </nav>
 
         {/* Document */}
-        <section className="flex min-h-[72vh] min-w-0 flex-1 flex-col lg:min-h-0">
-          <div className="flex h-7 shrink-0 items-end gap-1 border-b border-white/[0.06] bg-[#0d0e10] px-2">
-            <div className="flex h-6 max-w-full items-center gap-2 rounded-t-md border border-b-0 border-white/[0.08] bg-[#16171a] pl-2.5 pr-1 text-[11px]">
-              <span className="truncate text-foreground/90">{project.name}</span>
-              <span className="shrink-0 text-muted-foreground">@ {zoomPercent}%{saved ? '' : '*'}</span>
-              <button type="button" onClick={exitCanvas} aria-label="Save and close this document" title="Save and close" className="flex h-4 w-4 shrink-0 items-center justify-center rounded text-muted-foreground hover:bg-white/[0.1] hover:text-foreground">
-                <X className="h-3 w-3" />
-              </button>
-            </div>
+        <section className="mac-window flex min-h-[72vh] min-w-0 flex-1 flex-col lg:min-h-0">
+          <div className="mac-tabs flex h-7 shrink-0 items-end gap-1 border-b border-white/[0.06] bg-[#0d0e10] px-2">
+            {designTabs.map(page => {
+              const active = page.id === projectId
+              return (
+                <div key={page.id} className={`editor-doc-tab flex h-6 min-w-0 max-w-[220px] items-center gap-2 rounded-t-md border border-b-0 pl-2.5 pr-1 text-[11px] ${active ? 'border-white/[0.08] bg-[#16171a]' : 'border-transparent text-muted-foreground hover:bg-white/[0.04]'}`} data-active={active || undefined}>
+                  {active ? (
+                    <span className="truncate text-foreground/90">{project.name}</span>
+                  ) : (
+                    <button type="button" onClick={() => leaveTo(`/editor/${encodeURIComponent(page.id)}`)} title={`Open ${page.name}`} className="truncate text-left hover:text-foreground">{page.name}</button>
+                  )}
+                  {active ? <span className="shrink-0 text-muted-foreground">@ {zoomPercent}%{saved ? '' : '*'}</span> : null}
+                  {active ? (
+                    <button type="button" onClick={exitCanvas} aria-label="Save and close this document" title="Save and close" className="flex h-4 w-4 shrink-0 items-center justify-center rounded text-muted-foreground hover:bg-white/[0.1] hover:text-foreground">
+                      <X className="h-3 w-3" />
+                    </button>
+                  ) : null}
+                </div>
+              )
+            })}
+            <button
+              type="button"
+              onClick={addPage}
+              disabled={!design}
+              aria-label="Add a page to this design"
+              title={`Add a page (${size || 'same size'}) to this design. + Create starts a new design.`}
+              className="editor-add-page mb-0.5 flex h-5 w-5 shrink-0 items-center justify-center rounded-md text-muted-foreground hover:bg-white/[0.1] hover:text-foreground disabled:opacity-30"
+            >
+              <Plus className="h-3.5 w-3.5" />
+            </button>
             {missingFonts.size ? (
               <p className="mb-1 ml-auto max-w-[45%] truncate text-[10px] text-amber-200">{[...missingFonts].join(', ')} not loaded · showing Montserrat</p>
             ) : null}
@@ -1979,7 +2021,7 @@ export default function Editor() {
         </section>
 
         {/* Dock: the studio page, layers, navigator and history */}
-        <aside className="flex w-full shrink-0 flex-col border-t border-white/[0.06] bg-[#111214] lg:h-full lg:w-[288px] lg:border-l lg:border-t-0">
+        <aside className="mac-sidebar flex w-full shrink-0 flex-col border-t border-white/[0.06] bg-[#111214] lg:h-full lg:w-[288px] lg:border-l lg:border-t-0">
           <div className="flex min-h-[320px] flex-1 flex-col lg:min-h-0">
             {panelHeader(pageTitle || 'Design', true, () => setPage('design'), page === 'design' && selectedObject ? <span className="min-w-0 truncate text-[10px] text-muted-foreground">{selectedObject.name}</span> : null)}
             <div className={`min-h-0 flex-1 p-2.5 ${page === 'ai' ? 'flex flex-col' : 'overflow-y-auto'}`}>
@@ -2100,8 +2142,8 @@ export default function Editor() {
       </div>
 
       {/* Status bar */}
-      <footer className="hidden h-6 shrink-0 items-center gap-3 border-t border-white/[0.06] bg-[#111214] px-3 text-[10px] text-muted-foreground sm:flex">
-        <span className="shrink-0">Artboard 1 of 1</span>
+      <footer className="mac-statusbar hidden h-6 shrink-0 items-center gap-3 border-t border-white/[0.06] bg-[#111214] px-3 text-[10px] text-muted-foreground sm:flex">
+        <span className="shrink-0">Page {Math.max(1, designTabs.findIndex(page => page.id === projectId) + 1)} of {Math.max(1, designTabs.length)}</span>
         <span className="shrink-0">{live.length} layers</span>
         <span className="h-3 w-px shrink-0 bg-white/10" />
         <span className="min-w-0 flex-1 truncate [&_b]:font-semibold [&_b]:text-foreground/90">{statusHint}</span>

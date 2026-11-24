@@ -882,3 +882,69 @@
 .figma-editor::-webkit-scrollbar, .figma-editor *::-webkit-scrollbar,
 .spyda-editor::-webkit-scrollbar, .spyda-editor *::-webkit-scrollbar,
 .spyda-select-menu::-webkit-scrollbar { display: none; width: 0; height: 0; }
+
+/*
+ * macOS-style editors (flyer and video): a soft desktop behind, and the menu
+ * bar, tools, document, panels and timeline as frosted glass windows that
+ * float over it with rounded corners, a light top edge and a deep shadow.
+ */
+.mac-ui {
+  --mac-glass: rgba(32, 33, 38, 0.64);
+  --mac-glass-deep: rgba(22, 23, 27, 0.72);
+  --mac-edge: rgba(255, 255, 255, 0.085);
+  --mac-highlight: rgba(255, 255, 255, 0.12);
+  background:
+    radial-gradient(1100px 680px at 8% -12%, rgba(98, 126, 255, 0.17), transparent 62%),
+    radial-gradient(900px 620px at 104% 112%, rgba(157, 250, 176, 0.1), transparent 60%),
+    radial-gradient(700px 500px at 60% 40%, rgba(255, 120, 210, 0.05), transparent 70%),
+    linear-gradient(180deg, #13151b, #0a0b0e) !important;
+}
+.mac-ui .mac-menubar {
+  background: rgba(18, 19, 23, 0.55) !important;
+  border-bottom-color: var(--mac-edge) !important;
+  -webkit-backdrop-filter: blur(28px) saturate(1.6);
+  backdrop-filter: blur(28px) saturate(1.6);
+}
+.mac-ui .mac-light { box-shadow: inset 0 0 0 0.5px rgba(0, 0, 0, 0.2); }
+.mac-ui .mac-toolbar { background: transparent !important; border-bottom-color: transparent !important; }
+.mac-ui .mac-menubar [role="tablist"],
+.mac-ui .mac-toolbar [role="tablist"] {
+  border-radius: 999px;
+  background: rgba(255, 255, 255, 0.055) !important;
+  box-shadow: inset 0 0 0 1px var(--mac-edge);
+  padding: 3px;
+}
+.mac-ui .mac-menubar [role="tablist"] > button,
+.mac-ui .mac-toolbar [role="tablist"] > button { border-radius: 999px; }
+.mac-ui .mac-menubar [role="tablist"] > button[aria-selected="true"],
+.mac-ui .mac-toolbar [role="tablist"] > button[aria-selected="true"]:not(.bg-primary) {
+  background: rgba(255, 255, 255, 0.14) !important;
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.14), 0 1px 3px rgba(0, 0, 0, 0.35);
+}
+.mac-ui .rounded-md { border-radius: 8px; }
+.mac-ui .rounded-lg { border-radius: 11px; }
+.mac-ui .rounded-xl { border-radius: 14px; }
+
+@media (min-width: 1024px) {
+  .mac-ui .mac-workspace { gap: 10px; padding: 0 10px 10px; }
+  .spyda-editor.mac-ui .mac-workspace { padding-top: 10px; }
+  .mac-ui .mac-dock,
+  .mac-ui .mac-sidebar,
+  .mac-ui .mac-window,
+  .mac-ui .mac-timeline {
+    background: var(--mac-glass) !important;
+    border: 1px solid var(--mac-edge) !important;
+    border-radius: 18px;
+    overflow: hidden;
+    box-shadow: inset 0 1px 0 var(--mac-highlight), 0 22px 60px -24px rgba(0, 0, 0, 0.75), 0 2px 8px rgba(0, 0, 0, 0.25);
+    -webkit-backdrop-filter: blur(32px) saturate(1.7);
+    backdrop-filter: blur(32px) saturate(1.7);
+  }
+  .mac-ui .mac-window { background: var(--mac-glass-deep) !important; }
+  .mac-ui .mac-dock { align-self: center; padding: 10px 0; border-radius: 16px; }
+  .mac-ui .mac-tabs { background: rgba(255, 255, 255, 0.025) !important; border-bottom-color: var(--mac-edge) !important; padding-top: 6px; height: 34px; }
+  .mac-ui .mac-tabs .editor-doc-tab { border-radius: 9px 9px 0 0; }
+  .mac-ui .mac-timeline { margin: 0 10px 10px; }
+  .mac-ui .mac-sidebar > * { background-color: transparent; }
+  .mac-ui .mac-statusbar { background: transparent !important; border-top-color: transparent !important; }
+}
