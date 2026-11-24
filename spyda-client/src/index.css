@@ -640,15 +640,18 @@
 /* Spyda coin.
    A real-coin token in CSS 3D: stacked edge slices give it thickness, the rim
    is a metallic conic gradient with a reeded edge, the field is enamel with an
-   embossed mark. One slow spin, a float, a light sweep; reduced motion rests. */
+   embossed mark. Every 14s it is tossed twice: it lifts, flips to the other
+   face with an overshoot and lands with a flare and a sweep of shine. All the
+   toss parts share one 14s clock so they stay in step; reduced motion rests. */
 .spyda-coin-scene { perspective: 1100px; }
-.spyda-coin-float { animation: spyda-coin-float 6s ease-in-out infinite; transform-style: preserve-3d; }
+.spyda-coin-lean { transform-style: preserve-3d; will-change: transform; }
+.spyda-coin-toss { animation: spyda-coin-toss 14s infinite; transform-style: preserve-3d; }
 .spyda-coin {
   position: relative;
   width: clamp(168px, 46vw, 244px);
   aspect-ratio: 1;
   transform-style: preserve-3d;
-  animation: spyda-coin-spin 11s cubic-bezier(0.45, 0, 0.55, 1) infinite;
+  animation: spyda-coin-spin 14s infinite;
 }
 .spyda-coin__edge {
   position: absolute;
@@ -742,16 +745,23 @@
   color: #dfffea;
   text-shadow: 0 2px 0 rgba(0, 0, 0, 0.55);
 }
-.spyda-coin__value-number { font-size: clamp(44px, 5vw, 64px); font-weight: 700; line-height: 1; }
-.spyda-coin__value-unit { margin-top: 2px; font-size: clamp(11px, 1.2vw, 14px); font-weight: 700; letter-spacing: 0.3em; }
-.spyda-coin__value-rate { margin-top: 6px; font-size: 9px; letter-spacing: 0.12em; color: rgba(214, 255, 228, 0.7); text-transform: uppercase; }
+.spyda-coin__value-number { font-size: clamp(48px, 5.4vw, 70px); font-weight: 700; line-height: 1; letter-spacing: -0.02em; }
+.spyda-coin__value-unit { margin-top: 4px; font-size: clamp(10px, 1.1vw, 13px); font-weight: 700; letter-spacing: 0.34em; color: rgba(214, 255, 228, 0.8); }
+/* Fine engraved rings behind the back's value, like a banknote. */
+.spyda-coin__guilloche {
+  position: absolute;
+  inset: 16%;
+  border-radius: 9999px;
+  background: repeating-radial-gradient(circle, rgba(205, 255, 222, 0.09) 0 1px, transparent 1px 5px);
+}
 .spyda-coin__shine {
   position: absolute;
   inset: 0;
   border-radius: inherit;
   background: linear-gradient(115deg, transparent 30%, rgba(255, 255, 255, 0.5) 48%, rgba(255, 255, 255, 0.08) 56%, transparent 70%);
   background-size: 260% 260%;
-  animation: spyda-coin-shine 5.5s ease-in-out infinite;
+  background-position: 120% 120%;
+  animation: spyda-coin-shine 14s infinite;
 }
 .spyda-coin-shadow {
   position: absolute;
@@ -762,11 +772,18 @@
   margin-left: -17%;
   border-radius: 9999px;
   background: radial-gradient(closest-side, rgba(0, 0, 0, 0.65), transparent);
-  animation: spyda-coin-shadow 11s cubic-bezier(0.45, 0, 0.55, 1) infinite;
+  animation: spyda-coin-shadow 14s infinite;
 }
 .spyda-coin-glow {
-  background: radial-gradient(closest-side, rgba(157, 250, 176, 0.22), transparent 72%);
-  animation: spyda-coin-glow 5.5s ease-in-out infinite;
+  background: radial-gradient(closest-side, rgba(157, 250, 176, 0.2), transparent 72%);
+  animation: spyda-coin-glow 7s ease-in-out infinite;
+}
+/* The burst of light each time the coin lands. */
+.spyda-coin-flare {
+  pointer-events: none;
+  background: radial-gradient(closest-side, rgba(214, 255, 228, 0.5), rgba(157, 250, 176, 0.18) 45%, transparent 72%);
+  opacity: 0;
+  animation: spyda-coin-flare 14s infinite;
 }
 .spyda-orbit { border-radius: 9999px; }
 .spyda-orbit--outer { animation: spin 16s linear infinite; }
@@ -780,34 +797,105 @@
   margin-left: -3px;
   border-radius: 9999px;
 }
-.spyda-chip { animation: spyda-chip-float 5s ease-in-out infinite; }
-.spyda-chip--late { animation-delay: -2.5s; }
-.spyda-chip--slow { animation-duration: 7s; }
-
-/* Turns once, lingering on each face, with a slight tilt so the edge shows. */
+/* Sways on the front, winds back, flips fast past the back and settles; then
+   the same from the back to the front. 340deg looks the same as -20deg, so the
+   loop is seamless. */
 @keyframes spyda-coin-spin {
-  0% { transform: rotateX(10deg) rotateY(-24deg); }
-  40% { transform: rotateX(10deg) rotateY(24deg); }
-  50% { transform: rotateX(10deg) rotateY(180deg); }
-  90% { transform: rotateX(10deg) rotateY(204deg); }
-  100% { transform: rotateX(10deg) rotateY(336deg); }
+  0% { transform: rotateX(10deg) rotateY(-20deg); animation-timing-function: cubic-bezier(0.45, 0, 0.55, 1); }
+  30% { transform: rotateX(10deg) rotateY(16deg); animation-timing-function: cubic-bezier(0.4, 0, 0.6, 1); }
+  34% { transform: rotateX(8deg) rotateY(6deg); animation-timing-function: cubic-bezier(0.25, 0.6, 0.2, 1); }
+  44% { transform: rotateX(12deg) rotateY(198deg); animation-timing-function: ease-in-out; }
+  47% { transform: rotateX(10deg) rotateY(176deg); animation-timing-function: ease-in-out; }
+  50% { transform: rotateX(10deg) rotateY(184deg); animation-timing-function: cubic-bezier(0.45, 0, 0.55, 1); }
+  80% { transform: rotateX(10deg) rotateY(160deg); animation-timing-function: cubic-bezier(0.4, 0, 0.6, 1); }
+  84% { transform: rotateX(8deg) rotateY(170deg); animation-timing-function: cubic-bezier(0.25, 0.6, 0.2, 1); }
+  94% { transform: rotateX(12deg) rotateY(352deg); animation-timing-function: ease-in-out; }
+  97% { transform: rotateX(10deg) rotateY(334deg); animation-timing-function: ease-in-out; }
+  100% { transform: rotateX(10deg) rotateY(340deg); }
 }
+/* A gentle float, then a lift during each flip and a soft bounce on landing. */
+@keyframes spyda-coin-toss {
+  0% { transform: translateY(-4px); animation-timing-function: ease-in-out; }
+  17% { transform: translateY(6px); animation-timing-function: ease-in-out; }
+  34% { transform: translateY(2px) scale(0.98); animation-timing-function: cubic-bezier(0.2, 0.7, 0.3, 1); }
+  39% { transform: translateY(-36px) scale(1.05); animation-timing-function: cubic-bezier(0.6, 0, 0.8, 0.4); }
+  44% { transform: translateY(2px) scale(0.99); animation-timing-function: ease-out; }
+  46.5% { transform: translateY(-5px) scale(1); animation-timing-function: ease-in-out; }
+  50% { transform: translateY(-4px); animation-timing-function: ease-in-out; }
+  67% { transform: translateY(6px); animation-timing-function: ease-in-out; }
+  84% { transform: translateY(2px) scale(0.98); animation-timing-function: cubic-bezier(0.2, 0.7, 0.3, 1); }
+  89% { transform: translateY(-36px) scale(1.05); animation-timing-function: cubic-bezier(0.6, 0, 0.8, 0.4); }
+  94% { transform: translateY(2px) scale(0.99); animation-timing-function: ease-out; }
+  96.5% { transform: translateY(-5px) scale(1); animation-timing-function: ease-in-out; }
+  100% { transform: translateY(-4px); }
+}
+/* The shadow shrinks while the coin is in the air. */
 @keyframes spyda-coin-shadow {
-  0%, 40% { transform: scaleX(1); opacity: 0.9; }
-  45% { transform: scaleX(0.35); opacity: 0.6; }
-  50%, 90% { transform: scaleX(1); opacity: 0.9; }
-  95% { transform: scaleX(0.35); opacity: 0.6; }
-  100% { transform: scaleX(1); opacity: 0.9; }
+  0%, 34%, 44%, 84%, 94%, 100% { transform: scaleX(1); opacity: 0.9; }
+  39%, 89% { transform: scaleX(0.55); opacity: 0.35; }
 }
-@keyframes spyda-coin-float { 0%, 100% { transform: translateY(-6px); } 50% { transform: translateY(8px); } }
-@keyframes spyda-coin-shine { 0%, 20% { background-position: 120% 120%; } 60%, 100% { background-position: -40% -40%; } }
+/* A sweep of light across the face each time it lands. */
+@keyframes spyda-coin-shine {
+  0%, 43% { background-position: 120% 120%; }
+  56% { background-position: -40% -40%; }
+  56.01%, 93% { background-position: 120% 120%; }
+  100% { background-position: 20% 20%; }
+}
+@keyframes spyda-coin-flare {
+  0%, 42%, 56%, 92%, 100% { opacity: 0; transform: scale(0.8); }
+  45%, 95% { opacity: 1; transform: scale(1.12); }
+}
 @keyframes spyda-coin-glow { 0%, 100% { opacity: 0.6; transform: scale(0.96); } 50% { opacity: 1; transform: scale(1.04); } }
-@keyframes spyda-chip-float { 0%, 100% { transform: translateY(0); } 50% { transform: translateY(-7px); } }
 
 @media (prefers-reduced-motion: reduce) {
-  .spyda-coin, .spyda-coin-float, .spyda-coin__shine, .spyda-coin-shadow, .spyda-coin-glow,
-  .spyda-orbit--outer, .spyda-orbit--inner, .spyda-chip { animation: none; }
+  .spyda-coin, .spyda-coin-toss, .spyda-coin__shine, .spyda-coin-shadow, .spyda-coin-glow, .spyda-coin-flare,
+  .spyda-orbit--outer, .spyda-orbit--inner { animation: none; }
   .spyda-coin { transform: rotateX(10deg) rotateY(-20deg); }
+}
+
+/* FAQ: an open question card has the brand's light running round its border.
+   A conic gradient spins behind a mask that keeps only the 2px ring, with a
+   blurred copy for the glow. */
+@property --faq-bolt {
+  syntax: '<angle>';
+  inherits: false;
+  initial-value: 0deg;
+}
+/* No stacking context on the card, so the z-index -1 glow paints behind the
+   card's own background and only shows round its edge. */
+.faq-card { position: relative; }
+.faq-card::before,
+.faq-card::after {
+  content: '';
+  position: absolute;
+  inset: -1px;
+  border-radius: inherit;
+  pointer-events: none;
+  opacity: 0;
+  background: conic-gradient(from var(--faq-bolt), transparent 0deg, transparent 190deg, rgba(157, 250, 176, 0.35) 250deg, #9dfab0 310deg, #ffffff 334deg, #8bd3ff 350deg, transparent 360deg);
+  transition: opacity 300ms ease;
+}
+.faq-card::before {
+  padding: 2px;
+  -webkit-mask: linear-gradient(#000 0 0) content-box, linear-gradient(#000 0 0);
+  -webkit-mask-composite: xor;
+  mask: linear-gradient(#000 0 0) content-box exclude, linear-gradient(#000 0 0);
+}
+.faq-card::after {
+  z-index: -1;
+  filter: blur(14px);
+}
+.faq-card--open::before { opacity: 1; animation: faq-bolt 2.6s linear infinite; }
+.faq-card--open::after { opacity: 0.45; animation: faq-bolt 2.6s linear infinite; }
+/* The first lap is quick, like a strike, then it settles into a steady run. */
+.faq-card--open::before,
+.faq-card--open::after { animation: faq-bolt-strike 0.9s cubic-bezier(0.2, 0.7, 0.2, 1), faq-bolt 2.6s linear 0.9s infinite; }
+@keyframes faq-bolt { to { --faq-bolt: 360deg; } }
+@keyframes faq-bolt-strike { from { --faq-bolt: -360deg; } to { --faq-bolt: 0deg; } }
+@media (prefers-reduced-motion: reduce) {
+  .faq-card--open::before, .faq-card--open::after { animation: none; }
+  .faq-card--open::before { background: linear-gradient(135deg, #9dfab0, #8bd3ff); }
+  .faq-card--open::after { opacity: 0; }
 }
 
 /* Solar line-duotone icons. Icons never shrink inside flex rows, and a heavy

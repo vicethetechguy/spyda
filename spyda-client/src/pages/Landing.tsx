@@ -466,7 +466,7 @@ function PricingCard({ name, price, detail, desc, features, featured, texture, c
 function FAQItem({ question, answer }: { question: string; answer: string }) {
   const [isOpen, setIsOpen] = useState(false)
   return (
-    <div className={`rounded-[20px] border transition-colors ${isOpen ? 'border-primary/30 bg-surface-raised' : 'border-white/[0.07] bg-surface hover:border-white/[0.14]'}`}>
+    <div className={`faq-card rounded-[20px] border transition-colors ${isOpen ? 'faq-card--open border-transparent bg-surface-raised' : 'border-white/[0.07] bg-surface hover:border-white/[0.14]'}`}>
       <button type="button" onClick={() => setIsOpen(previous => !previous)} aria-expanded={isOpen} className="flex w-full items-center justify-between gap-5 px-6 py-5 text-left">
         <span className="font-heading text-base font-medium text-foreground">{question}</span>
         <span className={`flex h-8 w-8 shrink-0 items-center justify-center rounded-full transition-all ${isOpen ? 'rotate-180 bg-primary text-primary-foreground' : 'bg-white/[0.06] text-muted-foreground'}`}>
@@ -790,51 +790,40 @@ export default function Landing() {
                 <div>
                   <p className="mb-6 flex items-center gap-2 font-heading text-[11px] font-semibold uppercase tracking-[0.2em] text-primary"><Coins className="h-4 w-4" /> The Spyda economy</p>
                   <h2 className="max-w-3xl font-heading text-[2.1rem] font-semibold leading-[1.08] tracking-[-0.02em] sm:text-5xl">Your design budget should create more than the next design.</h2>
-                  <p className="mt-6 max-w-2xl text-base leading-8 text-muted-foreground">Credits you use on Spyda earn SPYDA rewards. Join early and each credit earns more.</p>
+                  <p className="mt-5 max-w-xl text-base leading-7 text-muted-foreground">Credits you use on Spyda earn SPYDA rewards. The earlier you join, the more each credit earns.</p>
 
-                  <div className="mt-8 grid gap-3 sm:grid-cols-[1fr_auto_1fr] sm:items-stretch">
-                    <div className="rounded-[20px] border border-white/[0.08] bg-surface p-5"><p className="text-[10px] font-semibold uppercase text-muted-foreground">Eligible usage</p><p className="mt-2 font-heading text-2xl font-semibold">1,000 credits</p><p className="mt-1 text-xs text-muted-foreground">consumed inside Spyda, as one of the first 1,000 users</p></div>
-                    <div className="flex items-center justify-center"><span className="relative flex h-10 w-10 items-center justify-center rounded-full bg-primary text-primary-foreground"><span aria-hidden="true" className="absolute inset-0 rounded-full bg-primary/40 motion-safe:animate-ping" /><ArrowRight className="relative h-4 w-4 rotate-90 sm:rotate-0" /></span></div>
-                    <div className="rounded-[20px] border border-primary/30 bg-surface-raised p-5"><p className="text-[10px] font-semibold uppercase text-muted-foreground">Community reward</p><div className="mt-2 flex items-center gap-2"><img src="/assets/spyda-credit.png" alt="" className="h-7 w-7 object-contain" /><p className="font-heading text-2xl font-semibold">10,000 SPYDA</p></div><p className="mt-1 text-xs text-primary">pre-launch allocation, down to 1 as Spyda grows</p></div>
+                  <div className="mt-8 rounded-[24px] border border-primary/25 bg-[linear-gradient(150deg,rgba(157,250,176,0.08),rgba(255,255,255,0.01))] p-6">
+                    <p className="text-[10px] font-semibold uppercase tracking-[0.16em] text-primary">Early-adopter rate</p>
+                    <div className="mt-3 flex items-center gap-3">
+                      <img src="/assets/spyda-credit.png" alt="" className="h-9 w-9 object-contain" />
+                      <p className="font-heading text-4xl font-semibold tracking-[-0.02em]">10,000 SPYDA</p>
+                    </div>
+                    <p className="mt-2 text-sm text-muted-foreground">for every 1,000 credits used by the first 1,000 users.</p>
                   </div>
 
-                  <div className="mt-7 grid gap-3 sm:grid-cols-3">
+                  <ol className="mt-8 grid gap-6 sm:grid-cols-3">
                     {[
-                      [WandSparkles, 'Create', 'Use Spyda for real design work.'],
-                      [Target, 'Accrue', 'The earlier you join, the more each credit earns.'],
-                      [Network, 'Launch together', 'The community target is 1B SPYDA.'],
-                    ].map(([Icon, title, copy]) => {
-                      const StepIcon = Icon as typeof WandSparkles
-                      return <div key={String(title)} className="rounded-[18px] border border-white/[0.07] bg-surface p-4"><StepIcon className="h-4 w-4 text-primary" /><h3 className="mt-3 text-sm font-semibold">{String(title)}</h3><p className="mt-1 text-xs leading-5 text-muted-foreground">{String(copy)}</p></div>
-                    })}
-                  </div>
+                      ['Create', 'Use credits on real design work.'],
+                      ['Accrue', 'Rewards follow credits used, not deposits.'],
+                      ['Launch', 'When users earn 1 billion SPYDA together.'],
+                    ].map(([title, copy], index) => (
+                      <li key={title} className="border-t border-white/[0.1] pt-4">
+                        <p className="font-heading text-xs font-semibold text-primary">0{index + 1}</p>
+                        <h3 className="mt-2 text-sm font-semibold">{title}</h3>
+                        <p className="mt-1 text-xs leading-5 text-muted-foreground">{copy}</p>
+                      </li>
+                    ))}
+                  </ol>
 
-                  <div className="mt-8 flex flex-col gap-3 sm:flex-row sm:items-center">
+                  <div className="mt-9 flex flex-col gap-3 sm:flex-row sm:items-center">
                     <PrimaryPill to="/auth">Start creating and accruing</PrimaryPill>
-                    <Link to="/auth" className="inline-flex h-12 items-center justify-center gap-2 rounded-full border border-white/[0.12] bg-surface px-6 whitespace-nowrap font-heading text-[12px] font-semibold uppercase tracking-[0.14em] transition-all hover:-translate-y-0.5 hover:bg-surface-raised active:translate-y-0 active:scale-[0.98]"><ShieldCheck className="h-4 w-4 text-primary" /> Read the whitepaper in Spyda</Link>
+                    <Link to="/auth" className="inline-flex h-12 items-center justify-center gap-2 rounded-full border border-white/[0.12] bg-surface px-6 whitespace-nowrap font-heading text-[12px] font-semibold uppercase tracking-[0.14em] transition-all hover:-translate-y-0.5 hover:bg-surface-raised active:translate-y-0 active:scale-[0.98]"><ShieldCheck className="h-4 w-4 text-primary" /> Read the whitepaper</Link>
                   </div>
-                  <p className="mt-5 max-w-2xl text-[11px] leading-5 text-muted-foreground">Pre-launch SPYDA is a non-transferable reward record, not cash or a guaranteed value. Launch needs the community target plus security and legal readiness.</p>
+                  <p className="mt-6 max-w-xl text-[11px] leading-5 text-muted-foreground/80">Pre-launch SPYDA is a non-transferable reward record, not cash or a guaranteed value. Launch also needs security and legal readiness.</p>
                 </div>
 
                 <SpydaCoin />
               </div>
-
-              <Deck className="mt-16 grid gap-4 md:grid-cols-3">
-                {[
-                  [Gift, 'text-primary', 'Usage becomes participation', 'Rewards follow credits you use, not deposits.'],
-                  [Network, 'text-[#a9bcff]', 'One billion, earned together', 'Launch comes when users earn 1 billion SPYDA together.'],
-                  [ShieldCheck, 'text-[#ffab84]', 'Product and trust first', 'The token launches only once it passes its readiness checks.'],
-                ].map(([Icon, colour, title, copy]) => {
-                  const CardIcon = Icon as typeof Gift
-                  return (
-                    <div key={String(title)} className="rounded-[24px] border border-white/[0.08] bg-surface p-6 transition-all duration-300 hover:-translate-y-0.5 hover:border-primary/25">
-                      <span className="flex h-11 w-11 items-center justify-center rounded-full bg-white/[0.06]"><CardIcon className={`h-5 w-5 ${String(colour)}`} /></span>
-                      <h3 className="mt-5 font-heading text-base font-semibold">{String(title)}</h3>
-                      <p className="mt-2 text-sm leading-6 text-muted-foreground">{String(copy)}</p>
-                    </div>
-                  )
-                })}
-              </Deck>
             </div>
           </div>
         </section>
@@ -863,19 +852,12 @@ export default function Landing() {
               <h2 className="font-heading text-[2.1rem] font-semibold leading-[1.08] tracking-[-0.02em] sm:text-4xl">Know what to expect before you upload.</h2>
             </div>
             <div className="mt-12 space-y-3">
-              <FAQItem question="What does Spyda actually do?" answer="Spyda turns a design you like into your own. Import a flyer or social design, tell Spyda what to change by typing or talking, and it generates your version while keeping the look. You can also animate it with Claude Opus 5.5 or edit every layer by hand in canvas mode." />
-              <FAQItem question="Is Spyda free?" answer="Yes. Using Spyda is free and always will be: there is no subscription, now or in the future. You spend Spyda credits only when you download your work (100 credits a flyer or video) or run AI. Recharge from just $1, which adds 1,000 credits: enough for 10 downloads." />
-              <FAQItem question="What does a download cost?" answer="100 Spyda credits for a flyer, animation or video. Turn on the compressor for 50 more and the file comes out up to 90% smaller while looking the same; if it cannot be made smaller, you are not charged for it. Credits are taken only once your file is ready." />
-              <FAQItem question="Can I edit the design by hand?" answer="Yes. Canvas mode is a full flyer editor: Magic Layers splits a flat flyer into live text, its subject, logos and a clean background, and you can move, resize, restyle and rewrite each one, with typography controls, effects, animation and undo." />
-              <FAQItem question="Can I edit videos too?" answer="Yes. The Video editor cuts clips on a timeline, grades their colour, adds 19 effects, 15 transitions, animated titles and music, and exports an MP4 with sound. It is free to use; the download costs 100 credits." />
-              <FAQItem question="How do motion designs work?" answer="Switch the chat to Motion, import a reference and describe what you want. Claude Opus 5.5 writes the animation, you watch it in the chat, and you can download it as a video or an HTML file. Each motion uses 50 credits, and follow-up messages revise the last one." />
-              <FAQItem question="Can I talk instead of typing?" answer="Yes. Tap the microphone in the chat box and speak; your words appear in the message for you to check and send. It uses your browser's own speech recognition, so it works in Chrome, Edge and Safari." />
-              <FAQItem question="Can I replace logos and product images?" answer="Yes. Upload a replacement on the matching design atom or through Essentials. Spyda also supports exact placement controls for detected image regions before the AI generation step." />
-              <FAQItem question="Can I keep my brand fonts and colors?" answer="Yes. Brand Constants lets you set heading and body fonts, HEX colors, and the visual style that should guide the revised design." />
-              <FAQItem question="How do Spyda Token rewards work?" answer="SPYDA follows an early-adopter schedule set by your signup number: users 1 – 1,000 earn 10,000 SPYDA per 1,000 credits, 1,001 – 10,000 earn 1,000, 10,001 – 100,000 earn 100, 100,001 – 1,000,000 earn 10, and everyone after earns 1. Rewards accrue as you spend credits on qualifying actions such as downloads and AI, and stop once users have earned 1 billion SPYDA in total. Funding the wallet alone does not create a reward." />
-              <FAQItem question="When will the Spyda Token launch?" answer="The planned community trigger is reached when users collectively hold 1 billion eligible, accrued SPYDA. Launch also depends on security audits, useful token infrastructure, network selection, claim controls, and legal readiness." />
-              <FAQItem question="Is accrued SPYDA the same as cash?" answer="No. Before launch, accrued SPYDA is a non-transferable reward record. It is not cash, a refund, a stablecoin, or a guarantee that a future token will have a specific market price." />
-              <FAQItem question="Do I need to be a professional designer?" answer="No. Spyda is built for anyone who can point to a design they like and clearly choose what should stay, what should change, and what should be removed." />
+              <FAQItem question="What does Spyda actually do?" answer="It turns a design you like into your own. Import a flyer, say what to change by typing or talking, and Spyda makes your version while keeping the look. You can animate it with Claude Opus 5.5 or edit every layer by hand." />
+              <FAQItem question="Is Spyda free?" answer="Yes, and it always will be: no subscription, now or later. You spend Spyda credits only to download your work or run AI. A $1 recharge adds 1,000 credits." />
+              <FAQItem question="What does a download cost?" answer="100 credits for a flyer, animation or video. The compressor adds 50 and makes the file up to 90% smaller at the same quality; if it cannot shrink the file, it is free. Credits are taken only once your file is ready." />
+              <FAQItem question="Can I edit designs and videos by hand?" answer="Yes. Canvas mode splits a flat flyer into live text, subject, logos and background for you to edit, and the video studio cuts, colours and mixes clips into an MP4 with sound." />
+              <FAQItem question="How do SPYDA rewards work?" answer="You earn SPYDA as you spend credits on downloads and AI. The rate depends on when you joined: the first 1,000 users earn 10,000 SPYDA per 1,000 credits, and later users earn less, down to 1. Adding money to your wallet alone earns nothing." />
+              <FAQItem question="Is SPYDA the same as cash?" answer="No. Before launch, SPYDA is a non-transferable reward record, not cash, a refund or a promise of a market price. The token launches when users have earned 1 billion SPYDA together and security and legal checks are done." />
             </div>
           </div>
         </section>
