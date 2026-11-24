@@ -51,6 +51,7 @@ import BrandMark from '../components/brand/BrandMark'
 import HeroField from '../components/HeroField'
 import SpydaCoin from '../components/SpydaCoin'
 import SpydaMotionReel from '../components/SpydaMotionReel'
+import { useCardDeck } from '../components/landing/useCardDeck'
 
 /* ── Hero mockup: a faithful miniature of the real Spyda workspace (chat-first, icon rail) ── */
 
@@ -348,6 +349,55 @@ function HeroRibbon() {
 
 /* ── Cards ── */
 
+/** A grid of cards dealt out like a deck when it scrolls into view (see useCardDeck). */
+function Deck({ className, children }: { className: string; children: React.ReactNode }) {
+  const { ref } = useCardDeck()
+  return <div ref={ref} className={className}>{children}</div>
+}
+
+const FEATURES: { id: string; tone?: CardTone; icon: React.ElementType; title: string; desc: string }[] = [
+  { id: 'chat', tone: 'mint', icon: MessageSquareText, title: 'A chat that makes it yours', desc: 'Say it in plain words. You see the cost before anything runs.' },
+  { id: 'motion', icon: Clapperboard, title: 'Motion by Claude Opus 5.5', desc: 'Animate any design for posts, stories and reels.' },
+  { id: 'voice', icon: Mic, title: 'Talk instead of type', desc: 'Tap the mic and describe the change.' },
+  { id: 'canvas', icon: Layers3, title: 'Canvas mode and Magic Layers', desc: 'Split a flat flyer into live layers and edit each one.' },
+  { id: 'video', icon: Play, title: 'A pro video editor', desc: 'Cut, colour, add music and titles, export MP4.' },
+  { id: 'compress', icon: Download, title: 'Smaller downloads', desc: 'Files up to 90% smaller, same look.' },
+  { id: 'brand', tone: 'light', icon: Palette, title: 'Brand constants', desc: 'Your fonts and colours on every version.' },
+  { id: 'workspace', icon: Library, title: 'A reusable workspace', desc: 'Chats, projects and assets, ready when you return.' },
+]
+
+/** The feature cards, with a Shuffle button that gathers and re-deals them. */
+function FeatureDeck() {
+  const { ref, shuffle } = useCardDeck()
+  const [order, setOrder] = useState(FEATURES)
+  const reshuffle = () => void shuffle(() => setOrder(current => {
+    const next = [...current]
+    for (let i = next.length - 1; i > 0; i--) {
+      const j = Math.floor(Math.random() * (i + 1))
+      const held = next[i]
+      next[i] = next[j]
+      next[j] = held
+    }
+    return next
+  }))
+  return (
+    <>
+      <div ref={ref} className="mt-14 grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
+        {order.map(item => <FeatureCard key={item.id} tone={item.tone} icon={item.icon} title={item.title} desc={item.desc} />)}
+      </div>
+      <div className="mt-8 flex justify-center">
+        <button
+          type="button"
+          onClick={reshuffle}
+          className="inline-flex h-11 items-center gap-2 rounded-full border border-white/[0.12] bg-surface px-5 font-heading text-[11px] font-semibold uppercase tracking-[0.14em] transition-all hover:-translate-y-0.5 hover:bg-surface-raised active:translate-y-0 active:scale-[0.98]"
+        >
+          <RefreshCw className="h-3.5 w-3.5 text-primary" /> Shuffle the deck
+        </button>
+      </div>
+    </>
+  )
+}
+
 type CardTone = 'surface' | 'mint' | 'light'
 
 const CARD_TONES: Record<CardTone, { card: string; icon: string; body: string }> = {
@@ -447,9 +497,9 @@ const navLinks = [
 ]
 
 const problems = [
-  ['Rebuilding takes too long', 'A small client revision can turn into hours of recreating spacing, type, and visual balance.'],
-  ['One large AI prompt changes too much', 'When every instruction is sent at once, the layout drifts and important details get lost.'],
-  ['Good references lose their structure', 'Most generators treat your reference as inspiration instead of a layout that should remain recognizable.'],
+  ['Rebuilding takes too long', 'Small revisions turn into hours of work.'],
+  ['One large AI prompt changes too much', 'The layout drifts and details get lost.'],
+  ['Good references lose their structure', 'Most AI tools treat your layout as a loose idea.'],
 ]
 
 export default function Landing() {
@@ -548,7 +598,7 @@ export default function Landing() {
                   <span className="text-[#c9ffd8]/90">Change only what you need.</span>
                 </h1>
                 <p className="mx-auto mt-6 max-w-2xl text-[15px] leading-7 text-white/80 sm:text-base">
-                  Upload a design you already like and tell Spyda what to change, by typing or by voice. ChatGPT makes it yours, Claude Opus 5.5 turns it into motion, canvas mode lets you fine-tune every layer by hand, and the video editor cuts it all together. Free to use, no subscription: pay with Spyda credits only when you download.
+                  Import a design, say what to change, and Spyda makes it yours. Animate it, edit every layer, or cut it into a video. Free to use: pay only when you download.
                 </p>
                 <div className="mt-8 flex flex-col items-stretch justify-center gap-3 sm:flex-row sm:items-center">
                   <SecondaryPill href="#how"><Play className="h-3.5 w-3.5 text-primary" /> See the workflow</SecondaryPill>
@@ -603,10 +653,10 @@ export default function Landing() {
                 <br />
                 <span className="text-muted-foreground"><HeadlineChip icon={WandSparkles} tone="mint" /> blank canvas.</span>
               </h2>
-              <p className="mx-auto mt-6 max-w-2xl text-base leading-7 text-muted-foreground">You already found the structure, hierarchy, and visual direction you want. The slow part is rebuilding it just to change a headline, product photo, logo, offer, or brand color.</p>
+              <p className="mx-auto mt-6 max-w-2xl text-base leading-7 text-muted-foreground">You already have the look. Rebuilding it to change a headline or logo is the slow part.</p>
             </div>
 
-            <div className="mt-14 grid gap-4 md:grid-cols-2 lg:grid-cols-3">
+            <Deck className="mt-14 grid gap-4 md:grid-cols-2 lg:grid-cols-3">
               {/* Photo card with its stat card laid over it */}
               <article className="group relative min-h-[420px] overflow-hidden rounded-[28px] border border-white/10 md:row-span-2">
                 <img src="/assets/spyda-sample-05.jpeg" alt="A detailed flyer reference" className="absolute inset-0 h-full w-full object-cover transition-transform duration-500 group-hover:scale-[1.03]" loading="lazy" />
@@ -641,7 +691,7 @@ export default function Landing() {
                 <p className="max-w-[12rem] text-sm leading-6 text-muted-foreground">Spyda fixes it with focused change rounds</p>
                 <p className="font-heading text-5xl font-semibold tracking-[-0.03em] text-primary">1-3</p>
               </article>
-            </div>
+            </Deck>
           </div>
         </section>
 
@@ -652,14 +702,14 @@ export default function Landing() {
               <h2 className="font-heading text-[2.2rem] font-semibold leading-[1.08] tracking-[-0.02em] sm:text-5xl">
                 A clearer way <HeadlineChip icon={RefreshCw} tone="mint" /> to revise a design.
               </h2>
-              <p className="mt-5 text-base leading-7 text-muted-foreground">Spyda turns a design you like into yours in a conversation, then lets you animate it or refine it by hand.</p>
+              <p className="mt-5 text-base leading-7 text-muted-foreground">Import, ask, then fine-tune.</p>
             </div>
-            <div className="mt-14 grid gap-4 md:grid-cols-2 lg:grid-cols-4">
+            <Deck className="mt-14 grid gap-4 md:grid-cols-2 lg:grid-cols-4">
               {[
-                { icon: Upload, step: '01', title: 'Import the reference', copy: 'Start with the flyer, poster, or social design whose look you want to keep.' },
-                { icon: MessageSquareText, step: '02', title: 'Say what to change', copy: 'Type or talk: your brand, headline, offer, contacts, colours or a new photo. Spyda asks for anything it needs.' },
-                { icon: WandSparkles, step: '03', title: 'Get your version', copy: 'Confirm the change and ChatGPT generates your flyer, or switch to Motion and Claude Opus 5.5 animates it.' },
-                { icon: SlidersHorizontal, step: '04', title: 'Fine-tune in canvas mode', copy: 'Open the result as layers to move, restyle and rewrite each part by hand, with every edit on a timeline.' },
+                { icon: Upload, step: '01', title: 'Import the reference', copy: 'The design whose look you want to keep.' },
+                { icon: MessageSquareText, step: '02', title: 'Say what to change', copy: 'Type or talk: brand, headline, offer, photo.' },
+                { icon: WandSparkles, step: '03', title: 'Get your version', copy: 'Confirm it, or switch to Motion to animate it.' },
+                { icon: SlidersHorizontal, step: '04', title: 'Fine-tune in canvas mode', copy: 'Move, restyle and rewrite every layer.' },
               ].map(item => (
                 <article key={item.step} className="group flex min-h-64 flex-col rounded-[26px] border border-white/[0.07] bg-surface p-7 transition-all duration-300 hover:-translate-y-0.5 hover:border-primary/30">
                   <div className="flex items-center justify-between">
@@ -670,7 +720,7 @@ export default function Landing() {
                   <p className="mt-3 text-sm leading-6 text-muted-foreground">{item.copy}</p>
                 </article>
               ))}
-            </div>
+            </Deck>
             <WorkspaceMockup />
           </div>
         </section>
@@ -684,18 +734,9 @@ export default function Landing() {
                 <br />
                 <span className="text-muted-foreground">Enough AI <HeadlineChip icon={WandSparkles} tone="peach" /> to move faster.</span>
               </h2>
-              <p className="mt-5 text-base leading-7 text-muted-foreground">Spyda keeps the reference visible and gives each important part of the design its own place to edit.</p>
+              <p className="mt-5 text-base leading-7 text-muted-foreground">Every part of the design gets its own control.</p>
             </div>
-            <div className="mt-14 grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
-              <FeatureCard tone="mint" icon={MessageSquareText} title="A chat that makes it yours" desc="Tell Spyda what to change in plain words. It confirms the change and its credit cost before anything is generated." />
-              <FeatureCard icon={Clapperboard} title="Motion by Claude Opus 5.5" desc="Turn any reference into a short animation for posts, stories and reels, then download it as a video." />
-              <FeatureCard icon={Mic} title="Talk instead of type" desc="Tap the mic and describe the change. Your words land in the chat for you to send." />
-              <FeatureCard icon={Layers3} title="Canvas mode and Magic Layers" desc="Split a flat flyer into live text, subject, logos and background, then edit every layer with pro typography, effects and animation." />
-              <FeatureCard icon={Play} title="A pro video editor" desc="Cut, grade and add effects, transitions, titles and music on a timeline, then export an MP4 with sound." />
-              <FeatureCard icon={Download} title="Smaller downloads" desc="Turn on the compressor when you download and files come out up to 90% smaller, looking exactly the same." />
-              <FeatureCard tone="light" icon={Palette} title="Brand constants" desc="Keep your fonts, HEX colours and visual direction consistent across every version you make." />
-              <FeatureCard icon={Library} title="A reusable workspace" desc="Return to your chats, projects, templates, brand assets and generated designs on this device." />
-            </div>
+            <FeatureDeck />
           </div>
         </section>
 
@@ -706,20 +747,20 @@ export default function Landing() {
               <h2 className="max-w-2xl font-heading text-[2.2rem] font-semibold leading-[1.08] tracking-[-0.02em] sm:text-5xl">
                 Your flyer, <HeadlineChip icon={Play} tone="mint" /> now in motion.
               </h2>
-              <p className="mt-6 max-w-xl text-base leading-7 text-muted-foreground">Switch the chat to Motion, import a reference and describe the feel you want. Claude Opus 5.5 studies the design and animates it for your brand, using your colours and your exact wording.</p>
-              <div className="mt-8 grid gap-3 sm:grid-cols-2">
+              <p className="mt-6 max-w-xl text-base leading-7 text-muted-foreground">Describe the feel. Claude Opus 5.5 animates it in your colours and words.</p>
+              <Deck className="mt-8 grid gap-3 sm:grid-cols-2">
                 {[
-                  ['Every format', 'Portrait 4:5 posts, 9:16 stories and reels, and 1:1 squares.'],
-                  ['Ready to post', 'Download a video, or an HTML file that plays in any browser.'],
-                  ['Revise by asking', 'Send a follow-up like “slower, and end on the logo” to get the next cut.'],
-                  ['Rewards included', '50 credits a video, counted toward your SPYDA like every generation.'],
+                  ['Every format', '4:5 posts, 9:16 reels, 1:1 squares.'],
+                  ['Ready to post', 'Download a video or an HTML file.'],
+                  ['Revise by asking', '“Slower, and end on the logo.”'],
+                  ['Rewards included', '50 credits a video, earning SPYDA.'],
                 ].map(([title, copy]) => (
                   <div key={title} className="rounded-[20px] border border-white/[0.07] bg-surface p-5 transition-all duration-300 hover:-translate-y-0.5 hover:border-primary/25">
                     <h3 className="font-heading text-base font-semibold">{title}</h3>
                     <p className="mt-1.5 text-sm leading-6 text-muted-foreground">{copy}</p>
                   </div>
                 ))}
-              </div>
+              </Deck>
               <PrimaryPill to="/auth" className="mt-8">Animate a design</PrimaryPill>
             </div>
             <MotionPreview />
@@ -730,7 +771,7 @@ export default function Landing() {
           <div className="mb-12 px-4 text-center">
             <Eyebrow>Bring your reference</Eyebrow>
             <h2 className="mx-auto max-w-3xl font-heading text-[2.2rem] font-semibold leading-[1.08] tracking-[-0.02em] sm:text-5xl">Your next design can start from work this detailed.</h2>
-            <p className="mx-auto mt-5 max-w-xl text-base leading-7 text-muted-foreground">Use a strong visual reference, then replace the message and brand ingredients that need to become yours.</p>
+            <p className="mx-auto mt-5 max-w-xl text-base leading-7 text-muted-foreground">Start from a strong reference and make it yours.</p>
           </div>
           <div className="relative overflow-hidden">
             <div className="flex w-max gap-4 animate-marquee">
@@ -749,7 +790,7 @@ export default function Landing() {
                 <div>
                   <p className="mb-6 flex items-center gap-2 font-heading text-[11px] font-semibold uppercase tracking-[0.2em] text-primary"><Coins className="h-4 w-4" /> The Spyda economy</p>
                   <h2 className="max-w-3xl font-heading text-[2.1rem] font-semibold leading-[1.08] tracking-[-0.02em] sm:text-5xl">Your design budget should create more than the next design.</h2>
-                  <p className="mt-6 max-w-2xl text-base leading-8 text-muted-foreground">Spyda is building a creative economy where eligible product usage becomes proof that you helped grow the network. You get faster, premium design work today and accrue participation in what Spyda can become tomorrow.</p>
+                  <p className="mt-6 max-w-2xl text-base leading-8 text-muted-foreground">Credits you use on Spyda earn SPYDA rewards. Join early and each credit earns more.</p>
 
                   <div className="mt-8 grid gap-3 sm:grid-cols-[1fr_auto_1fr] sm:items-stretch">
                     <div className="rounded-[20px] border border-white/[0.08] bg-surface p-5"><p className="text-[10px] font-semibold uppercase text-muted-foreground">Eligible usage</p><p className="mt-2 font-heading text-2xl font-semibold">1,000 credits</p><p className="mt-1 text-xs text-muted-foreground">consumed inside Spyda, as one of the first 1,000 users</p></div>
@@ -772,17 +813,17 @@ export default function Landing() {
                     <PrimaryPill to="/auth">Start creating and accruing</PrimaryPill>
                     <Link to="/auth" className="inline-flex h-12 items-center justify-center gap-2 rounded-full border border-white/[0.12] bg-surface px-6 whitespace-nowrap font-heading text-[12px] font-semibold uppercase tracking-[0.14em] transition-all hover:-translate-y-0.5 hover:bg-surface-raised active:translate-y-0 active:scale-[0.98]"><ShieldCheck className="h-4 w-4 text-primary" /> Read the whitepaper in Spyda</Link>
                   </div>
-                  <p className="mt-5 max-w-2xl text-[11px] leading-5 text-muted-foreground">Pre-launch SPYDA is a non-transferable reward record, not cash, a refund, a stablecoin, or guaranteed market value. Launch requires the community threshold plus security, utility, network, and legal readiness.</p>
+                  <p className="mt-5 max-w-2xl text-[11px] leading-5 text-muted-foreground">Pre-launch SPYDA is a non-transferable reward record, not cash or a guaranteed value. Launch needs the community target plus security and legal readiness.</p>
                 </div>
 
                 <SpydaCoin />
               </div>
 
-              <div className="mt-16 grid gap-4 md:grid-cols-3">
+              <Deck className="mt-16 grid gap-4 md:grid-cols-3">
                 {[
-                  [Gift, 'text-primary', 'Usage becomes participation', 'Rewards follow eligible credits actually consumed, not money simply deposited into the wallet.'],
-                  [Network, 'text-[#a9bcff]', 'One billion, earned together', 'The planned launch trigger is reached when user accounts collectively accrue 1 billion eligible SPYDA.'],
-                  [ShieldCheck, 'text-[#ffab84]', 'Product and trust first', 'Spyda must remain useful before launch, and the token infrastructure must pass its readiness gates.'],
+                  [Gift, 'text-primary', 'Usage becomes participation', 'Rewards follow credits you use, not deposits.'],
+                  [Network, 'text-[#a9bcff]', 'One billion, earned together', 'Launch comes when users earn 1 billion SPYDA together.'],
+                  [ShieldCheck, 'text-[#ffab84]', 'Product and trust first', 'The token launches only once it passes its readiness checks.'],
                 ].map(([Icon, colour, title, copy]) => {
                   const CardIcon = Icon as typeof Gift
                   return (
@@ -793,7 +834,7 @@ export default function Landing() {
                     </div>
                   )
                 })}
-              </div>
+              </Deck>
             </div>
           </div>
         </section>
@@ -803,15 +844,15 @@ export default function Landing() {
             <div className="mx-auto max-w-3xl text-center">
               <Eyebrow>Pricing</Eyebrow>
               <h2 className="font-heading text-[2.2rem] font-semibold leading-[1.08] tracking-[-0.02em] sm:text-5xl">Free to use. Pay only when you download.</h2>
-              <p className="mt-5 text-base leading-7 text-muted-foreground">No subscriptions, now or ever. Every editor and tool in Spyda is free to use; you spend Spyda credits only when you download your work or run AI, and a recharge starts at just $1.</p>
+              <p className="mt-5 text-base leading-7 text-muted-foreground">No subscription, ever. Credits only for downloads and AI, from $1.</p>
             </div>
-            <div className="mx-auto mt-12 flex max-w-7xl snap-x snap-mandatory gap-4 overflow-x-auto px-[8vw] pb-3 pt-2 md:mt-14 md:grid md:pt-0 md:grid-cols-2 md:overflow-visible md:px-0 md:pb-0 xl:grid-cols-4">
-              <PricingCard name="Spyda" price="Free" detail="Always. No subscription." desc="Open every editor and tool, design, edit and preview as much as you like." features={['Spyda AI chat and voice', 'Canvas mode flyer editor and Magic Layers', 'Video editor with effects and transitions', 'Templates and the marketplace']} texture="free" cta="Start free" />
-              <PricingCard name="Recharge" price="From $1" detail="$1 = 1,000 Spyda credits" desc="Top up any amount, whenever you need it. Easy and affordable for anyone." features={['Recharge any amount from $1', 'Credits never expire', 'No recurring payment, ever', 'Paid securely through Paystack']} texture="starter" featured cta="Recharge" />
-              <PricingCard name="Downloads" price="100 credits" detail="per flyer or video" desc="Pay once your finished flyer, animation or video is ready to save." features={['Compressor: +50 credits', 'Up to 90% smaller, same quality', 'Charged only when the file is ready', 'Eligible spend accrues SPYDA']} texture="creator" cta="Start designing" />
-              <PricingCard name="AI work" price="From 5 credits" detail="per generation" desc="AI runs on credits as you use it, with the cost confirmed before it starts." features={['20 credits: Groq + GPT-Image 2', '30 credits: GPT-Image 2 only', '50 credits: motion by Claude Opus 5.5', '5 credits with your own API key']} texture="pro" cta="Try Spyda AI" />
-            </div>
-            <p className="mt-5 text-center text-xs text-muted-foreground">No subscriptions now or in the future: new features will use Spyda credits too. Payments are handled securely through Paystack.</p>
+            <Deck className="mx-auto mt-12 flex max-w-7xl snap-x snap-mandatory gap-4 overflow-x-auto px-[8vw] pb-3 pt-2 md:mt-14 md:grid md:pt-0 md:grid-cols-2 md:overflow-visible md:px-0 md:pb-0 xl:grid-cols-4">
+              <PricingCard name="Spyda" price="Free" detail="Always. No subscription." desc="Every editor and tool, as much as you like." features={['Spyda AI chat and voice', 'Canvas mode flyer editor and Magic Layers', 'Video editor with effects and transitions', 'Templates and the marketplace']} texture="free" cta="Start free" />
+              <PricingCard name="Recharge" price="From $1" detail="$1 = 1,000 Spyda credits" desc="Top up any amount, any time." features={['Recharge any amount from $1', 'Credits never expire', 'No recurring payment, ever', 'Paid securely through Paystack']} texture="starter" featured cta="Recharge" />
+              <PricingCard name="Downloads" price="100 credits" detail="per flyer or video" desc="Pay once your file is ready to save." features={['Compressor: +50 credits', 'Up to 90% smaller, same quality', 'Charged only when the file is ready', 'Eligible spend accrues SPYDA']} texture="creator" cta="Start designing" />
+              <PricingCard name="AI work" price="From 5 credits" detail="per generation" desc="The cost is confirmed before it runs." features={['20 credits: Groq + GPT-Image 2', '30 credits: GPT-Image 2 only', '50 credits: motion by Claude Opus 5.5', '5 credits with your own API key']} texture="pro" cta="Try Spyda AI" />
+            </Deck>
+            <p className="mt-5 text-center text-xs text-muted-foreground">Payments are handled securely through Paystack.</p>
           </div>
         </section>
 
@@ -845,7 +886,7 @@ export default function Landing() {
             <div className="pointer-events-none absolute -bottom-28 -right-20 h-80 w-80 rounded-full bg-[#8bd3ff]/50 blur-3xl" />
             <div className="relative">
               <h2 className="mx-auto max-w-3xl font-heading text-[2.2rem] font-semibold leading-[1.05] tracking-[-0.02em] sm:text-6xl">Stop rebuilding good designs from zero.</h2>
-              <p className="mx-auto mt-5 max-w-xl text-base leading-7 text-primary-foreground/75">Bring the reference. Choose the exact changes. Let Spyda help you create the next version without losing the direction that made the original work.</p>
+              <p className="mx-auto mt-5 max-w-xl text-base leading-7 text-primary-foreground/75">Bring the reference, choose the changes, keep the look.</p>
               <Link to="/auth" className="group mt-9 inline-flex h-12 items-center gap-3 rounded-full bg-[#050606] pl-6 pr-1.5 whitespace-nowrap font-heading text-[12px] font-semibold uppercase tracking-[0.14em] text-white transition-all hover:-translate-y-0.5 active:translate-y-0 active:scale-[0.98]">
                 Try Spyda with your flyer
                 <span className="flex h-9 w-9 items-center justify-center rounded-full bg-primary text-primary-foreground transition-transform duration-200 group-hover:rotate-45"><ArrowUpRight className="h-4 w-4" /></span>
