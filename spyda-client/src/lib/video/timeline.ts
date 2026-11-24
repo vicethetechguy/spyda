@@ -17,6 +17,8 @@ export type MediaItem = {
   width: number
   height: number
   thumbnail: string | null
+  /** One of Spyda's built-in sound effects, not a file the user imported. */
+  sfx?: boolean
 }
 
 export type Clip = {
@@ -107,6 +109,8 @@ export type AudioTrackItem = {
   out: number
   fadeIn: number
   fadeOut: number
+  /** Which audio lane it sits on. Default: music. */
+  lane?: 'music' | 'sfx'
 }
 
 export type VideoProject = {
@@ -291,4 +295,19 @@ export function audioFade(item: AudioTrackItem, local: number) {
 export function formatFor(width: number, height: number) {
   const aspect = width / Math.max(1, height)
   return FORMATS.reduce((best, format) => (Math.abs(Math.log(format.width / format.height / aspect)) < Math.abs(Math.log(best.width / best.height / aspect)) ? format : best))
+}
+
+/**
+ * Splits an audio item at a time on the timeline into two items that play
+ * back to back. Returns null when the time is not inside the item.
+ */
+export function splitAudioAt(item: AudioTrackItem, at: number, newId: () => string): [AudioTrackItem, AudioTrackItem] | null {
+  const local = at - item.start
+  const length = item.out - item.in
+  if (local <= 0.05 || local >= length - 0.05) return null
+  const cut = item.in + local
+  return [
+    { ...item, out: cut, fadeOut: 0 },
+    { ...item, id: newId(), start: at, in: cut, fadeIn: 0 },
+  ]
 }

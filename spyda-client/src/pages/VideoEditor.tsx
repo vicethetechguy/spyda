@@ -2,7 +2,7 @@ import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, typ
 import { useNavigate } from 'react-router-dom'
 import {
   Clapperboard, Copy, Download, ImagePlus, Layers, Loader2, LogOut, Maximize2, Palette, Pause, Play, Plus, Redo2, Sparkles, Trash2, Type, Undo2, Upload, Wand2, X,
-  ListCheck, Transition,
+  ListCheck, Transition, Zap,
 } from '../components/ui/icons'
 import SpydaSelect from '../components/ui/SpydaSelect'
 import { useDownload } from '../components/DownloadProvider'
@@ -14,9 +14,10 @@ import {
 import {
   CLIP_MOTIONS, FORMATS, TITLE_DEFAULTS, activeAt, audioFade, clipLength, clipOpacity, clipTransformAt, formatFor, formatTime, layout, makeClip, makeTitle,
   newId, sourceTime, splitAt, titleFrame,
-  type AudioTrackItem, type Clip, type ClipMotion, type MediaItem, type Placed, type Title, type TitleAnimation, type VideoProject,
+  splitAudioAt, type AudioTrackItem, type Clip, type ClipMotion, type MediaItem, type Placed, type Title, type TitleAnimation, type VideoProject,
 } from '../lib/video/timeline'
 import { BUNDLED_FAMILIES, loadFontPreviews, previewFamily } from '../lib/fonts'
+import { renderSoundEffects } from '../lib/video/sound-effects'
 
 /**
  * Spyda's video editor: import clips, cut them on a timeline, frame and move
@@ -40,8 +41,20 @@ function TransportGlyph({ name }: { name: 'start' | 'back' | 'forward' | 'end' }
   return <svg viewBox="0 0 24 24" className="h-4 w-4" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">{paths[name]}</svg>
 }
 
+/** A small waveform drawing for a sound effect card, the same for the same name. */
+function SoundWave({ seed }: { seed: string }) {
+  let value = [...seed].reduce((sum, char) => sum * 31 + char.charCodeAt(0), 7) >>> 0
+  const bars = Array.from({ length: 22 }, () => { value = (value * 1103515245 + 12345) >>> 0; return 0.2 + ((value >>> 8) % 100) / 125 })
+  return (
+    <span className="flex h-full items-center justify-center gap-[2px] bg-[radial-gradient(circle_at_50%_40%,rgba(124,199,255,0.18),transparent_70%)] px-3" aria-hidden="true">
+      {bars.map((height, index) => <span key={index} className="w-[3px] rounded-full bg-[#7cc7ff]/80" style={{ height: `${height * 60}%` }} />)}
+    </span>
+  )
+}
+
 type LeftTab = 'media' | 'timeline' | 'effects' | 'transitions' | 'titles'
-type MediaFilter = 'all' | 'video' | 'image' | 'audio' | 'unused'
+type MediaFilter = 'all' | 'video' | 'image' | 'audio' | 'sfx' | 'unused'
+type AudioLane = 'music' | 'sfx'
 type Format = (typeof FORMATS)[number]
 
 /** Drag payloads inside the editor. */
@@ -376,6 +389,8 @@ export default function VideoEditor() {
   const [playing, setPlaying] = useState(false)
   const [tab, setTab] = useState<LeftTab>('media')
   const [mediaFilter, setMediaFilter] = useState<MediaFilter>('all')
+  const [previewing, setPreviewing] = useState<string | null>(null)
+  const previewAudio = useRef<HTMLAudioElement | null>(null)
   const [mediaQuery, setMediaQuery] = useState('')
   const [zoomState, setZoomState] = useState<{ fit: boolean; value: number }>({ fit: true, value: 60 })
   const [viewWidth, setViewWidth] = useState(900)
@@ -383,7 +398,7 @@ export default function VideoEditor() {
   const [notice, setNotice] = useState<string | null>(null)
   const [importing, setImporting] = useState(false)
   const [dropping, setDropping] = useState(false)
-  const [dropMarker, setDropMarker] = useState<{ track: 'video' | 'music'; x: number } | null>(null)
+  const [dropMarker, setDropMarker] = useState<{ track: 'video' | AudioLane; x: number } | null>(null)
   const [quality, setQuality] = useState<(typeof QUALITIES)[number]['value']>('high')
   const [fps, setFps] = useState<(typeof FRAME_RATES)[number]>(30)
   const [, setHistoryTick] = useState(0)
@@ -742,9 +757,10 @@ export default function VideoEditor() {
   const updateTransform = (clip: Clip, patch: Partial<ClipTransform>, key?: string) => updateClip(clip.id, current => ({ transform: { ...IDENTITY_TRANSFORM, ...current.transform, ...patch } }), key ?? `clip:${clip.id}:transform:${Object.keys(patch).join(',')}`)
 
   /** Places footage on the timeline (at `index`, else the end); music goes on the music track at `at`. */
-  const placeMedia = useCallback((item: MediaItem, options: { index?: number; at?: number } = {}) => {
+  const placeMedia = useCallback((item: MediaItem, options: { index?: number; at?: number; lane?: AudioLane } = {}) => {
     if (item.kind === 'audio') {
-      const track: AudioTrackItem = { id: newId('audio'), mediaId: item.id, start: Math.max(0, options.at ?? 0), volume: 0.8, in: 0, out: item.duration, fadeIn: 0, fadeOut: 0 }
+      const lane: AudioLane = options.lane ?? (item.sfx ? 'sfx' : 'music')
+      const track: AudioTrackItem = { id: newId('audio'), mediaId: item.id, start: Math.max(0, options.at ?? 0), volume: item.sfx ? 1 : 0.8, in: 0, out: item.duration, fadeIn: 0, fadeOut: 0, lane }
       change(current => ({ ...current, audio: [...current.audio, track] }))
       setSelection({ kind: 'audio', id: track.id })
       return
@@ -765,6 +781,31 @@ export default function VideoEditor() {
     })
     setSelection({ kind: 'clip', id: clip.id })
   }, [change, format.id])
+
+  // Spyda's own sound effects sit in the media library beside imported files.
+  useEffect(() => {
+    let cancelled = false
+    void renderSoundEffects().then(async effects => {
+      const items: MediaItem[] = []
+      for (const { file } of effects) {
+        try { items.push({ ...(await readMedia(file)), sfx: true }) } catch { /* skip one that will not decode */ }
+      }
+      if (cancelled) { for (const item of items) URL.revokeObjectURL(item.url); return }
+      mediaRef.current = [...mediaRef.current, ...items]
+      setMedia(mediaRef.current)
+    })
+    return () => { cancelled = true }
+  }, [])
+
+  const previewSound = (item: MediaItem) => {
+    previewAudio.current?.pause()
+    if (previewing === item.id) { setPreviewing(null); return }
+    const audio = new Audio(item.url)
+    previewAudio.current = audio
+    setPreviewing(item.id)
+    audio.onended = () => setPreviewing(current => (current === item.id ? null : current))
+    void audio.play().catch(() => setPreviewing(null))
+  }
 
   const importFiles = async (files: File[], place?: { index?: number; at?: number }) => {
     const usable = files.filter(file => /^(video|image|audio)\//.test(file.type))
@@ -806,10 +847,32 @@ export default function VideoEditor() {
     setSelection(null)
   }
 
+  /** Splits the selected music or sound effect at the playhead, else the clip there, else music there. */
   const split = () => {
+    const splitAudio = (item: AudioTrackItem) => {
+      const parts = splitAudioAt(item, time, () => newId('audio'))
+      if (!parts) return false
+      change(current => {
+        const index = current.audio.findIndex(entry => entry.id === item.id)
+        if (index < 0) return current
+        const audio = [...current.audio]
+        audio.splice(index, 1, ...parts)
+        return { ...current, audio }
+      })
+      setSelection({ kind: 'audio', id: parts[1].id })
+      return true
+    }
+    if (selection?.kind === 'audio') {
+      const item = project.audio.find(entry => entry.id === selection.id)
+      if (item && splitAudio(item)) return
+      setNotice('Move the playhead inside the selected music to split it.')
+      return
+    }
     const next = splitAt(project.clips, time)
-    if (!next) { setNotice('Move the playhead inside a clip to split it.'); return }
-    change(current => ({ ...current, clips: next }))
+    if (next) { change(current => ({ ...current, clips: next })); return }
+    const under = project.audio.find(item => time > item.start && time < item.start + item.out - item.in)
+    if (under && splitAudio(under)) return
+    setNotice('Move the playhead inside a clip or music to split it.')
   }
 
   const duplicateSelected = () => {
@@ -1013,7 +1076,7 @@ export default function VideoEditor() {
     return types.includes(MEDIA_MIME) || types.includes(CLIP_MIME) || types.includes('Files')
   }
 
-  const onTrackDragOver = (track: 'video' | 'music') => (event: ReactDragEvent<HTMLElement>) => {
+  const onTrackDragOver = (track: 'video' | AudioLane) => (event: ReactDragEvent<HTMLElement>) => {
     if (!acceptsDrop(event)) return
     event.preventDefault()
     event.stopPropagation()
@@ -1024,7 +1087,7 @@ export default function VideoEditor() {
     setDropping(false)
   }
 
-  const onTrackDrop = (track: 'video' | 'music') => (event: ReactDragEvent<HTMLElement>) => {
+  const onTrackDrop = (track: 'video' | AudioLane) => (event: ReactDragEvent<HTMLElement>) => {
     if (!acceptsDrop(event)) return
     event.preventDefault()
     event.stopPropagation()
@@ -1034,7 +1097,7 @@ export default function VideoEditor() {
     const mediaId = event.dataTransfer.getData(MEDIA_MIME)
     if (mediaId) {
       const item = mediaRef.current.find(entry => entry.id === mediaId)
-      if (item) placeMedia(item, item.kind === 'audio' ? { at: snap(t) } : { index: insertIndex(t) })
+      if (item) placeMedia(item, item.kind === 'audio' ? { at: snap(t), lane: track === 'video' ? undefined : track } : { index: insertIndex(t) })
       return
     }
     if (dragIndex.current != null && track === 'video') {
@@ -1094,14 +1157,17 @@ export default function VideoEditor() {
   const usage = new Map<string, number>()
   for (const clip of project.clips) usage.set(clip.mediaId, (usage.get(clip.mediaId) ?? 0) + 1)
   for (const track of project.audio) usage.set(track.mediaId, (usage.get(track.mediaId) ?? 0) + 1)
+  const imported = media.filter(item => !item.sfx)
+  const effects = media.filter(item => item.sfx)
   const mediaCounts = {
-    all: media.length,
-    video: media.filter(item => item.kind === 'video').length,
-    image: media.filter(item => item.kind === 'image').length,
-    audio: media.filter(item => item.kind === 'audio').length,
-    unused: media.filter(item => !usage.get(item.id)).length,
+    all: imported.length,
+    video: imported.filter(item => item.kind === 'video').length,
+    image: imported.filter(item => item.kind === 'image').length,
+    audio: imported.filter(item => item.kind === 'audio').length,
+    sfx: effects.length,
+    unused: imported.filter(item => !usage.get(item.id)).length,
   }
-  const shownMedia = media.filter(item => (mediaFilter === 'all' || (mediaFilter === 'unused' ? !usage.get(item.id) : item.kind === mediaFilter)) && (!mediaQuery.trim() || item.name.toLowerCase().includes(mediaQuery.trim().toLowerCase())))
+  const shownMedia = (mediaFilter === 'sfx' ? effects : imported).filter(item => (mediaFilter === 'all' || mediaFilter === 'sfx' || (mediaFilter === 'unused' ? !usage.get(item.id) : item.kind === mediaFilter)) && (!mediaQuery.trim() || item.name.toLowerCase().includes(mediaQuery.trim().toLowerCase())))
   /** Selects where a file is used and moves the playhead there. */
   const locateMedia = (item: MediaItem) => {
     const clip = placed.find(entry => entry.clip.mediaId === item.id)
@@ -1110,7 +1176,7 @@ export default function VideoEditor() {
     if (track) { setSelection({ kind: 'audio', id: track.id }); seek(track.start + 0.01) }
   }
   const removeMedia = (item: MediaItem) => {
-    if (usage.get(item.id)) return
+    if (usage.get(item.id) || item.sfx) return
     URL.revokeObjectURL(item.url)
     mediaRef.current = mediaRef.current.filter(entry => entry.id !== item.id)
     setMedia(mediaRef.current)
@@ -1194,7 +1260,7 @@ export default function VideoEditor() {
                   <>
                     <input type="search" value={mediaQuery} onChange={event => setMediaQuery(event.target.value)} onKeyDown={event => event.stopPropagation()} placeholder="Search your media…" aria-label="Search your media" className="h-8 w-full rounded-md bg-white/[0.05] px-2.5 text-[11px] outline-none placeholder:text-muted-foreground focus:ring-1 focus:ring-primary/60" />
                     <div className="flex flex-wrap gap-1">
-                      {([['all', 'All'], ['video', 'Videos'], ['image', 'Pictures'], ['audio', 'Music'], ['unused', 'Not used']] as const).map(([id, label]) => (
+                      {([['all', 'All'], ['video', 'Videos'], ['image', 'Pictures'], ['audio', 'Music'], ['sfx', 'Sound effects'], ['unused', 'Not used']] as const).map(([id, label]) => (
                         <button key={id} type="button" onClick={() => setMediaFilter(id)} aria-pressed={mediaFilter === id} className={`h-6 rounded-md px-2 text-[10px] font-medium ${mediaFilter === id ? 'bg-primary/15 text-primary' : 'bg-white/[0.04] text-muted-foreground hover:text-foreground'}`}>
                           {label} <span className="opacity-60">{mediaCounts[id]}</span>
                         </button>
@@ -1213,28 +1279,33 @@ export default function VideoEditor() {
                           onDragStart={event => { event.dataTransfer.setData(MEDIA_MIME, item.id); event.dataTransfer.effectAllowed = 'copy' }}
                           onDragEnd={() => setDropMarker(null)}
                           onClick={() => placeMedia(item, item.kind === 'audio' ? { at: time } : {})}
-                          title={`Drag onto the timeline, or click to add ${item.name}`}
+                          title={item.sfx ? `Drag onto the SFX track, or click to add ${item.name} at the playhead` : `Drag onto the timeline, or click to add ${item.name}`}
                           className="block w-full cursor-grab text-left active:cursor-grabbing"
                         >
                           <span className="relative block aspect-video bg-[#16171a]">
-                            {item.thumbnail ? <img src={item.thumbnail} alt="" draggable={false} className="h-full w-full object-contain" /> : <span className="flex h-full items-center justify-center text-[10px] text-muted-foreground">♪ Music</span>}
+                            {item.thumbnail ? <img src={item.thumbnail} alt="" draggable={false} className="h-full w-full object-contain" /> : item.sfx ? <SoundWave seed={item.name} /> : <span className="flex h-full items-center justify-center text-[10px] text-muted-foreground">♪ Music</span>}
                             <span className="absolute bottom-1 right-1 rounded bg-black/70 px-1 font-mono text-[9px]">{item.kind === 'image' ? 'Picture' : formatTime(item.duration)}</span>
-                            <span className={`absolute left-1 top-1 rounded px-1 text-[8px] font-semibold ${used ? 'bg-primary text-primary-foreground' : 'bg-black/70 text-muted-foreground'}`}>{used ? `In use · ${used}` : 'Not used'}</span>
+                            {used || !item.sfx ? <span className={`absolute left-1 top-1 rounded px-1 text-[8px] font-semibold ${used ? 'bg-primary text-primary-foreground' : 'bg-black/70 text-muted-foreground'}`}>{used ? `In use · ${used}` : 'Not used'}</span> : null}
                             <span className="absolute inset-0 hidden items-center justify-center bg-black/40 group-hover:flex"><Plus className="h-5 w-5" /></span>
                           </span>
                           <span className="block truncate px-1.5 pt-1 text-[10px]">{item.name}</span>
-                          <span className="block px-1.5 pb-1 text-[9px] capitalize text-muted-foreground">{item.kind === 'audio' ? 'Music' : item.kind === 'image' ? 'Picture' : 'Video'}{item.width ? ` · ${item.width}×${item.height}` : ''}</span>
+                          <span className="block px-1.5 pb-1 text-[9px] capitalize text-muted-foreground">{item.sfx ? 'Sound effect' : item.kind === 'audio' ? 'Music' : item.kind === 'image' ? 'Picture' : 'Video'}{item.width ? ` · ${item.width}×${item.height}` : ''}</span>
                         </button>
+                        {item.sfx ? (
+                          <button type="button" onClick={() => previewSound(item)} title={previewing === item.id ? 'Stop' : `Listen to ${item.name}`} aria-label={previewing === item.id ? `Stop ${item.name}` : `Listen to ${item.name}`} className={`absolute bottom-1 left-1 z-10 flex h-6 w-6 items-center justify-center rounded-full ${previewing === item.id ? 'bg-primary text-primary-foreground' : 'bg-black/75 text-foreground hover:bg-primary hover:text-primary-foreground'}`}>
+                            {previewing === item.id ? <Pause className="h-3 w-3" /> : <Play className="h-3 w-3 translate-x-[1px]" />}
+                          </button>
+                        ) : null}
                         <div className="absolute right-1 top-1 hidden gap-0.5 group-hover:flex">
                           {used ? <button type="button" onClick={() => locateMedia(item)} title="Show where it is used" aria-label={`Show where ${item.name} is used`} className="rounded bg-black/75 px-1 text-[9px] font-semibold text-primary hover:bg-black">Show</button> : null}
-                          {!used ? <button type="button" onClick={() => removeMedia(item)} title="Remove from your media" aria-label={`Remove ${item.name}`} className="rounded bg-black/75 p-0.5 text-muted-foreground hover:bg-red-500/40 hover:text-foreground"><Trash2 className="h-3 w-3" /></button> : null}
+                          {!used && !item.sfx ? <button type="button" onClick={() => removeMedia(item)} title="Remove from your media" aria-label={`Remove ${item.name}`} className="rounded bg-black/75 p-0.5 text-muted-foreground hover:bg-red-500/40 hover:text-foreground"><Trash2 className="h-3 w-3" /></button> : null}
                         </div>
                       </div>
                     )
                   })}
                 </div>
                 {media.length && !shownMedia.length ? <p className="text-[10px] text-muted-foreground">Nothing here. Try another filter or search.</p> : null}
-                <p className="text-[10px] leading-4 text-muted-foreground">{media.length ? 'Drag a file onto the video or music track to place it, or click it to add it to the end. Green files are in your edit.' : 'Imported files stay on this device.'}</p>
+                <p className="text-[10px] leading-4 text-muted-foreground">{media.length ? 'Drag a file onto the video, music or SFX track to place it, or click it to add it. Green files are in your edit. Press S to split the selected clip or music at the playhead.' : 'Imported files stay on this device.'}</p>
               </div>
             ) : tab === 'timeline' ? (
               <div className="space-y-4">
@@ -1366,7 +1437,7 @@ export default function VideoEditor() {
             <span className="mx-1.5 h-5 w-px shrink-0 bg-white/10" />
             {/* Editing: icon and label on one line; labels show when there is room. */}
             <div className="flex min-w-0 shrink-0 items-center gap-0.5">
-              <button type="button" onClick={split} disabled={!placed.length} title="Split at playhead (S)" aria-label="Split at playhead" className={toolButton}><ScissorsGlyph /><span className="transport-label">Split</span></button>
+              <button type="button" onClick={split} disabled={!placed.length && !project.audio.length} title="Split the selected clip or music at the playhead (S)" aria-label="Split at playhead" className={toolButton}><ScissorsGlyph /><span className="transport-label">Split</span></button>
               <button type="button" onClick={() => addTitle()} title="Add a title at the playhead" aria-label="Add a title" className={toolButton}><Type className="h-3.5 w-3.5 shrink-0" /><span className="transport-label">Title</span></button>
               <button type="button" onClick={() => fileRef.current?.click()} title="Import media" aria-label="Import media" className={toolButton}><Plus className="h-3.5 w-3.5 shrink-0" /><span className="transport-label">Media</span></button>
               <button type="button" onClick={saveFrame} disabled={!placed.length} title="Save this frame as a PNG" aria-label="Save this frame as a PNG" className={`${toolButton} hidden lg:inline-flex`}><ImagePlus className="h-3.5 w-3.5 shrink-0" /><span className="transport-label">Save frame</span></button>
@@ -1571,12 +1642,13 @@ export default function VideoEditor() {
       </div>
 
       {/* Timeline */}
-      <div className="mac-timeline h-[224px] shrink-0 border-t border-white/[0.06] bg-[#0f1012]">
+      <div className="mac-timeline h-[268px] shrink-0 border-t border-white/[0.06] bg-[#0f1012]">
         <div className="flex h-full">
           <div className="shrink-0 border-r border-white/[0.06] pt-6 text-[10px] text-muted-foreground" style={{ width: TRACK_HEAD }}>
             <p className="flex h-[78px] items-center gap-1.5 px-3"><Clapperboard className="h-3.5 w-3.5" /> Video</p>
             <p className="flex h-[44px] items-center gap-1.5 px-3"><Type className="h-3.5 w-3.5" /> Titles</p>
             <p className="flex h-[44px] items-center gap-1.5 px-3">♪ Music</p>
+            <p className="flex h-[44px] items-center gap-1.5 px-3"><Zap className="h-3.5 w-3.5" /> SFX</p>
           </div>
           <div className="flex min-w-0 flex-1 flex-col">
           <div ref={scrollerRef} id="spyda-timeline" onScroll={event => setScrollLeft(event.currentTarget.scrollLeft)} className="relative min-h-0 min-w-0 flex-1 overflow-x-auto overflow-y-hidden overscroll-x-contain">
@@ -1679,37 +1751,44 @@ export default function VideoEditor() {
                 })}
               </div>
 
-              {/* Music */}
-              <div
-                className="relative h-[44px]"
-                onPointerDown={event => { if (event.target === event.currentTarget) setSelection(null) }}
-                onDragOver={onTrackDragOver('music')}
-                onDragLeave={event => { if (event.currentTarget === event.target) setDropMarker(null) }}
-                onDrop={onTrackDrop('music')}
-              >
-                {!project.audio.length ? <p className="pointer-events-none absolute inset-y-0 left-3 flex items-center text-[10px] text-muted-foreground">Drag music here</p> : null}
-                {project.audio.map(track => {
-                  const info = media.find(item => item.id === track.mediaId)
-                  const selected = selection?.kind === 'audio' && selection.id === track.id
-                  return (
-                    <div
-                      key={track.id}
-                      onPointerDown={event => {
-                        setSelection({ kind: 'audio', id: track.id })
-                        const start = track.start
-                        dragStart(event, dx => updateAudio(track.id, { start: snap(Math.max(0, start + dx), track.id) }, `drag:${track.id}`), `drag:${track.id}`)
-                      }}
-                      className={`absolute top-2 flex h-7 cursor-grab items-center truncate rounded-md border px-2 text-[10px] ${selected ? 'border-primary bg-primary/25' : 'border-[#ffb36b]/40 bg-[#ffb36b]/15'}`}
-                      style={{ left: track.start * zoom, width: Math.max(16, (track.out - track.in) * zoom) }}
-                    >
-                      ♪ {info?.name}
-                      <span onPointerDown={event => trimAudio(event, track, 'in')} className="absolute inset-y-0 left-0 w-2 cursor-ew-resize hover:bg-primary/60" title="Drag to trim the start" />
-                      <span onPointerDown={event => trimAudio(event, track, 'out')} className="absolute inset-y-0 right-0 w-2 cursor-ew-resize hover:bg-primary/60" title="Drag to trim the end" />
-                    </div>
-                  )
-                })}
-                {dropMarker?.track === 'music' ? <span className="pointer-events-none absolute inset-y-1 z-20 w-0.5 -translate-x-1/2 rounded bg-[#ffb36b] shadow-[0_0_10px_#ffb36b]" style={{ left: dropMarker.x }} /> : null}
-              </div>
+              {(['music', 'sfx'] as const).map(lane => {
+                const items = project.audio.filter(track => (track.lane ?? 'music') === lane)
+                const tint = lane === 'music' ? 'border-[#ffb36b]/40 bg-[#ffb36b]/15' : 'border-[#7cc7ff]/45 bg-[#7cc7ff]/15'
+                return (
+                  <div
+                    key={lane}
+                    className="relative h-[44px]"
+                    onPointerDown={event => { if (event.target === event.currentTarget) setSelection(null) }}
+                    onDragOver={onTrackDragOver(lane)}
+                    onDragLeave={event => { if (event.currentTarget === event.target) setDropMarker(null) }}
+                    onDrop={onTrackDrop(lane)}
+                  >
+                    {!items.length ? <p className="pointer-events-none absolute inset-y-0 left-3 flex items-center text-[10px] text-muted-foreground">{lane === 'music' ? 'Drag music here' : 'Drag sound effects here'}</p> : null}
+                    {items.map(track => {
+                      const info = media.find(item => item.id === track.mediaId)
+                      const selected = selection?.kind === 'audio' && selection.id === track.id
+                      return (
+                        <div
+                          key={track.id}
+                          onPointerDown={event => {
+                            setSelection({ kind: 'audio', id: track.id })
+                            const start = track.start
+                            dragStart(event, dx => updateAudio(track.id, { start: snap(Math.max(0, start + dx), track.id) }, `drag:${track.id}`), `drag:${track.id}`)
+                          }}
+                          className={`absolute top-2 flex h-7 cursor-grab items-center truncate rounded-md border px-2 text-[10px] ${selected ? 'border-primary bg-primary/25' : tint}`}
+                          style={{ left: track.start * zoom, width: Math.max(16, (track.out - track.in) * zoom) }}
+                          title={`${info?.name ?? 'Audio'} · select it and press S to split at the playhead`}
+                        >
+                          {lane === 'music' ? '♪' : '⚡'} {info?.name}
+                          <span onPointerDown={event => trimAudio(event, track, 'in')} className="absolute inset-y-0 left-0 w-2 cursor-ew-resize hover:bg-primary/60" title="Drag to trim the start" />
+                          <span onPointerDown={event => trimAudio(event, track, 'out')} className="absolute inset-y-0 right-0 w-2 cursor-ew-resize hover:bg-primary/60" title="Drag to trim the end" />
+                        </div>
+                      )
+                    })}
+                    {dropMarker?.track === lane ? <span className="pointer-events-none absolute inset-y-1 z-20 w-0.5 -translate-x-1/2 rounded shadow-[0_0_10px_currentColor]" style={{ left: dropMarker.x, background: lane === 'music' ? '#ffb36b' : '#7cc7ff', color: lane === 'music' ? '#ffb36b' : '#7cc7ff' }} /> : null}
+                  </div>
+                )
+              })}
 
               {/* Playhead */}
               <div className="pointer-events-none absolute inset-y-0 z-30 w-px bg-[#ff4fd8]" style={{ left: time * zoom }}>
