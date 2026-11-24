@@ -84,6 +84,7 @@ type AiModel = {
 const AI_MODELS: AiModel[] = [
   { id: 'openai', label: 'GPT-Image 2', description: 'OpenAI vision + generation · 30 credits', provider: 'openai' },
   { id: 'groq', label: 'Groq + GPT-Image 2', description: 'Groq analysis, OpenAI generation · 20 credits', provider: 'groq' },
+  { id: 'groq-only', label: 'Groq only', description: 'Chat and Canvas mode edits, no new images · 0 credits', provider: 'groq-only' },
 ]
 
 type GenerationQaReport = {
@@ -180,6 +181,21 @@ export default function Workspace() {
     setActiveId('canvas')
   }, [])
   const [modelMenuOpen, setModelMenuOpen] = useState(false)
+  // While the model menu is open, 1-3 pick a model and Escape closes it.
+  useEffect(() => {
+    if (!modelMenuOpen) return
+    const onKey = (event: KeyboardEvent) => {
+      if (event.key === 'Escape') { setModelMenuOpen(false); return }
+      const picked = AI_MODELS[Number(event.key) - 1]
+      if (picked && !event.ctrlKey && !event.metaKey && !event.altKey) {
+        event.preventDefault()
+        setAiModel(picked)
+        setModelMenuOpen(false)
+      }
+    }
+    window.addEventListener('keydown', onKey)
+    return () => window.removeEventListener('keydown', onKey)
+  }, [modelMenuOpen])
   const [profilePic, setProfilePic] = useState<string | null>(null)
   const [walletRefreshKey, setWalletRefreshKey] = useState(0)
   const [welcomeClaim, setWelcomeClaim] = useState<WelcomeRewardClaim | null>(null)
@@ -353,24 +369,28 @@ export default function Workspace() {
               {modelMenuOpen && (
                 <>
                   <div className="fixed inset-0 z-40" onClick={() => setModelMenuOpen(false)} />
-                  <div className="glass glass-strong glass-blur absolute right-0 top-10 z-50 w-64 rounded-xl border shadow-2xl py-1.5 animate-fade-in">
-                    <div className="px-3 py-2 text-[10px] font-bold tracking-[0.14em] uppercase text-muted-foreground/50">AI Model</div>
-                    {AI_MODELS.map(m => (
-                      <button
-                        key={m.id}
-                        onClick={() => { setAiModel(m); setModelMenuOpen(false) }}
-                        className={`w-full flex items-start gap-3 px-3 py-2.5 text-left transition-colors rounded-lg mx-0 ${
-                          aiModel.id === m.id ? 'bg-primary/10 text-primary' : 'text-foreground/80 hover:bg-white/[0.04]'
-                        }`}
-                      >
-                        <Bot className={`w-4 h-4 mt-0.5 shrink-0 ${aiModel.id === m.id ? 'text-primary' : 'text-muted-foreground/50'}`} />
-                        <div>
-                          <div className="text-[13px] font-semibold">{m.label}</div>
-                          <div className="text-[11px] text-muted-foreground mt-0.5">{m.description}</div>
-                        </div>
-                        {aiModel.id === m.id && <Check className="w-4 h-4 text-primary ml-auto mt-0.5 shrink-0" />}
-                      </button>
-                    ))}
+                  <div role="menu" aria-label="AI model" className="glass glass-strong glass-blur absolute right-0 top-10 z-50 w-72 rounded-xl border p-1.5 shadow-2xl animate-fade-in">
+                    {AI_MODELS.map((m, index) => {
+                      const chosen = aiModel.id === m.id
+                      return (
+                        <button
+                          key={m.id}
+                          type="button"
+                          role="menuitemradio"
+                          aria-checked={chosen}
+                          onClick={() => { setAiModel(m); setModelMenuOpen(false) }}
+                          className="flex w-full items-center gap-3 rounded-lg px-3 py-2 text-left transition-colors hover:bg-white/[0.06]"
+                        >
+                          <span className="min-w-0 flex-1">
+                            <span className={`block text-[13px] font-medium ${chosen ? 'text-foreground' : 'text-foreground/85'}`}>{m.label}</span>
+                            <span className="mt-0.5 block text-[11px] leading-4 text-muted-foreground">{m.description}</span>
+                          </span>
+                          {chosen
+                            ? <Check className="h-4 w-4 shrink-0 text-primary" aria-label="Selected" />
+                            : <span className="w-4 shrink-0 text-center text-[11px] tabular-nums text-muted-foreground/60" aria-hidden="true">{index + 1}</span>}
+                        </button>
+                      )
+                    })}
                   </div>
                 </>
               )}
@@ -925,6 +945,7 @@ function WalletView({ onFund, onSend }: { onFund: () => void; onSend: () => void
             <div className="mt-5 space-y-4">
               <div className="flex items-end justify-between gap-3 border-b border-white/[0.07] pb-4"><div><p className="text-xs text-muted-foreground">Groq + GPT-Image 2</p><p className="mt-1 text-sm font-semibold">20 credits</p></div><span className="text-[10px] uppercase text-muted-foreground">per round</span></div>
               <div className="flex items-end justify-between gap-3 border-b border-white/[0.07] pb-4"><div><p className="text-xs text-muted-foreground">GPT-Image 2 only</p><p className="mt-1 text-sm font-semibold">30 credits</p></div><span className="text-[10px] uppercase text-muted-foreground">per round</span></div>
+              <div className="flex items-end justify-between gap-3 border-b border-white/[0.07] pb-4"><div><p className="text-xs text-muted-foreground">Groq only (chat and Canvas mode, no images)</p><p className="mt-1 text-sm font-semibold">0 credits</p></div><span className="text-[10px] uppercase text-muted-foreground">per reply</span></div>
               <div className="flex items-end justify-between gap-3"><div><p className="text-xs text-muted-foreground">Bring your own key</p><p className="mt-1 text-sm font-semibold">5 credits</p></div><span className="text-[10px] uppercase text-muted-foreground">per round</span></div>
             </div>
             <p className="mt-5 text-xs leading-5 text-muted-foreground">Your current balance supports about {generationsRemaining.toLocaleString()} generation{generationsRemaining !== 1 ? 's' : ''} at the active {byokEnabled ? 'BYOK' : 'managed'} rate.</p>

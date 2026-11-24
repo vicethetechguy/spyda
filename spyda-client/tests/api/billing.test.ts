@@ -139,6 +139,7 @@ describe('server-side generation charge', () => {
     expect(readModelMode({ headers: { 'x-spyda-model-mode': 'groq' } })).toBe('groq')
     expect(readModelMode({ headers: {} }, 'openai')).toBe('openai')
     expect(readModelMode({ headers: {} })).toBe('openai')
+    expect(readModelMode({ headers: { 'x-spyda-model-mode': 'groq-only' } })).toBe('groq-only')
     expect(isByok({ headers: { 'x-spyda-openai-key': 'sk-mine' } })).toBe(true)
     expect(isByok({ headers: {} })).toBe(false)
   })
@@ -159,6 +160,18 @@ describe('server-side generation charge', () => {
     expect(res.body.billing).toMatchObject({ creditsCharged: 20, walletBalance: 80 })
     expect(state.calls.map(call => call.fn)).toEqual(['reserve_generation_credits'])
     expect(state.calls[0].args).toEqual({ p_user_id: 'user-1', p_model_mode: 'groq', p_byok: false })
+  })
+
+  it('refuses an image under Groq only without charging', async () => {
+    const { db, state } = fakeDb({ balance: 100 })
+    setBillingDb(db)
+    imageEdit.mockClear()
+    const res = fakeRes()
+    await chat(editRequest({ authorization: 'Bearer good-jwt', 'x-spyda-model-mode': 'groq-only' }), res)
+    expect(res.statusCode).toBe(400)
+    expect(res.body.error).toMatch(/cannot make new images/)
+    expect(state.calls).toEqual([])
+    expect(imageEdit).not.toHaveBeenCalled()
   })
 
   it('charges the bring-your-own-key price when the caller sends a key', async () => {

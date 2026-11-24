@@ -96,6 +96,9 @@ describe('workspace chat', () => {
   it('only tries providers that have a key', () => {
     expect(chatProviderOrder('groq', { groq: 'g' })).toEqual(['groq'])
     expect(chatProviderOrder('openai', { groq: 'g', openai: 'o' })).toEqual(['openai', 'groq'])
+    // Groq only never falls back to OpenAI.
+    expect(chatProviderOrder('groq-only', { groq: 'g', openai: 'o' })).toEqual(['groq'])
+    expect(chatProviderOrder('groq-only', { openai: 'o' })).toEqual([])
   })
 
   it('hides reasoning the model left in its reply', () => {

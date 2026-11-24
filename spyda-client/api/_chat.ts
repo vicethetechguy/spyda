@@ -197,6 +197,8 @@ async function requestFrom(provider: ChatProvider, key: string, turns: ChatTurn[
 
 /** The order to try providers in: the selected one first, the other as a fallback when it has a key. */
 export function chatProviderOrder(preferred: string, keys: ChatKeys): ChatProvider[] {
+  // "Groq only" never falls back to OpenAI.
+  if (preferred === "groq-only") return keys.groq ? ["groq"] : [];
   const first: ChatProvider = preferred === "openai" ? "openai" : "groq";
   const second: ChatProvider = first === "groq" ? "openai" : "groq";
   return [first, second].filter(provider => Boolean(keys[provider]));

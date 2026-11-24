@@ -15,6 +15,8 @@ export const SPYDA_MOTION_CREDITS = 50
 export const CREDITS_PER_SPYDA = 1000
 
 export function getManagedGenerationCredits(provider: string): number {
+  // Groq only chats and edits layers; it has no image model to charge for.
+  if (provider === 'groq-only') return 0
   return provider === 'openai'
     ? SPYDA_GPT_IMAGE_ONLY_ROUND_CREDITS
     : SPYDA_GROQ_GPT_IMAGE_ROUND_CREDITS

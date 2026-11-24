@@ -73,11 +73,15 @@ export async function requireUser(req: any): Promise<BillingUser> {
   return { id };
 }
 
-/** 'groq' (Groq + GPT-Image 2) or 'openai' (GPT-Image 2 only), as the app sends it. */
+/** 'groq' (Groq + GPT-Image 2), 'openai' (GPT-Image 2 only) or 'groq-only' (Groq alone, no images), as the app sends it. */
 export function readModelMode(req: any, fallback?: unknown): string {
   const value = String(req?.headers?.['x-spyda-model-mode'] || fallback || '').trim().toLowerCase();
+  if (value === 'groq-only') return 'groq-only';
   return value === 'groq' ? 'groq' : 'openai';
 }
+
+/** Groq has no image model, so "Groq only" cannot make a new image. */
+export const GROQ_ONLY_NO_IMAGES = 'Groq only can chat and edit in Canvas mode, but it cannot make new images. Switch the AI model to GPT-Image 2 or Groq + GPT-Image 2 to generate a version.';
 
 /** The caller pays with their own OpenAI key when they send one. */
 export function isByok(req: any): boolean {
@@ -137,6 +141,7 @@ export async function withGenerationCharge<T>(
   run: () => Promise<T>,
   succeeded: (result: T) => boolean = () => true,
 ): Promise<{ result: T; charge: GenerationCharge }> {
+  if (modelMode === 'groq-only') throw new HttpError(400, GROQ_ONLY_NO_IMAGES);
   const charge = await reserveGenerationCredits(userId, modelMode, byok);
   let result: T;
   try {

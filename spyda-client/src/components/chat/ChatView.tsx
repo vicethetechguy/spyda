@@ -363,8 +363,12 @@ function Composer({
 
 /* ── Messages ── */
 
-function EditCard({ edit, canAfford, onGenerate, onDecline, onOpenWallet, onOpenCanvas }: {
+function EditCard({ edit, cost, imagesOff, canAfford, onGenerate, onDecline, onOpenWallet, onOpenCanvas }: {
   edit: ChatEdit
+  /** What generating costs with the model picked now. */
+  cost: number
+  /** "Groq only" is picked: Groq has no image model. */
+  imagesOff: boolean
   canAfford: boolean
   onGenerate: () => void
   onDecline: () => void
@@ -430,7 +434,9 @@ function EditCard({ edit, canAfford, onGenerate, onDecline, onOpenWallet, onOpen
           <p className="text-[10px] font-semibold uppercase tracking-[0.14em] text-primary">Proposed version</p>
           <p className="mt-1 text-sm font-medium leading-5">{edit.summary}</p>
           <p className="mt-1 text-[11px] text-muted-foreground">
-            Uses {edit.cost} credits · counts toward your SPYDA rewards
+            {imagesOff
+              ? 'Groq only cannot make images. Switch the AI model to GPT-Image 2 or Groq + GPT-Image 2 to generate this.'
+              : `Uses ${cost} credits · counts toward your SPYDA rewards`}
           </p>
         </div>
       </div>
@@ -438,7 +444,7 @@ function EditCard({ edit, canAfford, onGenerate, onDecline, onOpenWallet, onOpen
         <p className="mt-3 rounded-xl border border-destructive/30 bg-destructive/10 px-3 py-2 text-xs text-red-200">{edit.error}</p>
       ) : null}
       <div className="mt-3.5 flex flex-wrap items-center gap-2">
-        {canAfford ? (
+        {imagesOff ? null : canAfford ? (
           <button
             type="button"
             onClick={onGenerate}
@@ -766,7 +772,7 @@ export default function ChatView({ modelProvider, headerSlot, seed, onOpenWallet
       const resultImage = await toJpegDataUrl(result.image)
       updateMessage(message.id, current => ({
         ...current,
-        edit: { ...current.edit!, status: 'done', resultImage, tokensAwarded: result.billing?.tokensAwarded || 0 },
+        edit: { ...current.edit!, status: 'done', resultImage, cost, tokensAwarded: result.billing?.tokensAwarded || 0 },
       }))
       refreshStanding()
     } catch (error) {
@@ -776,7 +782,7 @@ export default function ChatView({ modelProvider, headerSlot, seed, onOpenWallet
         edit: { ...current.edit!, status: 'failed', error: error instanceof Error ? error.message : 'The new version could not be generated.' },
       }))
     }
-  }, [keys, modelProvider, refreshStanding, updateMessage])
+  }, [cost, keys, modelProvider, refreshStanding, updateMessage])
 
   /** Canvas mode needs layers, so the first visit analyses the flyer into a project. */
   const openCanvas = useCallback(async (image: string | null = flyer) => {
@@ -1019,6 +1025,8 @@ export default function ChatView({ modelProvider, headerSlot, seed, onOpenWallet
                   {message.edit ? (
                     <EditCard
                       edit={message.edit}
+                      cost={cost}
+                      imagesOff={modelProvider === 'groq-only'}
                       canAfford={canAfford}
                       onGenerate={() => generate(message)}
                       onDecline={() => updateMessage(message.id, current => ({ ...current, edit: { ...current.edit!, status: 'declined' } }))}
