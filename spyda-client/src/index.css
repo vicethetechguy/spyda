@@ -940,6 +940,9 @@
     -webkit-backdrop-filter: blur(32px) saturate(1.7);
     backdrop-filter: blur(32px) saturate(1.7);
   }
+  /* Side panels scroll their own content (the video inspector scrolls itself), so they are not clipped. */
+  .mac-ui .mac-sidebar { overflow: visible; }
+  .mac-ui .mac-sidebar.overflow-y-auto { overflow-x: hidden; overflow-y: auto; }
   .mac-ui .mac-window { background: var(--mac-glass-deep) !important; }
   .mac-ui .mac-dock { align-self: center; padding: 10px 0; border-radius: 16px; }
   .mac-ui .mac-tabs { background: rgba(255, 255, 255, 0.025) !important; border-bottom-color: var(--mac-edge) !important; padding-top: 6px; height: 34px; }
