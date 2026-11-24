@@ -1,3 +1,4 @@
+import type { ClipColor } from './color'
 import { IDENTITY_TRANSFORM, NEUTRAL_GRADE, type ClipFit, type ClipTransform, type EffectId, type Grade, type TransitionId } from './renderer'
 
 /**
@@ -49,6 +50,8 @@ export type Clip = {
   transition: { type: TransitionId; duration: number }
   /** How see-through the clip is, 0..1 (default 1). */
   opacity?: number
+  /** Colour wheels and curves, on top of `grade` (the Color page). */
+  color?: ClipColor
   /** Animation: the clip's position, size, rotation and opacity at moments of its own time. */
   keyframes?: Keyframe[]
   /** Overlay clips only: the video track above the main one (2 = V2) and where it starts. */

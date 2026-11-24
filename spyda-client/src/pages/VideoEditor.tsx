@@ -18,6 +18,8 @@ import {
 } from '../lib/video/timeline'
 import { BUNDLED_FAMILIES, loadFontPreviews, previewFamily } from '../lib/fonts'
 import { renderSoundEffects } from '../lib/video/sound-effects'
+import { NEUTRAL_COLOR, NEUTRAL_WHEEL, autoBalance, curveLut, curvesAreNeutral, pictureStats, wheelUniforms, wheelsAreNeutral, withColor, type ClipColor } from '../lib/video/color'
+import { ColorWheel, CurvesEditor, Scopes } from '../components/video/ColorTools'
 import SellDesignDialog from '../components/marketplace/SellDesignDialog'
 import PageBar from '../components/video/PageBar'
 import { PAGE_KEYS, type StudioPage } from '../lib/video/studio-pages'
@@ -59,6 +61,12 @@ function TransportGlyph({ name }: { name: 'start' | 'back' | 'forward' | 'end' }
     end: <><path d="M18 6v12" /><path d="M6 6.5v11a.6.6 0 0 0 .92.5l7.58-5.5a.6.6 0 0 0 0-1L6.92 6a.6.6 0 0 0-.92.5Z" fill="currentColor" stroke="none" /></>,
   }
   return <svg viewBox="0 0 24 24" className="h-4 w-4" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">{paths[name]}</svg>
+}
+
+/** The renderer's colour inputs for a clip's wheels and curves (none when neutral). */
+function colourOf(color: ClipColor): Pick<ClipLayer, 'wheels' | 'curve'> {
+  const full = withColor(color)
+  return { wheels: wheelsAreNeutral(full) ? null : wheelUniforms(full), curve: curvesAreNeutral(full.curves) ? null : curveLut(full.curves) }
 }
 
 /** A clip's keyframes, as diamonds along the bottom of its block on the timeline. */
@@ -449,6 +457,17 @@ function VideoStudio({ projectId, onOpenProject, onNewProject }: { projectId: st
   const outputRef = useRef<HTMLCanvasElement | null>(null)
   const previewRef = useRef<HTMLDivElement | null>(null)
   const glCanvas = useRef<HTMLCanvasElement | null>(null)
+  const pageRef = useRef<StudioPage>('edit')
+  const [compareMode, setCompareMode] = useState<'off' | 'split' | 'before'>('off')
+  const compareRef = useRef(compareMode)
+  compareRef.current = compareMode
+  const [wipe, setWipe] = useState(0.5)
+  const wipeRef = useRef(wipe)
+  wipeRef.current = wipe
+  const [scopeSample, setScopeSample] = useState<ImageData | null>(null)
+  const scopeAt = useRef(0)
+  const scopeCanvas = useRef<HTMLCanvasElement | null>(null)
+  const [lookClipboard, setLookClipboard] = useState<{ grade: Grade; color: ClipColor } | null>(null)
   const renderer = useRef<VideoRenderer | null>(null)
   const elements = useRef(new Map<string, HTMLVideoElement | HTMLImageElement>())
   const musicElements = useRef(new Map<string, HTMLAudioElement>())
@@ -468,6 +487,7 @@ function VideoStudio({ projectId, onOpenProject, onNewProject }: { projectId: st
   const timeRef = useRef(time)
   timeRef.current = time
 
+  pageRef.current = page
   const { placed, total } = useMemo(() => layout(project.clips), [project.clips])
   const placedRef = useRef(placed)
   placedRef.current = placed
@@ -658,7 +678,7 @@ function VideoStudio({ projectId, onOpenProject, onNewProject }: { projectId: st
     const gl = renderer.current
     if (!output || !gl || !glCanvas.current) return
     const { a, b, progress } = activeAt(placedRef.current, t)
-    const layerOf = (item: Placed): ClipLayer | null => {
+    const layerOf = (item: Placed, before = false): ClipLayer | null => {
       const element = elementFor(item.clip)
       const info = mediaFor(item.clip)
       if (!element || !info) return null
@@ -669,12 +689,13 @@ function VideoStudio({ projectId, onOpenProject, onNewProject }: { projectId: st
         width: element instanceof HTMLVideoElement ? element.videoWidth : element.naturalWidth,
         height: element instanceof HTMLVideoElement ? element.videoHeight : element.naturalHeight,
         fit: item.clip.fit,
-        grade: item.clip.grade,
+        grade: before ? NEUTRAL_GRADE : item.clip.grade,
         effect: item.clip.effect,
         amount: item.clip.amount,
         time: t - item.start,
         transform: clipTransformAt(item, t),
         opacity: clipOpacity(item, t),
+        ...(before || !item.clip.color ? {} : colourOf(item.clip.color)),
       }
     }
     const la = a ? layerOf(a) : null
@@ -687,7 +708,33 @@ function VideoStudio({ projectId, onOpenProject, onNewProject }: { projectId: st
     }
     const context = output.getContext('2d')!
     context.drawImage(glCanvas.current, 0, 0, output.width, output.height)
+    // Color page: the picture before colour, all of it or on the left of a wipe.
+    const compare = compareRef.current
+    if (pageRef.current === 'color' && compare !== 'off' && !(a && !la)) {
+      gl.draw(a ? layerOf(a, true) : null, b ? layerOf(b, true) : null, a?.clip.transition.type ?? 'cut', progress)
+      const above = overlaysRef.current.filter(item => t >= item.start && t < item.end).sort((x, y) => (x.clip.track ?? 2) - (y.clip.track ?? 2))
+      for (const item of above) { const layer = layerOf(item, true); if (layer) gl.drawOverlay(layer) }
+      const split = compare === 'split' ? wipeRef.current : 1
+      const sw = glCanvas.current.width * split
+      if (sw > 0) context.drawImage(glCanvas.current, 0, 0, sw, glCanvas.current.height, 0, 0, output.width * split, output.height)
+      if (compare === 'split') {
+        context.fillStyle = 'rgba(255,255,255,0.9)'
+        context.fillRect(Math.round(output.width * split) - 1, 0, 2, output.height)
+      }
+    }
     for (const title of projectRef.current.titles) drawTitle(context, title, t, output.width, output.height)
+    // The scopes read a small copy of the frame, a few times a second.
+    if (pageRef.current === 'color') {
+      const now = performance.now()
+      if (now - scopeAt.current > 120) {
+        scopeAt.current = now
+        const scratch = scopeCanvas.current ?? (scopeCanvas.current = document.createElement('canvas'))
+        scratch.width = 192
+        scratch.height = Math.max(1, Math.round((192 * output.height) / output.width))
+        const small = scratch.getContext('2d', { willReadFrequently: true })
+        if (small) { small.drawImage(output, 0, 0, scratch.width, scratch.height); setScopeSample(small.getImageData(0, 0, scratch.width, scratch.height)) }
+      }
+    }
   }, [elementFor, mediaFor])
 
   /** Puts every element at the right moment for `t`, playing or still. */
@@ -780,7 +827,7 @@ function VideoStudio({ projectId, onOpenProject, onNewProject }: { projectId: st
     let cancelled = false
     void sync(time, false).then(() => { if (!cancelled) draw(time) })
     return () => { cancelled = true }
-  }, [draw, exporting, playing, project, sync, time, media])
+  }, [draw, exporting, playing, project, sync, time, media, page, compareMode, wipe])
 
   // Keep the playhead in view while playing.
   useEffect(() => {
@@ -1242,7 +1289,37 @@ function VideoStudio({ projectId, onOpenProject, onNewProject }: { projectId: st
     placeMedia(item, { track, at: time })
   }
 
+  /* ── Color page ── */
+  const setColor = (clip: Clip, patch: Partial<ClipColor>, key?: string) => updateClip(clip.id, current => ({ color: { ...withColor(current.color), ...patch } }), key ?? `color:${clip.id}:${Object.keys(patch).join(',')}`)
+  const allClips = [...placed, ...overlays].sort((x, y) => x.start - y.start || (x.clip.track ?? 1) - (y.clip.track ?? 1))
+  const isGraded = (clip: Clip) => Object.entries(clip.grade).some(([, value]) => Math.abs(value) > 0.001) || (clip.color ? !wheelsAreNeutral(withColor(clip.color)) || !curvesAreNeutral(withColor(clip.color).curves) : false)
+  /** Reads the clip's own picture at the playhead and sets exposure, white balance and contrast from it. */
+  const autoBalanceClip = (clip: Clip) => {
+    const element = elementFor(clip)
+    if (!element) return
+    const scratch = document.createElement('canvas')
+    scratch.width = 96; scratch.height = 54
+    const context = scratch.getContext('2d', { willReadFrequently: true })
+    try {
+      context?.drawImage(element, 0, 0, scratch.width, scratch.height)
+      const stats = pictureStats(context!.getImageData(0, 0, scratch.width, scratch.height).data)
+      updateClip(clip.id, current => ({ grade: { ...current.grade, ...autoBalance(stats) } }))
+      setNotice('Balanced exposure, white balance and contrast from this frame. Fine-tune with the sliders.')
+    } catch {
+      setNotice('This clip could not be read for balancing.')
+    }
+  }
+  const applyLookToAll = (look: { grade: Grade; color: ClipColor }) => change(current => ({
+    ...current,
+    clips: current.clips.map(clip => ({ ...clip, grade: { ...look.grade }, color: structuredClone(look.color) })),
+    overlays: (current.overlays ?? []).map(clip => ({ ...clip, grade: { ...look.grade }, color: structuredClone(look.color) })),
+  }))
+
   const goToPage = (next: StudioPage) => {
+    if (next === 'color' && selection?.kind !== 'clip') {
+      const target = mainAt(time) ?? placed[0]
+      if (target) setSelection({ kind: 'clip', id: target.clip.id })
+    }
     if (next === 'photo') {
       saveVideoProject(snapshotRef.current())
       let back = '/editor/new'
@@ -1334,7 +1411,9 @@ function VideoStudio({ projectId, onOpenProject, onNewProject }: { projectId: st
         if (next) { event.preventDefault(); goToPage(next) }
         return
       }
-      if (page !== 'edit' && page !== 'cut') return
+      if (page !== 'edit' && page !== 'cut' && page !== 'color') return
+      // The Color page only plays and moves the playhead.
+      if (page === 'color' && !['Space', 'ArrowLeft', 'ArrowRight', 'Home', 'End'].includes(event.code)) return
       const mod = event.metaKey || event.ctrlKey
       const key = event.key.toLowerCase()
       if (mod && key === 'z') { event.preventDefault(); if (event.shiftKey) redo(); else undo(); return }
@@ -1657,7 +1736,48 @@ function VideoStudio({ projectId, onOpenProject, onNewProject }: { projectId: st
           history={exportsDone}
         />
       ) : null}
-      <div className={`mac-workspace min-h-0 flex-1 ${page === 'edit' || page === 'cut' ? 'flex' : 'hidden'}`}>
+      <div className={`mac-workspace min-h-0 flex-1 ${page === 'edit' || page === 'cut' || page === 'color' ? 'flex' : 'hidden'}`}>
+        {page === 'color' ? (() => {
+          const clip = selectedClip && selection?.kind === 'clip' ? selectedClip : null
+          const info = clip ? mediaFor(clip) : null
+          return (
+            <aside className="mac-sidebar flex w-[280px] shrink-0 flex-col overflow-y-auto border-r border-white/[0.06] bg-[#111214]">
+              {clip ? (
+                <>
+                  <div className="flex items-center gap-2 border-b border-white/[0.06] px-3 py-3">
+                    {info?.thumbnail ? <img src={info.thumbnail} alt="" className="h-9 w-14 rounded bg-black object-contain" /> : null}
+                    <div className="min-w-0">
+                      <p className="truncate text-[12px] font-semibold">{info?.name ?? 'Clip'}</p>
+                      <p className="text-[10px] text-muted-foreground">{isGraded(clip) ? 'Graded' : 'Not graded yet'}{clip.track ? ` · V${clip.track}` : ''}</p>
+                    </div>
+                  </div>
+                  <Section title="Quick">
+                    <button type="button" onClick={() => autoBalanceClip(clip)} className="inline-flex h-9 w-full items-center justify-center gap-1.5 rounded-lg bg-primary text-[12px] font-semibold text-primary-foreground"><Wand2 className="h-4 w-4" /> Auto balance</button>
+                    <div className="grid grid-cols-2 gap-1">
+                      <button type="button" onClick={() => { setLookClipboard({ grade: { ...clip.grade }, color: structuredClone(withColor(clip.color)) }); setNotice('Look copied. Select another clip and paste it.') }} className="h-8 rounded-md bg-white/[0.05] text-[10px] font-semibold hover:bg-white/[0.1]">Copy look</button>
+                      <button type="button" disabled={!lookClipboard} onClick={() => lookClipboard && updateClip(clip.id, { grade: { ...lookClipboard.grade }, color: structuredClone(lookClipboard.color) })} className="h-8 rounded-md bg-white/[0.05] text-[10px] font-semibold hover:bg-white/[0.1] disabled:opacity-35">Paste look</button>
+                      <button type="button" disabled={allClips.length < 2} onClick={() => { applyLookToAll({ grade: { ...clip.grade }, color: withColor(clip.color) }); setNotice(`This look is now on all ${allClips.length} clips.`) }} className="col-span-2 h-8 rounded-md bg-white/[0.05] text-[10px] font-semibold hover:bg-white/[0.1] disabled:opacity-35">Use this look on every clip</button>
+                      <button type="button" onClick={() => updateClip(clip.id, { grade: { ...NEUTRAL_GRADE }, color: structuredClone(NEUTRAL_COLOR) })} className="col-span-2 h-8 rounded-md bg-white/[0.03] text-[10px] text-muted-foreground hover:bg-white/[0.08] hover:text-foreground">Reset all colour on this clip</button>
+                    </div>
+                  </Section>
+                  <Section title="Looks">
+                    <div className="grid grid-cols-2 gap-1">
+                      {GRADE_PRESETS.map(preset => <button key={preset.name} type="button" onClick={() => updateClip(clip.id, { grade: { ...NEUTRAL_GRADE, ...preset.grade } })} className="h-8 rounded-md bg-white/[0.05] px-1 text-[10px] font-medium hover:bg-white/[0.1]">{preset.name}</button>)}
+                    </div>
+                  </Section>
+                  <Section title="Adjust" action={<button type="button" onClick={() => updateClip(clip.id, { grade: { ...NEUTRAL_GRADE } })} className="text-[10px] text-muted-foreground hover:text-foreground">Reset</button>}>
+                    {GRADE_CONTROLS.map(control => (
+                      <Slider key={control.key} label={control.label} value={clip.grade[control.key]} min={control.min} max={control.max} step={control.step} onChange={value => updateClip(clip.id, current => ({ grade: { ...current.grade, [control.key]: value } }), `grade:${clip.id}:${control.key}`)} format={value => (control.key === 'hue' ? `${Math.round(value)}°` : `${Math.round(value * 100)}`)} />
+                    ))}
+                    <p className="text-[9px] text-muted-foreground">Double-click a slider to reset it.</p>
+                  </Section>
+                </>
+              ) : (
+                <p className="p-4 text-[12px] leading-5 text-muted-foreground">Add a clip on the Cut or Edit page, then grade it here.</p>
+              )}
+            </aside>
+          )
+        })() : null}
         {page === 'cut' ? (
           <aside className="mac-sidebar flex w-[300px] shrink-0 flex-col overflow-y-auto border-r border-white/[0.06] bg-[#111214] p-3">
             <div className="mb-2 flex items-center justify-between">
@@ -1698,7 +1818,7 @@ function VideoStudio({ projectId, onOpenProject, onNewProject }: { projectId: st
           </aside>
         ) : null}
         {/* Left: media, effects, transitions, titles */}
-        <aside className={`mac-sidebar w-[280px] shrink-0 flex-col border-r border-white/[0.06] bg-[#111214] ${page === 'cut' ? 'hidden' : 'flex'}`}>
+        <aside className={`mac-sidebar w-[280px] shrink-0 flex-col border-r border-white/[0.06] bg-[#111214] ${page === 'edit' ? 'flex' : 'hidden'}`}>
           <div role="tablist" className="grid grid-cols-5 gap-0.5 border-b border-white/[0.06] p-1">
             {tabs.map(item => (
               <button key={item.id} type="button" role="tab" aria-selected={tab === item.id} onClick={() => setTab(item.id)} className={`flex flex-col items-center gap-0.5 rounded-md py-1.5 text-[9px] font-medium ${tab === item.id ? 'bg-white/[0.08] text-foreground' : 'text-muted-foreground hover:text-foreground'}`}>
@@ -1942,7 +2062,25 @@ function VideoStudio({ projectId, onOpenProject, onNewProject }: { projectId: st
         </section>
 
         {/* Right: inspector */}
-        <aside className={`mac-sidebar w-[300px] shrink-0 overflow-y-auto border-l border-white/[0.06] bg-[#111214] ${page === 'cut' ? 'hidden' : ''}`}>
+        {page === 'color' ? (
+          <aside className="mac-sidebar flex w-[300px] shrink-0 flex-col gap-4 overflow-y-auto border-l border-white/[0.06] bg-[#111214] p-3">
+            <div>
+              <p className="mb-1.5 text-[10px] font-semibold uppercase tracking-[0.14em] text-muted-foreground">Before and after</p>
+              <div role="radiogroup" aria-label="Compare" className="grid grid-cols-3 gap-1">
+                {([['off', 'After'], ['split', 'Wipe'], ['before', 'Before']] as const).map(([id, label]) => (
+                  <button key={id} type="button" role="radio" aria-checked={compareMode === id} onClick={() => setCompareMode(id)} className={`h-8 rounded-md text-[11px] font-semibold ${compareMode === id ? 'bg-primary text-primary-foreground' : 'bg-white/[0.05] text-muted-foreground hover:text-foreground'}`}>{label}</button>
+                ))}
+              </div>
+              {compareMode === 'split' ? <div className="mt-2"><Slider label="Wipe at" value={wipe} min={0.05} max={0.95} step={0.01} reset={0.5} onChange={setWipe} format={value => `${Math.round(value * 100)}%`} /></div> : null}
+              <p className="mt-1.5 text-[9px] leading-4 text-muted-foreground">{compareMode === 'split' ? 'Left of the line is the original, right is your grade.' : compareMode === 'before' ? 'Showing the original, with no colour work.' : 'Showing your grade.'}</p>
+            </div>
+            <div>
+              <p className="mb-1.5 text-[10px] font-semibold uppercase tracking-[0.14em] text-muted-foreground">Scopes</p>
+              <Scopes sample={scopeSample} />
+            </div>
+          </aside>
+        ) : null}
+        <aside className={`mac-sidebar w-[300px] shrink-0 overflow-y-auto border-l border-white/[0.06] bg-[#111214] ${page === 'edit' ? '' : 'hidden'}`}>
           {selectedClip && selection?.kind === 'clip' ? (() => {
             const clip = selectedClip
             const info = mediaFor(clip)
@@ -2397,6 +2535,45 @@ function VideoStudio({ projectId, onOpenProject, onNewProject }: { projectId: st
           </div>
         </div>
       </div>
+      {page === 'color' ? (() => {
+        const clip = selectedClip && selection?.kind === 'clip' ? selectedClip : null
+        const color = withColor(clip?.color)
+        return (
+          <div className="mac-timeline flex h-[330px] shrink-0 flex-col border-t border-white/[0.06] bg-[#0f1012]">
+            <div className="flex h-[74px] shrink-0 items-center gap-2 overflow-x-auto border-b border-white/[0.06] px-3" role="listbox" aria-label="Clips to grade">
+              {allClips.map((item, index) => {
+                const thumb = mediaFor(item.clip)?.thumbnail
+                const active = clip?.id === item.clip.id
+                return (
+                  <button
+                    key={item.clip.id}
+                    type="button"
+                    role="option"
+                    aria-selected={active}
+                    onClick={() => { setSelection({ kind: 'clip', id: item.clip.id }); seek(Math.min(item.end - 0.05, item.start + item.length / 2)) }}
+                    title={`${mediaFor(item.clip)?.name ?? 'Clip'} · ${formatTime(item.start)}`}
+                    className={`relative shrink-0 overflow-hidden rounded-lg border-2 ${active ? 'border-primary' : 'border-transparent hover:border-white/25'}`}
+                  >
+                    {thumb ? <img src={thumb} alt="" className="h-[44px] w-[78px] bg-black object-cover" /> : <span className="block h-[44px] w-[78px] bg-white/[0.05]" />}
+                    <span className="absolute left-1 top-0.5 font-mono text-[8px] text-white/80 drop-shadow">{item.clip.track ? `V${item.clip.track}` : String(index + 1).padStart(2, '0')}</span>
+                    {isGraded(item.clip) ? <span className="absolute bottom-0.5 right-1 h-1.5 w-1.5 rounded-full bg-primary" title="Graded" /> : null}
+                  </button>
+                )
+              })}
+              {!allClips.length ? <p className="text-[11px] text-muted-foreground">No clips yet.</p> : null}
+            </div>
+            {clip ? (
+              <div className="flex min-h-0 flex-1 items-start justify-center gap-6 overflow-x-auto px-4 py-3">
+                <ColorWheel label="Shadows" hint="The dark parts of the picture" value={color.lift} onChange={(lift, key) => setColor(clip, { lift }, `${key}:${clip.id}`)} onReset={() => setColor(clip, { lift: { ...NEUTRAL_WHEEL } })} />
+                <ColorWheel label="Midtones" hint="Skin, sky and most of the picture" value={color.gamma} onChange={(gamma, key) => setColor(clip, { gamma }, `${key}:${clip.id}`)} onReset={() => setColor(clip, { gamma: { ...NEUTRAL_WHEEL } })} />
+                <ColorWheel label="Highlights" hint="The bright parts of the picture" value={color.gain} onChange={(gain, key) => setColor(clip, { gain }, `${key}:${clip.id}`)} onReset={() => setColor(clip, { gain: { ...NEUTRAL_WHEEL } })} />
+                <span className="mx-1 h-[220px] w-px shrink-0 bg-white/[0.06]" />
+                <CurvesEditor curves={color.curves} onChange={(curves, key) => setColor(clip, { curves }, `${key}:${clip.id}`)} />
+              </div>
+            ) : <p className="p-4 text-[12px] text-muted-foreground">Pick a clip above to grade it.</p>}
+          </div>
+        )
+      })() : null}
       <PageBar page={page} onChange={goToPage} />
     </main>
   )

@@ -104,6 +104,10 @@ export type ClipLayer = {
   transform?: ClipTransform
   /** 0..1; below 1 fades towards black (clip fade in and out). */
   opacity?: number
+  /** Colour wheels (added after the grade): shadows, midtones, highlights. */
+  wheels?: { lift: [number, number, number]; gamma: [number, number, number]; gain: [number, number, number] } | null
+  /** Curves as a 256-entry RGBA table, or null for none. */
+  curve?: Uint8Array | null
 }
 
 const VERTEX = `#version 300 es
@@ -134,6 +138,11 @@ uniform vec2 uFlip;     // 1 = flipped
 uniform int uBlurBg;
 uniform float uOpacity;
 uniform int uOverlay;   // 1 = an overlay track: outside the clip is see-through
+uniform vec3 uLift;     // colour wheels: shadows, midtones, highlights
+uniform vec3 uGamma;
+uniform vec3 uGain;
+uniform int uHasCurve;
+uniform sampler2D uCurve;  // 256 x 1: red, green and blue curves
 
 float hash(vec2 p) { return fract(sin(dot(p, vec2(127.1, 311.7))) * 43758.5453); }
 float luma(vec3 c) { return dot(c, vec3(0.2126, 0.7152, 0.0722)); }
@@ -300,6 +309,19 @@ vec3 look(vec3 c, vec2 uv, int fx, float amt, float t) {
   return c;
 }
 
+// Colour wheels, then curves.
+vec3 colour(vec3 c) {
+  c = max(c, vec3(0.0));
+  c = c + uLift * (1.0 - c);
+  c = c * (1.0 + uGain);
+  c = pow(max(c, vec3(0.0)), 1.0 / max(vec3(1.0) + uGamma, vec3(0.05)));
+  if (uHasCurve == 1) {
+    vec3 k = clamp(c, 0.0, 1.0) * (255.0 / 256.0) + 0.5 / 256.0;
+    c = vec3(texture(uCurve, vec2(k.r, 0.5)).r, texture(uCurve, vec2(k.g, 0.5)).g, texture(uCurve, vec2(k.b, 0.5)).b);
+  }
+  return c;
+}
+
 // A heavily blurred, dimmed copy of the clip filling the frame, from the
 // texture's small mip levels (cheap and smooth at any size).
 vec3 backdrop(vec2 uv) {
@@ -325,7 +347,7 @@ void main() {
   bool inside = s.x >= 0.0 && s.y >= 0.0 && s.x <= 1.0 && s.y <= 1.0;
   if (uOverlay == 1) {
     if (!inside) { outColor = vec4(0.0); return; }
-    vec3 o = look(grade(spatial(uTex, uFit, q, uFx, uAmt, uTime), uGrade, vUv), vUv, uFx, uAmt, uTime);
+    vec3 o = look(colour(grade(spatial(uTex, uFit, q, uFx, uAmt, uTime), uGrade, vUv)), vUv, uFx, uAmt, uTime);
     // Soften the edge by a pixel so a scaled-down overlay is not jagged.
     vec2 edge = min(s, 1.0 - s) / max(fwidth(s), vec2(1e-5));
     float a = clamp(min(edge.x, edge.y), 0.0, 1.0) * clamp(uOpacity, 0.0, 1.0);
@@ -333,7 +355,7 @@ void main() {
     return;
   }
   vec3 c = inside ? spatial(uTex, uFit, q, uFx, uAmt, uTime) : (uBlurBg == 1 ? backdrop(vUv) : vec3(0.0));
-  c = look(grade(c, uGrade, vUv), vUv, uFx, uAmt, uTime);
+  c = look(colour(grade(c, uGrade, vUv)), vUv, uFx, uAmt, uTime);
   outColor = vec4(clamp(c, 0.0, 1.0) * clamp(uOpacity, 0.0, 1.0), 1.0);
 }`
 
@@ -491,6 +513,7 @@ export class VideoRenderer {
   private mixProgram: WebGLProgram
   private overlayProgram: WebGLProgram
   private source: WebGLTexture
+  private curveTexture: WebGLTexture
   /** Finished clips A and B, each with its framebuffer. */
   private layers: Array<{ texture: WebGLTexture; framebuffer: WebGLFramebuffer }>
   private size = { width: 0, height: 0 }
@@ -515,8 +538,10 @@ export class VideoRenderer {
     gl.useProgram(this.mixProgram)
     gl.uniform1i(this.u(this.mixProgram, 'uA'), 1)
     gl.uniform1i(this.u(this.mixProgram, 'uB'), 2)
+    this.curveTexture = this.makeTexture()
     gl.useProgram(this.clipProgram)
     gl.uniform1i(this.u(this.clipProgram, 'uTex'), 0)
+    gl.uniform1i(this.u(this.clipProgram, 'uCurve'), 4)
   }
 
   private u(program: WebGLProgram, name: string) {
@@ -577,6 +602,17 @@ export class VideoRenderer {
     gl.uniform1i(this.u(program, 'uBlurBg'), layer.fit === 'blur' ? 1 : 0)
     gl.uniform1f(this.u(program, 'uOpacity'), layer.opacity ?? 1)
     gl.uniform1i(this.u(program, 'uOverlay'), overlay ? 1 : 0)
+    const wheels = layer.wheels
+    gl.uniform3fv(this.u(program, 'uLift'), wheels?.lift ?? [0, 0, 0])
+    gl.uniform3fv(this.u(program, 'uGamma'), wheels?.gamma ?? [0, 0, 0])
+    gl.uniform3fv(this.u(program, 'uGain'), wheels?.gain ?? [0, 0, 0])
+    gl.uniform1i(this.u(program, 'uHasCurve'), layer.curve ? 1 : 0)
+    if (layer.curve) {
+      gl.activeTexture(gl.TEXTURE4)
+      gl.bindTexture(gl.TEXTURE_2D, this.curveTexture)
+      gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA, 256, 1, 0, gl.RGBA, gl.UNSIGNED_BYTE, layer.curve)
+      gl.activeTexture(gl.TEXTURE0)
+    }
     gl.uniform1fv(this.u(program, 'uGrade'), GRADE_KEYS.map(key => layer.grade[key]))
     gl.uniform1i(this.u(program, 'uFx'), Math.max(0, EFFECTS.findIndex(effect => effect.id === layer.effect)))
     gl.uniform1f(this.u(program, 'uAmt'), layer.amount)

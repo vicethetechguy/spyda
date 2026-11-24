@@ -12,7 +12,7 @@ const PAGES: Array<{ id: StudioPage; label: string; icon: LucideIcon; key: strin
   { id: 'photo', label: 'Photo', icon: ImageIcon, key: '2', hint: 'Make stills and graphics in the canvas' },
   { id: 'cut', label: 'Cut', icon: Scissors, key: '3', hint: 'Rough cut, fast: add to end, insert, on top, trim to the playhead' },
   { id: 'edit', label: 'Edit', icon: Clapperboard, key: '4', hint: 'The timeline: clips, titles, music and effects' },
-  { id: 'color', label: 'Color', icon: Palette, key: '5', soon: 'Colour wheels, curves and scopes', hint: 'Make it look right' },
+  { id: 'color', label: 'Color', icon: Palette, key: '5', hint: 'Make it look right: wheels, curves, scopes, before and after' },
   { id: 'mixer', label: 'Mixer', icon: Sparkles, key: '6', soon: 'Layers on top of a clip: text, shapes, masks, green screen', hint: 'Effects and motion graphics' },
   { id: 'export', label: 'Export', icon: Download, key: '7', hint: 'Presets for every platform, then download' },
 ]
