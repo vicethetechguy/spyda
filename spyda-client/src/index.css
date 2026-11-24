@@ -948,3 +948,8 @@
   .mac-ui .mac-sidebar > * { background-color: transparent; }
   .mac-ui .mac-statusbar { background: transparent !important; border-top-color: transparent !important; }
 }
+
+/* Video transport: tool labels show only when the bar has room for them. */
+.video-transport { container-type: inline-size; }
+.video-transport .transport-label { display: none; }
+@container (min-width: 900px) { .video-transport .transport-label { display: inline; } }

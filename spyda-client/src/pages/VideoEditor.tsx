@@ -26,6 +26,20 @@ import { BUNDLED_FAMILIES, loadFontPreviews, previewFamily } from '../lib/fonts'
  */
 
 type Selection = { kind: 'clip' | 'title' | 'audio' | 'transition'; id: string } | null
+const transportButton = 'flex h-8 w-8 shrink-0 items-center justify-center rounded-md text-muted-foreground transition-colors hover:bg-white/[0.08] hover:text-foreground'
+const toolButton = 'inline-flex h-8 shrink-0 items-center justify-center gap-1.5 rounded-md px-2 text-[11px] font-medium leading-none transition-colors hover:bg-white/[0.08] disabled:opacity-40'
+
+/** Matching playback icons, drawn on the same grid so they line up. */
+function TransportGlyph({ name }: { name: 'start' | 'back' | 'forward' | 'end' }) {
+  const paths = {
+    start: <><path d="M6 6v12" /><path d="M18 6.5v11a.6.6 0 0 1-.92.5L9.5 12.5a.6.6 0 0 1 0-1l7.58-5.5a.6.6 0 0 1 .92.5Z" fill="currentColor" stroke="none" /></>,
+    back: <path d="M14.5 6.5 9 12l5.5 5.5" />,
+    forward: <path d="M9.5 6.5 15 12l-5.5 5.5" />,
+    end: <><path d="M18 6v12" /><path d="M6 6.5v11a.6.6 0 0 0 .92.5l7.58-5.5a.6.6 0 0 0 0-1L6.92 6a.6.6 0 0 0-.92.5Z" fill="currentColor" stroke="none" /></>,
+  }
+  return <svg viewBox="0 0 24 24" className="h-4 w-4" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">{paths[name]}</svg>
+}
+
 type LeftTab = 'media' | 'timeline' | 'effects' | 'transitions' | 'titles'
 type MediaFilter = 'all' | 'video' | 'image' | 'audio' | 'unused'
 type Format = (typeof FORMATS)[number]
@@ -1337,24 +1351,30 @@ export default function VideoEditor() {
             ) : null}
 
           </div>
-          <div className="flex h-11 shrink-0 items-center gap-1.5 border-t border-white/[0.06] bg-[#111214] px-3">
-            <button type="button" onClick={() => seek(0)} aria-label="Go to start" title="Go to start (Home)" className="h-8 w-8 rounded-md text-muted-foreground hover:bg-white/[0.08] hover:text-foreground">⏮</button>
-            <button type="button" onClick={() => seek(time - 1 / 30)} aria-label="Back one frame" title="Back one frame (←)" className="h-8 w-7 rounded-md text-muted-foreground hover:bg-white/[0.08] hover:text-foreground">‹</button>
-            <button type="button" onClick={() => (playing ? stop() : play())} disabled={!placed.length} aria-label={playing ? 'Pause' : 'Play'} className="flex h-9 w-9 items-center justify-center rounded-full bg-primary text-primary-foreground disabled:opacity-40">
-              {playing ? <Pause className="h-4 w-4" /> : <Play className="ml-0.5 h-4 w-4" />}
-            </button>
-            <button type="button" onClick={() => seek(time + 1 / 30)} aria-label="Forward one frame" title="Forward one frame (→)" className="h-8 w-7 rounded-md text-muted-foreground hover:bg-white/[0.08] hover:text-foreground">›</button>
-            <button type="button" onClick={() => seek(end)} aria-label="Go to end" title="Go to end (End)" className="h-8 w-8 rounded-md text-muted-foreground hover:bg-white/[0.08] hover:text-foreground">⏭</button>
-            <span className="ml-1 font-mono text-[11px]"><span className="text-foreground">{formatTime(time)}</span><span className="text-muted-foreground"> / {formatTime(end)}</span></span>
-            <span className="mx-1.5 h-5 w-px bg-white/10" />
-            <button type="button" onClick={split} disabled={!placed.length} title="Split at playhead (S)" className="inline-flex h-8 items-center gap-1.5 rounded-md px-2 text-[11px] font-medium hover:bg-white/[0.08] disabled:opacity-40"><ScissorsGlyph /> Split</button>
-            <button type="button" onClick={() => addTitle()} title="Add a title at the playhead" className="inline-flex h-8 items-center gap-1.5 rounded-md px-2 text-[11px] font-medium hover:bg-white/[0.08]"><Type className="h-3.5 w-3.5" /> Title</button>
-            <button type="button" onClick={() => fileRef.current?.click()} className="inline-flex h-8 items-center gap-1.5 rounded-md px-2 text-[11px] font-medium hover:bg-white/[0.08]"><Plus className="h-3.5 w-3.5" /> Media</button>
-            <button type="button" onClick={saveFrame} disabled={!placed.length} title="Save this frame as a PNG" className="hidden h-8 items-center gap-1.5 rounded-md px-2 text-[11px] font-medium hover:bg-white/[0.08] disabled:opacity-40 lg:inline-flex"><ImagePlus className="h-3.5 w-3.5" /> Save frame</button>
-            <button type="button" onClick={() => { void previewRef.current?.requestFullscreen?.() }} title="Full-screen preview" aria-label="Full-screen preview" className="hidden h-8 w-8 items-center justify-center rounded-md hover:bg-white/[0.08] lg:flex"><Maximize2 className="h-3.5 w-3.5" /></button>
-            <div className="ml-auto flex items-center gap-1.5 text-[10px] text-muted-foreground">
+          <div className="video-transport flex h-12 shrink-0 items-center gap-1 overflow-hidden whitespace-nowrap border-t border-white/[0.06] bg-[#111214] px-3">
+            {/* Playback: step buttons either side of a round play button, then the time. */}
+            <div className="flex shrink-0 items-center gap-0.5">
+              <button type="button" onClick={() => seek(0)} aria-label="Go to start" title="Go to start (Home)" className={transportButton}><TransportGlyph name="start" /></button>
+              <button type="button" onClick={() => seek(time - 1 / 30)} aria-label="Back one frame" title="Back one frame (←)" className={transportButton}><TransportGlyph name="back" /></button>
+              <button type="button" onClick={() => (playing ? stop() : play())} disabled={!placed.length} aria-label={playing ? 'Pause' : 'Play'} title={playing ? 'Pause (Space)' : 'Play (Space)'} className="mx-1 flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-primary text-primary-foreground shadow-[0_0_14px_rgba(157,250,176,0.3)] transition-transform active:scale-95 disabled:opacity-40 disabled:shadow-none">
+                {playing ? <Pause className="h-4 w-4" /> : <Play className="h-4 w-4 translate-x-[1px]" />}
+              </button>
+              <button type="button" onClick={() => seek(time + 1 / 30)} aria-label="Forward one frame" title="Forward one frame (→)" className={transportButton}><TransportGlyph name="forward" /></button>
+              <button type="button" onClick={() => seek(end)} aria-label="Go to end" title="Go to end (End)" className={transportButton}><TransportGlyph name="end" /></button>
+            </div>
+            <span className="ml-1.5 shrink-0 rounded-md bg-black/30 px-2 py-1 font-mono text-[11px] tabular-nums leading-none"><span className="text-foreground">{formatTime(time)}</span><span className="text-muted-foreground"> / {formatTime(end)}</span></span>
+            <span className="mx-1.5 h-5 w-px shrink-0 bg-white/10" />
+            {/* Editing: icon and label on one line; labels show when there is room. */}
+            <div className="flex min-w-0 shrink-0 items-center gap-0.5">
+              <button type="button" onClick={split} disabled={!placed.length} title="Split at playhead (S)" aria-label="Split at playhead" className={toolButton}><ScissorsGlyph /><span className="transport-label">Split</span></button>
+              <button type="button" onClick={() => addTitle()} title="Add a title at the playhead" aria-label="Add a title" className={toolButton}><Type className="h-3.5 w-3.5 shrink-0" /><span className="transport-label">Title</span></button>
+              <button type="button" onClick={() => fileRef.current?.click()} title="Import media" aria-label="Import media" className={toolButton}><Plus className="h-3.5 w-3.5 shrink-0" /><span className="transport-label">Media</span></button>
+              <button type="button" onClick={saveFrame} disabled={!placed.length} title="Save this frame as a PNG" aria-label="Save this frame as a PNG" className={`${toolButton} hidden lg:inline-flex`}><ImagePlus className="h-3.5 w-3.5 shrink-0" /><span className="transport-label">Save frame</span></button>
+              <button type="button" onClick={() => { void previewRef.current?.requestFullscreen?.() }} title="Full-screen preview" aria-label="Full-screen preview" className={`${transportButton} hidden lg:flex`}><Maximize2 className="h-3.5 w-3.5" /></button>
+            </div>
+            <div className="ml-auto flex shrink-0 items-center gap-1 text-[10px] text-muted-foreground">
               <button type="button" onClick={() => zoomBy(1 / 1.4)} aria-label="Zoom timeline out" title="Zoom out (−)" className="h-7 w-7 rounded-md text-[13px] hover:bg-white/[0.08] hover:text-foreground">−</button>
-              <input type="range" min={Math.log(MIN_ZOOM)} max={Math.log(MAX_ZOOM)} step={0.01} value={Math.log(zoom)} onChange={event => setZoomState({ fit: false, value: Math.exp(Number(event.target.value)) })} className="w-24 accent-[#9dfab0]" aria-label="Timeline zoom" title="Shift or Ctrl + mouse wheel also zooms" />
+              <input type="range" min={Math.log(MIN_ZOOM)} max={Math.log(MAX_ZOOM)} step={0.01} value={Math.log(zoom)} onChange={event => setZoomState({ fit: false, value: Math.exp(Number(event.target.value)) })} className="w-16 accent-[#9dfab0] xl:w-24" aria-label="Timeline zoom" title="Shift or Ctrl + mouse wheel also zooms" />
               <button type="button" onClick={() => zoomBy(1.4)} aria-label="Zoom timeline in" title="Zoom in (+)" className="h-7 w-7 rounded-md text-[13px] hover:bg-white/[0.08] hover:text-foreground">+</button>
               <button type="button" onClick={() => setZoomState(current => ({ ...current, fit: true }))} title="Fit the whole edit (\)" className={`h-7 rounded-md px-2 text-[10px] font-semibold ${zoomState.fit ? 'bg-primary/15 text-primary' : 'hover:bg-white/[0.08] hover:text-foreground'}`}>Fit</button>
             </div>
